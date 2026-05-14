@@ -1,37 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kvGet, kvSet, SYNC_KEYS } from '@/lib/kv';
 
 export const dynamic = 'force-dynamic';
 
-// GET — read all shared data
+const KV_URL = process.env.KV_REST_API_URL || '';
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || '';
+
+async function kvCmd<T>(cmd: string, key: string, value?: unknown): Promise<T | null> {
+  if (!KV_URL || !KV_TOKEN) return null;
+  try {
+    let url = `${KV_URL}/${cmd}/${encodeURIComponent(key)}`;
+    const opts: RequestInit = {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+    };
+    if (value !== undefined) {
+      opts.method = 'POST';
+      opts.headers = { ...opts.headers, 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify(value);
+    }
+    const res = await fetch(url, opts);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.result as T;
+  } catch { return null; }
+}
+
 export async function GET() {
   try {
     const [jds, candidates, version] = await Promise.all([
-      kvGet(SYNC_KEYS.jds),
-      kvGet(SYNC_KEYS.candidates),
-      kvGet(SYNC_KEYS.version),
+      kvCmd('get', 'recruit:jds'),
+      kvCmd('get', 'recruit:candidates'),
+      kvCmd('get', 'recruit:version'),
     ]);
-    return NextResponse.json({ jds: jds || [], candidates: candidates || [], version: version || 0 });
+    return NextResponse.json({
+      jds: jds || [],
+      candidates: candidates || [],
+      version: version || 0,
+      kvOk: !!(KV_URL && KV_TOKEN),
+    });
   } catch {
-    return NextResponse.json({ jds: [], candidates: [], version: 0 }, { status: 500 });
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
 
-// POST — write data (type: 'jds' | 'candidates')
 export async function POST(req: NextRequest) {
   try {
     const { type, data } = await req.json();
     if (!type || !data) return NextResponse.json({ error: 'Missing type or data' }, { status: 400 });
 
-    const key = type === 'jds' ? SYNC_KEYS.jds : SYNC_KEYS.candidates;
-    const ok = await kvSet(key, data);
-    if (!ok) return NextResponse.json({ error: 'Write failed' }, { status: 500 });
+    const key = type === 'jds' ? 'recruit:jds' : 'recruit:candidates';
+    const ok = await kvCmd('set', key, data);
+    if (!ok) return NextResponse.json({ error: 'KV write failed', kvOk: !!(KV_URL && KV_TOKEN) }, { status: 500 });
 
-    // Increment version for real-time detection
-    const version = ((await kvGet<number>(SYNC_KEYS.version)) || 0) + 1;
-    await kvSet(SYNC_KEYS.version, version);
+    const v = ((await kvCmd<number>('get', 'recruit:version')) || 0) + 1;
+    await kvCmd('set', 'recruit:version', v);
 
-    return NextResponse.json({ ok: true, version });
+    return NextResponse.json({ ok: true, version: v });
   } catch {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
