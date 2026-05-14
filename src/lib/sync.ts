@@ -1,60 +1,82 @@
-// Multi-user data sync via polling to shared KV backend
+// Multi-user data sync — version-based, debounced, conflict-free
+
+type DataType = 'jds' | 'candidates';
+type ChangeHandler = (type: DataType, data: unknown, version: number) => void;
 
 let remoteVersion = 0;
-let polling = false;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+let onChange: ChangeHandler | null = null;
+let timer: ReturnType<typeof setInterval> | null = null;
+let pushTimers: Partial<Record<DataType, ReturnType<typeof setTimeout>>> = {};
 
-async function fetchRemote() {
+async function apiGet() {
   try {
-    const res = await fetch('/api/data');
-    if (!res.ok) return null;
-    return await res.json();
+    const r = await fetch('/api/data');
+    return r.ok ? await r.json() : null;
   } catch { return null; }
 }
 
-async function pushData(type: 'jds' | 'candidates', data: unknown) {
+async function apiPost(type: DataType, data: unknown) {
   try {
-    await fetch('/api/data', {
+    const r = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type, data }),
     });
-  } catch { /* offline — will sync on next push */ }
+    if (r.ok) {
+      const j = await r.json();
+      return j.version as number;
+    }
+  } catch { /* offline */ }
+  return null;
 }
 
-// Start polling for remote changes
-export function startSync(onRemoteChange: (type: 'jds' | 'candidates', data: unknown) => void) {
-  if (polling) return;
-  polling = true;
+// Check remote and apply if newer
+async function poll() {
+  const remote = await apiGet();
+  if (!remote) return;
+  if (remote.version > remoteVersion) {
+    remoteVersion = remote.version;
+    if (onChange) {
+      if (remote.jds) onChange('jds', remote.jds, remote.version);
+      if (remote.candidates) onChange('candidates', remote.candidates, remote.version);
+    }
+  }
+}
+
+// Debounced push — waits for 1s of inactivity
+function schedulePush(type: DataType, getData: () => unknown) {
+  if (pushTimers[type]) clearTimeout(pushTimers[type]);
+  pushTimers[type] = setTimeout(async () => {
+    const v = await apiPost(type, getData());
+    if (v != null) remoteVersion = v;
+  }, 1000);
+}
+
+export function startSync(handler: ChangeHandler) {
+  onChange = handler;
 
   // Initial fetch
-  fetchRemote().then((remote) => {
-    if (remote) {
-      remoteVersion = remote.version || 0;
-      if (remote.jds?.length) onRemoteChange('jds', remote.jds);
-      if (remote.candidates?.length) onRemoteChange('candidates', remote.candidates);
+  apiGet().then((remote) => {
+    if (!remote) return;
+    remoteVersion = remote.version;
+    if (onChange) {
+      if (remote.jds?.length) onChange('jds', remote.jds, remote.version);
+      if (remote.candidates?.length) onChange('candidates', remote.candidates, remote.version);
     }
   });
 
-  // Poll every 5 seconds
-  pollTimer = setInterval(async () => {
-    const remote = await fetchRemote();
-    if (remote && remote.version > remoteVersion) {
-      remoteVersion = remote.version;
-      if (remote.jds?.length) onRemoteChange('jds', remote.jds);
-      if (remote.candidates?.length) onRemoteChange('candidates', remote.candidates);
-    }
-  }, 5000);
+  // Poll every 10s
+  timer = setInterval(poll, 10000);
 }
 
 export function stopSync() {
-  polling = false;
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  onChange = null;
+  if (timer) { clearInterval(timer); timer = null; }
+  Object.values(pushTimers).forEach(clearTimeout);
+  pushTimers = {};
 }
 
-// Called after any local change
-let pushQueue: Promise<void> = Promise.resolve();
-export async function syncPush(type: 'jds' | 'candidates', data: unknown) {
-  pushQueue = pushQueue.then(() => pushData(type, data));
-  return pushQueue;
+// Call after every local change — debounced
+export function syncPush(type: DataType, data: unknown) {
+  schedulePush(type, () => data);
 }

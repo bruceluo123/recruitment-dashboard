@@ -9,35 +9,26 @@ import type { Candidate } from '@/types/interview';
 export function SyncProvider({ children }: { children: React.ReactNode }) {
   const jds = useJDStore((s) => s.jds);
   const candidates = useInterviewStore((s) => s.candidates);
-  const isRemoteUpdate = useRef(false);
-  const hasInitialSync = useRef(false);
+  const skipPush = useRef(true); // skip initial push on mount
 
   useEffect(() => {
     startSync((type, data) => {
-      isRemoteUpdate.current = true;
-      if (type === 'jds') {
-        useJDStore.setState({ jds: data as JD[] });
-      } else if (type === 'candidates') {
-        useInterviewStore.setState({ candidates: data as Candidate[] });
-      }
-      if (!hasInitialSync.current && (data as unknown[]).length > 0) {
-        hasInitialSync.current = true;
-      }
-      setTimeout(() => { isRemoteUpdate.current = false; }, 100);
+      skipPush.current = true;
+      if (type === 'jds') useJDStore.setState({ jds: data as JD[] });
+      if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
+      setTimeout(() => { skipPush.current = false; }, 2000);
     });
   }, []);
 
-  // Only push LOCAL changes (not remote updates)
+  // Push local changes (debounced 1s in sync.ts, skipped for remote updates)
   useEffect(() => {
-    if (!isRemoteUpdate.current) {
-      syncPush('jds', jds);
-    }
+    if (!skipPush.current) syncPush('jds', jds);
+    skipPush.current = false;
   }, [jds]);
 
   useEffect(() => {
-    if (!isRemoteUpdate.current) {
-      syncPush('candidates', candidates);
-    }
+    if (!skipPush.current) syncPush('candidates', candidates);
+    skipPush.current = false;
   }, [candidates]);
 
   return <>{children}</>;
