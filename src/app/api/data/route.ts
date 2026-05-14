@@ -8,7 +8,7 @@ const KV_TOKEN = process.env.KV_REST_API_TOKEN || '';
 async function kvCmd<T>(cmd: string, key: string, value?: unknown): Promise<T | null> {
   if (!KV_URL || !KV_TOKEN) return null;
   try {
-    let url = `${KV_URL}/${cmd}/${encodeURIComponent(key)}`;
+    const url = `${KV_URL}/${cmd}/${encodeURIComponent(key)}`;
     const opts: RequestInit = {
       headers: { Authorization: `Bearer ${KV_TOKEN}` },
     };
