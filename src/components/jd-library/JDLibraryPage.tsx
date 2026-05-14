@@ -140,8 +140,8 @@ export function JDLibraryPage() {
 const CAT_MAP: [JDCategory, RegExp][] = [
   ['seo', /seo|搜索引擎|关键词/i], ['advertising', /广告|信息流|投放|sem|feed|千川/i],
   ['gaming', /游戏|unity|unreal|ue[45]|cocos/i], ['ai', /人工智能|大模型|llm|gpt|prompt/i],
-  ['algorithm', /算法|推荐|nlp|机器学习|深度学习|计算机视觉/i], ['frontend', /前端|web|react|vue|h5|小程序/i],
-  ['backend', /后端|java|go|golang|php|ruby|服务端/i], ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
+  ['algorithm', /算法|推荐|nlp|机器学习|深度学习|计算机视觉/i], ['frontend', /前端|web|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端/i],
+  ['backend', /后端|java|go|golang|php|ruby|服务端|python|c\+\+|c#|开发/i], ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
   ['testing', /测试|qa|质量/i], ['product-design', /ui|ux|设计|视觉|插画|动效|产品设计/i],
   ['finance', /财务|会计|出纳|审计|税务/i], ['hr', /hr|人力|招聘|薪酬|培训|员工关系/i],
   ['bd', /商务|bd|拓展|渠道|合作|销售/i], ['customer-service', /客服|客户服务|售后/i],

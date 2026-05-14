@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Resume } from '@/types/resume';
+import type { JDCategory } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { generateId } from '@/lib/utils';
 import { matchResumeToJDs } from '@/lib/deepseek';
@@ -16,7 +17,7 @@ interface ResumeStore {
 
   uploadResume: (file: File) => Promise<string>;
   setActiveResume: (id: string | null) => void;
-  matchWithJDs: (resumeId: string) => Promise<void>;
+  matchWithJDs: (resumeId: string, category?: JDCategory | 'all') => Promise<void>;
   cancelMatching: () => void;
   clearMatches: () => void;
   removeResume: (id: string) => void;
@@ -65,7 +66,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
 
   setActiveResume: (id) => set({ activeResumeId: id }),
 
-  matchWithJDs: async (resumeId: string) => {
+  matchWithJDs: async (resumeId: string, category: JDCategory | 'all' = 'all') => {
     const ac = new AbortController();
     set({ isMatching: true, matchingResults: [], matchError: null, abortController: ac });
 
@@ -74,7 +75,10 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       if (!resume) { set({ isMatching: false }); return; }
 
       const { jds } = useJDStore.getState();
-      const activeJds = jds.filter((j) => j.isActive);
+      let activeJds = jds.filter((j) => j.isActive);
+      if (category !== 'all') {
+        activeJds = activeJds.filter((j) => j.category === category);
+      }
       if (activeJds.length === 0) {
         set({ isMatching: false, matchError: '没有活跃的 JD 可匹配' });
         return;

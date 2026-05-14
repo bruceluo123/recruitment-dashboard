@@ -202,8 +202,8 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['gaming', /游戏|unity|unreal|ue[45]|cocos/i],
   ['ai', /人工智能|大模型|llm|gpt|prompt| ai /i],
   ['algorithm', /算法|推荐|nlp|机器学习|深度学习|计算机视觉/i],
-  ['frontend', /前端|web|react|vue|h5|小程序/i],
-  ['backend', /后端|java|go|golang|php|ruby|服务端/i],
+  ['frontend', /前端|web|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端/i],
+  ['backend', /后端|java|go|golang|php|ruby|服务端|python|c\+\+|c#|\.net/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
   ['testing', /测试|qa|质量/i],
   ['product-design', /ui|ux|设计|视觉|插画|动效|产品设计/i],
@@ -220,6 +220,11 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
 function detectCategory(text: string): JDCategory {
   const t = text.toLowerCase();
   for (const [cat, re] of CATEGORY_KEYWORDS) { if (re.test(t)) return cat; }
+  // Broad fallbacks before defaulting
+  if (/开发|程序|码农|软件/i.test(t)) return 'backend';
+  if (/设计|画|创作|创意/i.test(t)) return 'product-design';
+  if (/市场|营销|品牌|推广/i.test(t)) return 'advertising';
+  if (/管理|经理|主管|负责/i.test(t)) return 'administration';
   return 'operations';
 }
 
