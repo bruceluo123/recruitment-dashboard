@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kvGet, kvSet, SYNC_KEYS } from '@/lib/kv';
 
+export const dynamic = 'force-dynamic';
+
 // GET — read all shared data
 export async function GET() {
   try {
