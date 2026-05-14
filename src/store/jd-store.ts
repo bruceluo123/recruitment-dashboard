@@ -63,18 +63,22 @@ export const useJDStore = create<JDStore>()(
           const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: '' });
           if (!rows?.length) { set({ isImporting: false }); return { success: 0, failed: 0, errors: ['没有数据'] }; }
 
-          // Analyze all headers to find the title column
+          // Analyze headers: find title, salary, department, location columns
           const headers = Object.keys(rows[0]);
           const titleCol = findTitleColumn(headers, rows);
+          const salaryCol = findColumnByKeywords(headers, SALARY_KEYS);
+          const deptCol = findColumnByKeywords(headers, DEPT_KEYS);
+          const locCol = findColumnByKeywords(headers, LOC_KEYS);
+
+          // Content columns = everything not matched to a known field
+          const knownCols = new Set([titleCol, salaryCol, deptCol, locCol].filter(Boolean));
+          const contentCols = headers.filter((h) => !knownCols.has(h));
 
           const total = rows.length;
           set({ importProgress: { current: 0, total, percent: 0, status: 'parsing' } });
 
           const batch: JD[] = [];
           const result: JDImportResult = { success: 0, failed: 0, errors: [] };
-
-          // All columns except title are "content columns"
-          const contentCols = headers.filter((h) => h !== titleCol);
 
           const CHUNK = 10;
           for (let i = 0; i < total; i += CHUNK) {
@@ -87,31 +91,33 @@ export const useJDStore = create<JDStore>()(
                 const title = String(row[titleCol] || '').trim();
                 if (!title) { result.failed++; continue; }
 
-                // Collect ALL content from ALL other columns
+                const salaryStr = salaryCol ? String(row[salaryCol] || '').trim() : '';
+                const department = deptCol ? String(row[deptCol] || '').trim() : '';
+                const location = locCol ? String(row[locCol] || '').trim() : 'remote';
+
+                // Collect content from unlabeled columns
                 const allText: string[] = [];
                 for (const col of contentCols) {
                   const v = String(row[col] || '').trim();
                   if (v && v.length > 2) allText.push(v);
                 }
 
-                // Split long text blocks into lines
                 const lines = allText
                   .flatMap((s) => s.split(/[；;。\n\r]+/))
                   .map((s) => s.replace(/^[\d]+[.、.\s]*/, '').trim())
                   .filter((s) => s.length > 1);
 
-                // First half of lines → responsibilities, second half → requirements
                 const mid = Math.ceil(lines.length / 2);
 
                 batch.push({
                   id: generateId(),
                   title,
-                  department: '',
-                  category: detectCategory(title),
+                  department,
+                  category: detectCategory(title + ' ' + department),
                   responsibilities: lines.slice(0, mid),
                   requirements: lines.slice(mid),
-                  salaryRange: { min: 0, max: 0, currency: 'K' },
-                  location: 'remote',
+                  salaryRange: parseSalary(salaryStr),
+                  location: location || 'remote',
                   isActive: true,
                   createdAt: new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
@@ -137,19 +143,33 @@ export const useJDStore = create<JDStore>()(
   ),
 );
 
-// ─── Smart title column detection ───
+// ─── Column keyword lists ───
 
-function findTitleColumn(headers: string[], rows: Record<string, string>[]): string {
-  // 1. Exact header match
-  const TITLE_WORDS = ['岗位名称', '职位名称', '职位', '岗位', '职务', 'title', 'position', '名称', '角色'];
+const SALARY_KEYS = ['薪酬', '薪资', '工资', '待遇', '月薪', '年薪', '薪酬与福利', '薪酬福利', '薪资待遇', '薪酬范围', '薪资范围', '薪资水平', '工资待遇', '薪水', '报酬', 'salary', 'compensation'];
+const DEPT_KEYS = ['部门', '所属部门', '用人部门', '工作部门', '事业部', '团队', '组织', 'department', 'dept', '所在部门', '归属部门', '职能部门'];
+const LOC_KEYS = ['地点', '工作地点', '城市', '工作城市', '办公地点', '所在地', '工作地址', '地址', 'location', 'city', 'base'];
+
+// ─── Column detection helpers ───
+
+function findColumnByKeywords(headers: string[], keywords: string[]): string | null {
   for (const h of headers) {
     const hLower = h.toLowerCase().replace(/\s+/g, '');
-    for (const w of TITLE_WORDS) {
-      if (hLower === w || hLower.includes(w)) return h;
+    for (const kw of keywords) {
+      if (hLower === kw.toLowerCase().replace(/\s+/g, '') || hLower.includes(kw.toLowerCase().replace(/\s+/g, ''))) {
+        return h;
+      }
     }
   }
+  return null;
+}
 
-  // 2. Score each column: ideal title = short values, high uniqueness, non-numeric
+function findTitleColumn(headers: string[], rows: Record<string, string>[]): string {
+  // First try keyword match
+  const TITLE_WORDS = ['岗位名称', '职位名称', '职位', '岗位', '职务', '招聘岗位', 'title', 'position', '名称', '角色', '岗位名'];
+  const kwMatch = findColumnByKeywords(headers, TITLE_WORDS);
+  if (kwMatch) return kwMatch;
+
+  // Fallback: Score each column: ideal title = short values, high uniqueness, non-numeric
   let bestCol = headers[0];
   let bestScore = -1;
 
@@ -201,6 +221,35 @@ function detectCategory(text: string): JDCategory {
   const t = text.toLowerCase();
   for (const [cat, re] of CATEGORY_KEYWORDS) { if (re.test(t)) return cat; }
   return 'operations';
+}
+
+function parseSalary(s: string): { min: number; max: number; currency: string } {
+  if (!s) return { min: 0, max: 0, currency: 'K' };
+  try {
+    const cleaned = String(s).replace(/[,，\s]/g, '');
+    // Try various formats: "15K-25K", "15k-25k", "15000-25000", "1.5万-2.5万"
+    let match = cleaned.match(/(\d+\.?\d*)\s*[-~至到]\s*(\d+\.?\d*)\s*([kKw万])?/i);
+    if (match) {
+      let mult = 1;
+      if (match[3]?.toLowerCase() === '万') mult = 10;
+      else if (match[3]?.toLowerCase() === 'k') mult = 1;
+      // If no K/W suffix and values > 100, treat as raw numbers (e.g. "15000")
+      else if (!match[3] && parseInt(match[1]) > 100) mult = 0.001; // convert to K
+      const min = Math.min(parseFloat(match[1]) * mult, 999);
+      const max = Math.min(parseFloat(match[2]) * mult, 999);
+      return { min: Math.max(0, Math.round(min)), max: Math.max(Math.round(min), Math.round(max)), currency: 'K' };
+    }
+    // Single number: "15K" or "15000"
+    match = cleaned.match(/^(\d+\.?\d*)\s*([kKw万])?$/i);
+    if (match) {
+      let mult = 1;
+      if (match[2]?.toLowerCase() === '万') mult = 10;
+      else if (!match[2] && parseInt(match[1]) > 100) mult = 0.001;
+      const val = Math.round(parseFloat(match[1]) * mult);
+      return { min: val, max: val, currency: 'K' };
+    }
+  } catch { /* */ }
+  return { min: 0, max: 0, currency: 'K' };
 }
 
 // ─── Selectors ───

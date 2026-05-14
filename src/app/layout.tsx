@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopNav } from '@/components/layout/TopNav';
+import { SyncProvider } from '@/components/layout/SyncProvider';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -15,11 +16,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN">
       <body className={`${inter.className} bg-gray-50 text-gray-900 antialiased`}>
-        <Sidebar />
-        <div className="pl-[64px] lg:pl-[240px]">
-          <TopNav />
-          <main className="p-6 min-h-[calc(100vh-4rem)]">{children}</main>
-        </div>
+        <SyncProvider>
+          <Sidebar />
+          <div className="pl-[64px] lg:pl-[240px]">
+            <TopNav />
+            <main className="p-6 min-h-[calc(100vh-4rem)]">{children}</main>
+          </div>
+        </SyncProvider>
       </body>
     </html>
   );

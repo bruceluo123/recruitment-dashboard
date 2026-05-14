@@ -5,3 +5,6 @@ out/
 .env.local
 *.tar.gz
 logs/
+
+.vercel
+.env*.local
