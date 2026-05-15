@@ -17,6 +17,13 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+export function formatDateTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
 export function formatSalary(range: { min: number; max: number; currency: string }): string {
   if (range.currency === 'K') {
     return `${range.min}K-${range.max}K`;
