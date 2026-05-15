@@ -15,6 +15,8 @@ export interface Candidate {
   notes?: string;
   contactEmail?: string;
   contactPhone?: string;
+  salary?: string;
+  onboardDate?: string;
   appliedAt: string;
   updatedAt: string;
 }

@@ -19,6 +19,9 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
       </div>
       <p className="text-xs text-gray-400 mb-3 truncate">{candidate.jdTitle}</p>
       <div className="space-y-1.5">
+        {candidate.salary && (
+          <p className="text-xs text-green-600 font-medium">{candidate.salary}</p>
+        )}
         {candidate.interviewDate && (
           <div className="flex items-center gap-1.5 text-xs text-gray-500"><div className={cn('w-1.5 h-1.5 rounded-full', dotColor)} />{formatDateTime(candidate.interviewDate)}</div>
         )}
