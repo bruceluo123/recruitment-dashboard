@@ -1,11 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { StageKanbanBoard } from './StageKanbanBoard';
 import { useInterviewStore } from '@/store/interview-store';
 import type { CandidateStatus } from '@/types/interview';
-import { CalendarDays, ListFilter, X, Bell, Check, Pencil } from 'lucide-react';
+import { ListFilter, X, Bell, Check, Pencil } from 'lucide-react';
 
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
@@ -117,11 +116,7 @@ export function InterviewCalendarPage() {
         <span className="text-xs text-gray-400 flex items-center gap-1"><ListFilter className="w-3.5 h-3.5" />拖拽卡片切换阶段</span>
       </div>
 
-      {candidates.length > 0 ? (
-        <StageKanbanBoard candidates={candidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
-      ) : (
-        <GlassPanel><EmptyState icon={CalendarDays} title="暂无候选人数据" description="点击添加按钮手动添加候选人" /></GlassPanel>
-      )}
+      <StageKanbanBoard candidates={candidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
 
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
