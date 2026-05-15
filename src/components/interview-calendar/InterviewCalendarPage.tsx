@@ -175,6 +175,7 @@ export function InterviewCalendarPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Stat label="岗位" value={selected.jdTitle} />
               <Stat label="薪资" value={selected.salary || '-'} />
+              <Stat label="分数" value={`${selected.score} 分`} />
               <Stat label="面试时间" value={selected.interviewDate ? new Date(selected.interviewDate).toLocaleString('zh-CN') : '未安排'} />
               <Stat label="面试官" value={selected.interviewer || '待定'} />
               <Stat label="投递时间" value={new Date(selected.appliedAt).toLocaleDateString('zh-CN')} />
