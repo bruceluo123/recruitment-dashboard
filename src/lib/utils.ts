@@ -24,9 +24,9 @@ export function formatDateTime(dateStr: string): string {
   });
 }
 
-export function formatSalary(range: { min: number; max: number; currency: string }): string {
-  if (range.currency === 'K') {
-    return `${range.min}K-${range.max}K`;
-  }
-  return `${range.currency}${range.min}-${range.max}`;
+export function formatSalary(range: { min: number; max: number; currency: string }, text?: string): string {
+  if (text && !range.min && !range.max) return text;
+  if (!range.min && !range.max) return '-';
+  if (text) return text;
+  return `${range.min}K-${range.max}K`;
 }

@@ -26,7 +26,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       title: jd.title,
       department: jd.department,
       location: jd.location || 'remote',
-      salary: jd.salaryRange.min ? `${jd.salaryRange.min}K-${jd.salaryRange.max}K` : '',
+      salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min}K-${jd.salaryRange.max}K` : ''),
       category: jd.category,
       responsibilities: jd.responsibilities.join('；'),
       requirements: jd.requirements.join('；'),
@@ -36,7 +36,26 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
 
   const saveEdit = () => {
     if (!form.title.trim()) return;
-    const match = form.salary.replace(/[,，]/g, '').match(/(\d+)\s*[-~至到]\s*(\d+)/);
+    const salaryText = form.salary.trim();
+    // Try to parse structured range (15K-25K, 3000-5000U, 15-20k 等)
+    const cleaned = salaryText.replace(/[,，\s]/g, '');
+    const rangeMatch = cleaned.match(/^(\d+\.?\d*)\s*[-~至到]\s*(\d+\.?\d*)\s*([a-zA-Z一-龥]*)$/);
+    let salaryRange = jd.salaryRange;
+    if (rangeMatch) {
+      const unit = rangeMatch[3].toUpperCase() || 'K';
+      if (unit === 'U' || unit === 'USD') {
+        salaryRange = { min: parseFloat(rangeMatch[1]), max: parseFloat(rangeMatch[2]), currency: 'U' };
+      } else {
+        // If raw numbers > 100, treat as actual salary (e.g. 3000-5000)
+        const rawMin = parseFloat(rangeMatch[1]);
+        const rawMax = parseFloat(rangeMatch[2]);
+        if (!rangeMatch[3] && rawMin > 100) {
+          salaryRange = { min: Math.round(rawMin / 1000), max: Math.round(rawMax / 1000), currency: 'K' };
+        } else {
+          salaryRange = { min: Math.round(rawMin), max: Math.round(rawMax), currency: 'K' };
+        }
+      }
+    }
     updateJD(jd.id, {
       title: form.title.trim(),
       department: form.department.trim(),
@@ -44,9 +63,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       category: form.category,
       responsibilities: form.responsibilities.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       requirements: form.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
-      salaryRange: match
-        ? { min: parseInt(match[1]), max: parseInt(match[2]), currency: 'K' }
-        : jd.salaryRange,
+      salaryRange,
+      salaryText: salaryText || undefined,
     });
     setEditing(false);
   };
@@ -59,7 +77,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   };
 
   const handleDownloadWord = () => {
-    const content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${jd.title}</title></head><body><h1>${jd.title}</h1><p><strong>部门：</strong>${jd.department} &nbsp; <strong>地点：</strong>${jd.location || '不限'} &nbsp; <strong>薪资：</strong>${formatSalary(jd.salaryRange)}</p><h2>岗位职责</h2><ol>${jd.responsibilities.map((r) => `<li>${r}</li>`).join('')}</ol><h2>岗位需求</h2><ol>${jd.requirements.map((r) => `<li>${r}</li>`).join('')}</ol></body></html>`;
+    const salaryStr = jd.salaryText || formatSalary(jd.salaryRange);
+    const content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${jd.title}</title></head><body><h1>${jd.title}</h1><p><strong>部门：</strong>${jd.department} &nbsp; <strong>地点：</strong>${jd.location || '不限'} &nbsp; <strong>薪资：</strong>${salaryStr}</p><h2>岗位职责</h2><ol>${jd.responsibilities.map((r) => `<li>${r}</li>`).join('')}</ol><h2>岗位需求</h2><ol>${jd.requirements.map((r) => `<li>${r}</li>`).join('')}</ol></body></html>`;
     const blob = new Blob([content], { type: 'application/msword' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = `${jd.title}.doc`; a.click();
@@ -136,7 +155,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
               <>
                 <InfoTile icon={Briefcase} label="部门" value={jd.department || '-'} />
                 <InfoTile icon={MapPin} label="地点" value={jd.location || 'remote'} />
-                <InfoTile icon={AlertCircle} label="薪资" value={jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-'} />
+                <InfoTile icon={AlertCircle} label="薪资" value={jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')} />
               </>
             )}
             <InfoTile icon={Clock} label="更新" value={formatDate(jd.updatedAt)} />

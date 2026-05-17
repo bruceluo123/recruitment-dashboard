@@ -29,6 +29,7 @@ export interface JD {
   requirements: string[];
   preferredQualifications?: string[];
   salaryRange: SalaryRange;
+  salaryText?: string;
   location?: string;
   isActive: boolean;
   createdAt: string;

@@ -38,7 +38,7 @@ export function JDTable({ jds, onSelect, selectedId, onDelete }: JDTableProps) {
                 <p className="text-sm text-gray-500 truncate max-w-[160px]">{jd.department || '-'}</p>
               </td>
               <td className="py-3 px-4 cursor-pointer" onClick={() => onSelect(jd.id)}>
-                <span className="text-sm text-green-600 font-medium">{jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-'}</span>
+                <span className="text-sm text-green-600 font-medium">{jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')}</span>
               </td>
               <td className="py-3 px-4 cursor-pointer" onClick={() => onSelect(jd.id)}>
                 <div className="flex items-center gap-1 text-sm text-gray-400"><MapPin className="w-3 h-3" />{jd.location || '-'}</div>
