@@ -34,7 +34,7 @@ export function ResumeMatchingPage() {
 
   if (!mounted) return null;
 
-  const allCats: (JDCategory | 'all')[] = ['all', 'frontend', 'backend', 'testing', 'product-design', 'devops', 'ai', 'algorithm', 'operations', 'advertising', 'gaming', 'finance', 'hr', 'bd', 'customer-service', 'project', 'seo', 'administration', 'director'];
+  const allCats: (JDCategory | 'all')[] = ['all', 'frontend', 'backend', 'testing', 'product', 'design', 'devops', 'ai', 'algorithm', 'data', 'hardware', 'operations', 'advertising', 'gaming', 'finance', 'hr', 'bd', 'customer-service', 'project', 'seo', 'administration', 'director'];
 
   return (
     <div className="animate-fade-in space-y-6 max-w-7xl mx-auto">

@@ -203,11 +203,14 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['ai', /人工智能|大模型|llm|gpt|prompt| ai /i],
   ['algorithm', /算法|推荐|nlp|机器学习|深度学习|计算机视觉/i],
   ['frontend', /前端|web|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端/i],
-  ['backend', /后端|java|go|golang|php|ruby|服务端|python|c\+\+|c#|\.net/i],
+  ['backend', /后端|java|go|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
   ['testing', /测试|qa|质量/i],
-  ['product-design', /ui|ux|设计|视觉|插画|动效|产品设计/i],
+  ['product', /产品经理|产品总监|产品负责人|产品助理/i],
+  ['design', /ui|ux|设计|视觉|插画|动效/i],
   ['finance', /财务|会计|出纳|审计|税务/i],
+  ['data', /数据|数据挖掘|爬虫|etl|数据仓库|数据分析|数据工程|大数据/i],
+  ['hardware', /gpu|硬件|芯片|嵌入式|固件|pcb|电路|cpu/i],
   ['hr', /hr|人力|招聘|薪酬|培训|员工关系|组织发展/i],
   ['bd', /商务|bd|拓展|渠道|合作|销售/i],
   ['customer-service', /客服|客户服务|售后/i],
@@ -222,7 +225,9 @@ function detectCategory(text: string): JDCategory {
   for (const [cat, re] of CATEGORY_KEYWORDS) { if (re.test(t)) return cat; }
   // Broad fallbacks before defaulting
   if (/开发|程序|码农|软件/i.test(t)) return 'backend';
-  if (/设计|画|创作|创意/i.test(t)) return 'product-design';
+  if (/设计|画|创作|创意/i.test(t)) return 'design';
+  if (/产品|需求|原型|用户研究/i.test(t)) return 'product';
+  if (/数据|报表|指标|数仓/i.test(t)) return 'data';
   if (/市场|营销|品牌|推广/i.test(t)) return 'advertising';
   if (/管理|经理|主管|负责/i.test(t)) return 'administration';
   return 'operations';
@@ -274,7 +279,7 @@ export function useFilteredJDs(): JD[] {
   });
 }
 
-const ALL_CATS: JDCategory[] = ['frontend','devops','administration','advertising','gaming','backend','operations','product-design','finance','algorithm','customer-service','project','ai','testing','hr','bd','seo','director'];
+const ALL_CATS: JDCategory[] = ['frontend','devops','administration','advertising','gaming','backend','operations','product','design','finance','algorithm','customer-service','project','ai','testing','hr','bd','seo','director','data','hardware'];
 
 export function useCategoryCounts(): { id: JDCategory | 'all'; label: string; count: number }[] {
   const { jds } = useJDStore();
