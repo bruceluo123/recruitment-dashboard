@@ -92,7 +92,7 @@ export default function DashboardPage() {
             <h3 className="text-lg font-semibold text-gray-800 mb-1">面试日历</h3>
             <p className="text-sm text-gray-500">看板式面试流程管理，拖拽推进候选人状态</p>
             <div className="mt-4 flex items-center gap-3">
-              {['已投递', '面试', 'Offer'].map((stage, i) => (
+              {['一面', '二面', 'Offer'].map((stage, i) => (
                 <div key={stage} className="flex items-center gap-1">
                   <div className={`w-2 h-2 rounded-full ${['bg-blue-500', 'bg-amber-500', 'bg-green-500'][i]}`} />
                   <span className="text-xs text-gray-400">{stage}</span>
@@ -110,8 +110,8 @@ export default function DashboardPage() {
         </div>
         <div className="grid grid-cols-3 gap-4 max-w-md">
           {[
-            { label: '已投递', count: candidates.filter((c) => c.stage === 'applied').length, color: 'bg-blue-500' },
-            { label: '面试', count: candidates.filter((c) => c.stage === 'interview').length, color: 'bg-amber-500' },
+            { label: '一面', count: candidates.filter((c) => c.stage === 'interview-1').length, color: 'bg-blue-500' },
+            { label: '二面', count: candidates.filter((c) => c.stage === 'interview-2').length, color: 'bg-amber-500' },
             { label: 'Offer', count: candidates.filter((c) => c.stage === 'offer').length, color: 'bg-green-500' },
           ].map((stage) => (
             <div key={stage.label} className="text-center p-3 rounded-xl bg-gray-50">
