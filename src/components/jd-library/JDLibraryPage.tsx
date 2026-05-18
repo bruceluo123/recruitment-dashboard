@@ -26,6 +26,7 @@ export function JDLibraryPage() {
   const selectJD = useJDStore((s) => s.selectJD);
   const addJdBatch = useJDStore((s) => s.addJdBatch);
   const deleteJD = useJDStore((s) => s.deleteJD);
+  const cleanAllJDs = useJDStore((s) => s.cleanAllJDs);
   const filteredJDs = useFilteredJDs();
   const categories = useCategoryCounts();
 
@@ -58,7 +59,7 @@ export function JDLibraryPage() {
     <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
       <div>
         <h2 className="text-2xl font-bold text-gray-800">JD 岗位库</h2>
-        <p className="text-sm text-gray-500 mt-1">共 {jds.length} 个岗位，{jds.filter((j) => j.isActive).length} 个活跃招聘中</p>
+        <p className="text-sm text-gray-500 mt-1">共 {jds.length} 个岗位，{jds.filter((j) => j.isActive).length} 个活跃招聘中 · <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button></p>
       </div>
 
       <JDCategoryTabs categories={categories} activeCategory={filter.category} onCategoryChange={(cat) => setFilter({ category: cat })} />

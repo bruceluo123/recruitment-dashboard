@@ -24,6 +24,7 @@ interface JDStore {
   deleteJD: (id: string) => void;
   importFromExcel: (file: File) => Promise<JDImportResult>;
   toggleActive: (id: string) => void;
+  cleanAllJDs: () => void;
 }
 
 export const useJDStore = create<JDStore>()(
@@ -45,6 +46,13 @@ export const useJDStore = create<JDStore>()(
       deleteJD: (id) => set((s) => ({ jds: s.jds.filter((j) => j.id !== id) })),
       toggleActive: (id) => set((s) => ({
         jds: s.jds.map((j) => j.id === id ? { ...j, isActive: !j.isActive } : j),
+      })),
+      cleanAllJDs: () => set((s) => ({
+        jds: s.jds.map((j) => ({
+          ...j,
+          responsibilities: j.responsibilities.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean),
+          requirements: j.requirements.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean),
+        })),
       })),
 
       importFromExcel: async (file: File) => {
