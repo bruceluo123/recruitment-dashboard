@@ -86,10 +86,10 @@ export const useJDStore = create<JDStore>()(
             for (let j = i; j < end; j++) {
               try {
                 const row = rows[j];
-                if (!row) { result.failed++; continue; }
+                if (!row) { result.failed++; result.errors.push(`第${j + 1}行: 数据为空`); continue; }
 
                 const title = String(row[titleCol] || '').trim();
-                if (!title) { result.failed++; continue; }
+                if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
 
                 const salaryStr = salaryCol ? String(row[salaryCol] || '').trim() : '';
                 const department = deptCol ? String(row[deptCol] || '').trim() : '';
