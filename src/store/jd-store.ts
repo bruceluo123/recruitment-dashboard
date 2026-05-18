@@ -91,7 +91,11 @@ export const useJDStore = create<JDStore>()(
                 const title = String(row[titleCol] || '').trim();
                 if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
 
-                const salaryStr = salaryCol ? String(row[salaryCol] || '').trim() : '';
+                const rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : '';
+                // Detect non-numeric salary like "面议"
+                const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
+                // Check if salary has extra info beyond a simple range (like "+绩效", "+年终")
+                const hasExtra = rawSalary && !isNegotiable && !/^[\d.]+[-~至到][\d.]+[kKw万Uu]?$/i.test(rawSalary.replace(/[,，\s]/g, ''));
                 const department = deptCol ? String(row[deptCol] || '').trim() : '';
                 const location = locCol ? String(row[locCol] || '').trim() : 'remote';
 
@@ -116,7 +120,8 @@ export const useJDStore = create<JDStore>()(
                   category: detectCategory(title + ' ' + department),
                   responsibilities: lines.slice(0, mid),
                   requirements: lines.slice(mid),
-                  salaryRange: parseSalary(salaryStr),
+                  salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
+                  salaryText: (isNegotiable || hasExtra) ? rawSalary : undefined,
                   location: location || 'remote',
                   isActive: true,
                   createdAt: new Date().toISOString(),
