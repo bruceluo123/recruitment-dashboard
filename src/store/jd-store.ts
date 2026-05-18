@@ -150,7 +150,7 @@ export const useJDStore = create<JDStore>()(
 
 // ─── Column keyword lists ───
 
-const SALARY_KEYS = ['薪酬', '薪资', '工资', '待遇', '月薪', '年薪', '薪酬与福利', '薪酬福利', '薪资待遇', '薪酬范围', '薪资范围', '薪资水平', '工资待遇', '薪水', '报酬', 'salary', 'compensation'];
+const SALARY_KEYS = ['薪酬', '薪资', '工资', '待遇', '月薪', '年薪', '薪酬与福利', '薪酬福利', '薪资待遇', '薪酬范围', '薪资范围', '薪资水平', '工资待遇', '薪水', '报酬', 'salary', 'compensation', '底薪', '底薪范围', '综合薪资', '总包', '年包'];
 const DEPT_KEYS = ['部门', '所属部门', '用人部门', '工作部门', '事业部', '团队', '组织', 'department', 'dept', '所在部门', '归属部门', '职能部门'];
 const LOC_KEYS = ['地点', '工作地点', '城市', '工作城市', '办公地点', '所在地', '工作地址', '地址', 'location', 'city', 'base'];
 
