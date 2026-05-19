@@ -156,7 +156,7 @@ export const useJDStore = create<JDStore>()(
         }
       },
     }),
-    { name: 'recruitai-jd-store',
+    { name: 'recruitai-jd-store', version: 2,
       migrate: (old: unknown) => {
         const state = old as { jds?: Array<Record<string, unknown>> };
         const jds = state.jds || [];
