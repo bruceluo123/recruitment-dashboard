@@ -29,6 +29,11 @@ export function InterviewCalendarPage() {
   const lastDeletedCandidate = useInterviewStore((s) => s.lastDeletedCandidate);
 
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (!lastDeletedCandidate) return;
+    const t = setTimeout(() => useInterviewStore.setState({ lastDeletedCandidate: null }), 10000);
+    return () => clearTimeout(t);
+  }, [lastDeletedCandidate]);
 
   useEffect(() => {
     const checkReminders = () => {

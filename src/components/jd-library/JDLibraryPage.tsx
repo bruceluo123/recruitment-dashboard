@@ -33,6 +33,11 @@ export function JDLibraryPage() {
   const categories = useCategoryCounts();
 
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (!lastDeletedJD) return;
+    const t = setTimeout(() => useJDStore.setState({ lastDeletedJD: null }), 10000);
+    return () => clearTimeout(t);
+  }, [lastDeletedJD]);
   if (!mounted) return null;
 
   const finalFiltered = activeOnly ? filteredJDs.filter((j) => j.status !== 'paused') : filteredJDs;
