@@ -156,7 +156,21 @@ export const useJDStore = create<JDStore>()(
         }
       },
     }),
-    { name: 'recruitai-jd-store' },
+    { name: 'recruitai-jd-store',
+      migrate: (old: unknown) => {
+        const state = old as { jds?: Array<Record<string, unknown>> };
+        const jds = state.jds || [];
+        return {
+          jds: jds.map((jd: Record<string, unknown>) => {
+            if (!jd.status && jd.isActive !== undefined) {
+              return { ...jd, status: jd.isActive ? 'active' : 'paused', isActive: undefined };
+            }
+            if (!jd.status) return { ...jd, status: 'active' };
+            return jd;
+          }),
+        };
+      },
+    },
   ),
 );
 
