@@ -3,7 +3,7 @@ import type { JD } from '@/types/jd';
 const now = '2026-05-13T00:00:00Z';
 
 function jd(id: number, title: string, department: string, category: JD['category'], responsibilities: string[], requirements: string[], salaryMin: number, salaryMax: number, location = '上海'): JD {
-  return { id: `jd-${String(id).padStart(3, '0')}`, title, department, category, responsibilities, requirements, salaryRange: { min: salaryMin, max: salaryMax, currency: 'K' }, location, status: 'active', createdAt: now, updatedAt: now };
+  return { id: `jd-${String(id).padStart(3, '0')}`, title, department, category, responsibilities, requirements, salaryRange: { min: salaryMin, max: salaryMax, currency: 'K' }, location, status: 'active' as const, createdAt: now, updatedAt: now };
 }
 
 export const MOCK_JDS: JD[] = [
