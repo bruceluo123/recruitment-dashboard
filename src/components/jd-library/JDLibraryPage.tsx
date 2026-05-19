@@ -27,6 +27,8 @@ export function JDLibraryPage() {
   const addJdBatch = useJDStore((s) => s.addJdBatch);
   const deleteJD = useJDStore((s) => s.deleteJD);
   const cleanAllJDs = useJDStore((s) => s.cleanAllJDs);
+  const undoDeleteJD = useJDStore((s) => s.undoDeleteJD);
+  const lastDeletedJD = useJDStore((s) => s.lastDeletedJD);
   const filteredJDs = useFilteredJDs();
   const categories = useCategoryCounts();
 
@@ -80,6 +82,16 @@ export function JDLibraryPage() {
 
       <JDDetailPanel jd={selectedJd} isOpen={!!selectedJdId} onClose={() => selectJD(null)} />
       <JDImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
+
+      {/* Undo delete toast */}
+      {lastDeletedJD && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div className="bg-gray-800 text-white rounded-xl shadow-lg px-5 py-3 flex items-center gap-4">
+            <span className="text-sm">已删除「{lastDeletedJD.title}」</span>
+            <button onClick={() => undoDeleteJD()} className="text-sm font-medium text-indigo-300 hover:text-indigo-200 whitespace-nowrap">撤销</button>
+          </div>
+        </div>
+      )}
 
       {/* Add JD Dialog */}
       {addOpen && (

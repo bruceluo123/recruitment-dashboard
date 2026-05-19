@@ -22,6 +22,8 @@ interface JDStore {
   addJdBatch: (jds: JD[]) => void;
   updateJD: (id: string, partial: Partial<JD>) => void;
   deleteJD: (id: string) => void;
+  undoDeleteJD: () => void;
+  lastDeletedJD: JD | null;
   importFromExcel: (file: File) => Promise<JDImportResult>;
   cycleStatus: (id: string) => void;
   cleanAllJDs: () => void;
@@ -43,7 +45,15 @@ export const useJDStore = create<JDStore>()(
       updateJD: (id, partial) => set((s) => ({
         jds: s.jds.map((j) => j.id === id ? { ...j, ...partial, updatedAt: new Date().toISOString() } : j),
       })),
-      deleteJD: (id) => set((s) => ({ jds: s.jds.filter((j) => j.id !== id) })),
+      deleteJD: (id) => set((s) => {
+        const target = s.jds.find((j) => j.id === id);
+        return { jds: s.jds.filter((j) => j.id !== id), lastDeletedJD: target || null };
+      }),
+      undoDeleteJD: () => set((s) => {
+        if (!s.lastDeletedJD) return {};
+        return { jds: [...s.jds, s.lastDeletedJD], lastDeletedJD: null };
+      }),
+      lastDeletedJD: null,
       cycleStatus: (id) => set((s) => ({
         jds: s.jds.map((j) => {
           if (j.id !== id) return j;

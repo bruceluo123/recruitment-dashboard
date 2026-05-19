@@ -21,6 +21,8 @@ interface InterviewStore {
   addCandidate: (c: Omit<Candidate, 'id' | 'appliedAt' | 'updatedAt'>) => void;
   updateCandidate: (id: string, partial: Partial<Candidate>) => void;
   removeCandidate: (id: string) => void;
+  undoDeleteCandidate: () => void;
+  lastDeletedCandidate: Candidate | null;
 }
 
 export const useInterviewStore = create<InterviewStore>()(
@@ -39,7 +41,15 @@ export const useInterviewStore = create<InterviewStore>()(
         candidates: s.candidates.map((c) =>
           c.id === id ? { ...c, ...partial, updatedAt: new Date().toISOString() } : c),
       })),
-      removeCandidate: (id) => set((s) => ({ candidates: s.candidates.filter((c) => c.id !== id) })),
+      removeCandidate: (id) => set((s) => {
+        const target = s.candidates.find((c) => c.id === id);
+        return { candidates: s.candidates.filter((c) => c.id !== id), lastDeletedCandidate: target || null };
+      }),
+      undoDeleteCandidate: () => set((s) => {
+        if (!s.lastDeletedCandidate) return {};
+        return { candidates: [...s.candidates, s.lastDeletedCandidate], lastDeletedCandidate: null };
+      }),
+      lastDeletedCandidate: null,
     }),
     { name: 'recruitai-interview-store' },
   ),

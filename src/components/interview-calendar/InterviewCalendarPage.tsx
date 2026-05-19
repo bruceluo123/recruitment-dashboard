@@ -25,6 +25,8 @@ export function InterviewCalendarPage() {
   const addCandidate = useInterviewStore((s) => s.addCandidate);
   const updateCandidate = useInterviewStore((s) => s.updateCandidate);
   const removeCandidate = useInterviewStore((s) => s.removeCandidate);
+  const undoDeleteCandidate = useInterviewStore((s) => s.undoDeleteCandidate);
+  const lastDeletedCandidate = useInterviewStore((s) => s.lastDeletedCandidate);
 
   useEffect(() => setMounted(true), []);
 
@@ -121,6 +123,15 @@ export function InterviewCalendarPage() {
       </div>
 
       <StageKanbanBoard candidates={candidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
+
+      {lastDeletedCandidate && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div className="bg-gray-800 text-white rounded-xl shadow-lg px-5 py-3 flex items-center gap-4">
+            <span className="text-sm">已删除「{lastDeletedCandidate.name}」</span>
+            <button onClick={() => undoDeleteCandidate()} className="text-sm font-medium text-indigo-300 hover:text-indigo-200 whitespace-nowrap">撤销</button>
+          </div>
+        </div>
+      )}
 
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
