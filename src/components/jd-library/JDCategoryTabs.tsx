@@ -35,7 +35,7 @@ interface JDCategoryTabsProps {
 
 export function JDCategoryTabs({ categories, activeCategory, onCategoryChange }: JDCategoryTabsProps) {
   return (
-    <div className="flex gap-1.5 overflow-x-auto pb-1">
+    <div className="flex gap-1.5 flex-wrap pb-1">
       {categories.map((cat) => {
         const isActive = activeCategory === cat.id;
         const c = CAT_TAB_COLORS[cat.id] || CAT_TAB_COLORS.all;

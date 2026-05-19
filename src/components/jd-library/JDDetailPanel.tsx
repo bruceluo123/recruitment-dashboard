@@ -2,7 +2,7 @@
 import { cn, formatSalary, formatDate } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JD, type JDCategory, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil } from 'lucide-react';
+import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useJDStore } from '@/store/jd-store';
 
@@ -13,6 +13,9 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const updateJD = useJDStore((s) => s.updateJD);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<string | null>(null);
+  const [showAI, setShowAI] = useState(false);
   const [form, setForm] = useState({
     title: '', department: '', location: '', salary: '',
     category: 'operations' as JDCategory,
@@ -76,6 +79,41 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleAnalyze = async () => {
+    setAiLoading(true); setShowAI(true); setAiResult(null);
+    try {
+      const prompt = `你是资深猎头顾问。请从猎头招聘视角分析以下岗位，总结JD要点。
+
+岗位：${jd.title}
+部门：${jd.department || '不限'}
+薪资：${jd.salaryText || formatSalary(jd.salaryRange)}
+${jd.responsibilities.length ? '职责：\n' + jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}
+${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}
+
+请用中文输出以下内容：
+1. **核心技能关键词**（必搜，5-8个）：猎头搜索简历时必须匹配的关键词
+2. **加分技能**（优先，3-5个）：有则优先的技能
+3. **经验硬指标**（筛选门槛）：如年限、学历、行业背景等
+4. **软性要求**：沟通、管理、抗压等
+5. **搜索建议**：给猎头的一两句搜索策略建议
+
+每项用简洁要点列出，不要大段文字。`;
+
+      const res = await fetch('/api/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 1200 }),
+      });
+      const data = await res.json();
+      if (data?.choices?.[0]?.message?.content) {
+        setAiResult(data.choices[0].message.content);
+      } else {
+        setAiResult('AI 分析暂时不可用，请稍后重试');
+      }
+    } catch { setAiResult('请求失败，请检查网络'); }
+    setAiLoading(false);
+  };
+
   const handleDownloadWord = () => {
     const salaryStr = jd.salaryText || formatSalary(jd.salaryRange);
     const content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${jd.title}</title></head><body><h1>${jd.title}</h1><p><strong>部门：</strong>${jd.department} &nbsp; <strong>地点：</strong>${jd.location || '不限'} &nbsp; <strong>薪资：</strong>${salaryStr}</p><h2>岗位职责</h2><ol>${jd.responsibilities.map((r) => `<li>${r}</li>`).join('')}</ol><h2>岗位需求</h2><ol>${jd.requirements.map((r) => `<li>${r}</li>`).join('')}</ol></body></html>`;
@@ -134,6 +172,10 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
                 </>
               ) : (
                 <>
+                  <button onClick={() => { if (!aiResult && !aiLoading) handleAnalyze(); else setShowAI(!showAI); }}
+                    className={`p-2 rounded-lg transition-all ${showAI ? 'bg-indigo-50 text-indigo-500' : 'hover:bg-gray-100 text-gray-400 hover:text-indigo-500'}`} title="JD要点">
+                    <Sparkles className="w-5 h-5" />
+                  </button>
                   <button onClick={startEdit} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-indigo-500" title="编辑">
                     <Pencil className="w-5 h-5" />
                   </button>
@@ -160,6 +202,26 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
             )}
             <InfoTile icon={Clock} label="更新" value={formatDate(jd.updatedAt)} />
           </div>
+
+          {/* AI Analysis */}
+          {showAI && (
+            <GlassPanel padding="md">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                  <Sparkles className="w-4 h-4 text-indigo-500" />JD 要点（猎头视角）
+                </h3>
+                <button onClick={() => setShowAI(false)} className="text-xs text-gray-400 hover:text-gray-600">收起</button>
+              </div>
+              {aiLoading ? (
+                <div className="flex items-center gap-3 py-4 text-gray-500">
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                  <span className="text-sm">AI 正在分析 JD 要点...</span>
+                </div>
+              ) : aiResult ? (
+                <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{aiResult}</div>
+              ) : null}
+            </GlassPanel>
+          )}
 
           {/* Responsibilities */}
           <GlassPanel padding="md">
