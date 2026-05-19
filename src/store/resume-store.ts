@@ -75,7 +75,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       if (!resume) { set({ isMatching: false }); return; }
 
       const { jds } = useJDStore.getState();
-      let activeJds = jds.filter((j) => j.isActive);
+      let activeJds = jds.filter((j) => j.status !== 'paused');
       if (category !== 'all') {
         activeJds = activeJds.filter((j) => j.category === category);
       }

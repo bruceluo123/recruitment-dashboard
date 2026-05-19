@@ -33,7 +33,7 @@ export function JDLibraryPage() {
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
-  const finalFiltered = activeOnly ? filteredJDs.filter((j) => j.isActive) : filteredJDs;
+  const finalFiltered = activeOnly ? filteredJDs.filter((j) => j.status !== 'paused') : filteredJDs;
   const selectedJd = jds.find((j) => j.id === selectedJdId) || null;
 
   const handleAdd = () => {
@@ -47,7 +47,7 @@ export function JDLibraryPage() {
       requirements: addForm.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       salaryRange: parseSalary(addForm.salary),
       location: addForm.location.trim() || 'remote',
-      isActive: true,
+      status: 'active',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }]);
@@ -59,7 +59,7 @@ export function JDLibraryPage() {
     <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
       <div>
         <h2 className="text-2xl font-bold text-gray-800">JD 岗位库</h2>
-        <p className="text-sm text-gray-500 mt-1">共 {jds.length} 个岗位，{jds.filter((j) => j.isActive).length} 个活跃招聘中 · <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button></p>
+        <p className="text-sm text-gray-500 mt-1">共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 · <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button></p>
       </div>
 
       <JDCategoryTabs categories={categories} activeCategory={filter.category} onCategoryChange={(cat) => setFilter({ category: cat })} />

@@ -1,6 +1,6 @@
 'use client';
 import { cn, formatSalary, formatDate } from '@/lib/utils';
-import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JD, type JDCategory, ALL_CATEGORIES } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, JD_STATUS_LABELS, JD_STATUS_COLORS, type JD, type JDCategory, type JDStatus, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2 } from 'lucide-react';
 import { useState } from 'react';
@@ -20,7 +20,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const aiResult = aiResults[jdId] || null;
   const [form, setForm] = useState({
     title: '', department: '', location: '', salary: '',
-    category: 'operations' as JDCategory,
+    category: 'operations' as JDCategory, status: 'active' as JDStatus,
     responsibilities: '', requirements: '',
   });
 
@@ -32,7 +32,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       department: jd.department,
       location: jd.location || 'remote',
       salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min}K-${jd.salaryRange.max}K` : ''),
-      category: jd.category,
+      category: jd.category, status: jd.status,
       responsibilities: jd.responsibilities.join('；'),
       requirements: jd.requirements.join('；'),
     });
@@ -70,6 +70,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       requirements: form.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       salaryRange,
       salaryText: salaryText || undefined,
+      status: form.status,
     });
     setEditing(false);
   };
@@ -135,11 +136,19 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
                     {JD_CATEGORY_LABELS[jd.category]}
                   </span>
                 )}
-                <span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs',
-                  jd.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
-                  <span className={cn('w-1.5 h-1.5 rounded-full', jd.isActive ? 'bg-green-500' : 'bg-gray-400')} />
-                  {jd.isActive ? '招聘中' : '已关闭'}
-                </span>
+                {editing ? (
+                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as JDStatus })}
+                    className="px-2 py-0.5 rounded-md text-xs font-medium border border-gray-200 bg-white">
+                    {(['active', 'urgent', 'paused'] as JDStatus[]).map((s) => (
+                      <option key={s} value={s}>{JD_STATUS_LABELS[s]}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs', JD_STATUS_COLORS[jd.status])}>
+                    <span className={cn('w-1.5 h-1.5 rounded-full', jd.status === 'urgent' ? 'bg-red-500' : jd.status === 'active' ? 'bg-green-500' : 'bg-gray-400')} />
+                    {JD_STATUS_LABELS[jd.status]}
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-1">

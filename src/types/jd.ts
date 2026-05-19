@@ -21,6 +21,8 @@ export type JDCategory =
   | 'data'
   | 'hardware';
 
+export type JDStatus = 'active' | 'urgent' | 'paused';
+
 export interface SalaryRange { min: number; max: number; currency: string; }
 
 export interface JD {
@@ -34,12 +36,19 @@ export interface JD {
   salaryRange: SalaryRange;
   salaryText?: string;
   location?: string;
-  isActive: boolean;
+  status: JDStatus;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface JDFilter { search: string; category: JDCategory | 'all'; department?: string; isActive?: boolean; }
+export const JD_STATUS_LABELS: Record<JDStatus, string> = { active: '活跃', urgent: '急招', paused: '暂缓' };
+export const JD_STATUS_COLORS: Record<JDStatus, string> = {
+  active: 'bg-green-100 text-green-700 ring-1 ring-inset ring-green-200',
+  urgent: 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-200',
+  paused: 'bg-gray-100 text-gray-500 ring-1 ring-inset ring-gray-200',
+};
+
+export interface JDFilter { search: string; category: JDCategory | 'all'; department?: string; status?: JDStatus; }
 export interface JDImportResult { success: number; failed: number; errors: string[]; }
 
 export const JD_CATEGORY_LABELS: Record<JDCategory, string> = {

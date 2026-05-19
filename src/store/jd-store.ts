@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { JD, JDFilter, JDCategory, JDImportResult } from '@/types/jd';
+import type { JD, JDFilter, JDCategory, JDImportResult, JDStatus } from '@/types/jd';
 import { JD_CATEGORY_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
@@ -23,7 +23,7 @@ interface JDStore {
   updateJD: (id: string, partial: Partial<JD>) => void;
   deleteJD: (id: string) => void;
   importFromExcel: (file: File) => Promise<JDImportResult>;
-  toggleActive: (id: string) => void;
+  cycleStatus: (id: string) => void;
   cleanAllJDs: () => void;
 }
 
@@ -44,8 +44,12 @@ export const useJDStore = create<JDStore>()(
         jds: s.jds.map((j) => j.id === id ? { ...j, ...partial, updatedAt: new Date().toISOString() } : j),
       })),
       deleteJD: (id) => set((s) => ({ jds: s.jds.filter((j) => j.id !== id) })),
-      toggleActive: (id) => set((s) => ({
-        jds: s.jds.map((j) => j.id === id ? { ...j, isActive: !j.isActive } : j),
+      cycleStatus: (id) => set((s) => ({
+        jds: s.jds.map((j) => {
+          if (j.id !== id) return j;
+          const next: JDStatus = j.status === 'active' ? 'urgent' : j.status === 'urgent' ? 'paused' : 'active';
+          return { ...j, status: next };
+        }),
       })),
       cleanAllJDs: () => set((s) => ({
         jds: s.jds.map((j) => ({
@@ -131,7 +135,7 @@ export const useJDStore = create<JDStore>()(
                   salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
                   salaryText: (isNegotiable || hasExtra) ? rawSalary : undefined,
                   location: location || 'remote',
-                  isActive: true,
+                  status: 'active',
                   createdAt: new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
                 });
@@ -287,7 +291,7 @@ export function useFilteredJDs(): JD[] {
       if (!haystack.includes(q)) return false;
     }
     if (filter.department && jd.department !== filter.department) return false;
-    if (filter.isActive !== undefined && jd.isActive !== filter.isActive) return false;
+    if (filter.status && jd.status !== filter.status) return false;
     return true;
   });
 }

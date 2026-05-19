@@ -44,8 +44,11 @@ export function JDTable({ jds, onSelect, selectedId, onDelete }: JDTableProps) {
                 <div className="flex items-center gap-1 text-sm text-gray-400"><MapPin className="w-3 h-3" />{jd.location || '-'}</div>
               </td>
               <td className="py-3 px-4 cursor-pointer" onClick={() => onSelect(jd.id)}>
-                <span className={cn('inline-flex items-center gap-1.5 text-xs', jd.isActive ? 'text-green-600' : 'text-gray-400')}>
-                  <span className={cn('w-1.5 h-1.5 rounded-full', jd.isActive ? 'bg-green-500' : 'bg-gray-300')} />{jd.isActive ? '活跃' : '已关闭'}
+                <span className={cn('inline-flex items-center gap-1.5 text-xs',
+                  jd.status === 'urgent' ? 'text-red-600' : jd.status === 'active' ? 'text-green-600' : 'text-gray-400')}>
+                  <span className={cn('w-1.5 h-1.5 rounded-full',
+                    jd.status === 'urgent' ? 'bg-red-500' : jd.status === 'active' ? 'bg-green-500' : 'bg-gray-300')} />
+                  {jd.status === 'urgent' ? '急招' : jd.status === 'active' ? '活跃' : '暂缓'}
                 </span>
               </td>
               <td className="py-3 px-4">

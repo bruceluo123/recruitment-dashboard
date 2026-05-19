@@ -16,7 +16,7 @@ export default function DashboardPage() {
   useEffect(() => setMounted(true), []);
 
   const totalJDs = jds.length;
-  const activeJDs = jds.filter((j) => j.isActive).length;
+  const activeJDs = jds.filter((j) => j.status !== 'paused').length;
   const totalResumes = resumes.length;
   const inPipeline = candidates.filter((c) => c.stage !== 'offer').length;
   const offerCount = candidates.filter((c) => c.stage === 'offer').length;
