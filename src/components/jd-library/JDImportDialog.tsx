@@ -28,10 +28,12 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
     setResult(null);
     try {
       const res = await fetch(sheetUrl);
-      const blob = await res.blob();
-      setResult(await importFromExcel(new File([blob], 'import.xlsx')));
+      const text = await res.text();
+      const isCsv = text.includes(',') && !text.startsWith('PK');
+      const blob = isCsv ? new Blob([text], { type: 'text/csv' }) : await res.blob();
+      setResult(await importFromExcel(new File([blob], isCsv ? 'import.csv' : 'import.xlsx')));
     } catch {
-      setResult({ success: 0, failed: 1, errors: ['无法访问链接，请确认已发布为 CSV'] });
+      setResult({ success: 0, failed: 1, errors: ['无法访问链接，请确认已发布为 CSV（文件→共享→发布到网络→CSV格式）'] });
     }
   };
 
