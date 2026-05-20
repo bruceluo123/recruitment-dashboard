@@ -11,6 +11,7 @@ import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store'
 import { Briefcase, X } from 'lucide-react';
 import { generateId } from '@/lib/utils';
 import type { JDCategory } from '@/types/jd';
+import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
@@ -49,7 +50,7 @@ export function JDLibraryPage() {
       id: generateId(),
       title: addForm.title.trim(),
       department: addForm.department.trim(),
-      category: detectCat(addForm.title + ' ' + addForm.department),
+      category: addForm.category as JDCategory || detectCat(addForm.title + ' ' + addForm.department),
       responsibilities: addForm.responsibilities.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       requirements: addForm.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       salaryRange: parseSalary(addForm.salary),
@@ -118,6 +119,15 @@ export function JDLibraryPage() {
                   <label className="block text-xs text-gray-500 mb-1">部门</label>
                   <input value={addForm.department} onChange={(e) => setAddForm({ ...addForm, department: e.target.value })}
                     placeholder="如：技术部" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">分类</label>
+                  <select value={addForm.category} onChange={(e) => setAddForm({ ...addForm, category: e.target.value })}
+                    className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300">
+                    {ALL_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>{JD_CATEGORY_LABELS[cat]}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
