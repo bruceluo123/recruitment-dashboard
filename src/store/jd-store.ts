@@ -167,7 +167,7 @@ export const useJDStore = create<JDStore>()(
         }
       },
     }),
-    { name: 'recruitai-jd-store', version: 2,
+    { name: 'recruitai-jd-store', version: 3,
       migrate: (old: unknown) => {
         const state = old as { jds?: Array<Record<string, unknown>> };
         const jds = state.jds || [];
@@ -180,9 +180,13 @@ export const useJDStore = create<JDStore>()(
               delete fixed.isActive;
             }
             if (!fixed.status) fixed.status = 'active';
-            // Migrate category → categories
+            // Migrate category → categories, with old→new name map
             if (fixed.category && !fixed.categories) {
-              fixed.categories = [fixed.category];
+              const oldCat = fixed.category as string;
+              const map: Record<string, string> = {
+                'product-design': 'design',
+              };
+              fixed.categories = [map[oldCat] || oldCat];
               delete fixed.category;
             }
             if (!fixed.categories || !(fixed.categories as unknown[]).length) {
@@ -279,7 +283,14 @@ function detectCategories(text: string): JDCategory[] {
   for (const [cat, re] of CATEGORY_KEYWORDS) {
     if (re.test(t) && !result.includes(cat)) result.push(cat);
   }
-  if (result.length === 0) result.push('operations');
+  if (result.length === 0) {
+    // Broad fallbacks
+    if (/开发|程序|码农|软件/i.test(t)) result.push('backend');
+    else if (/设计|画|创作|创意/i.test(t)) result.push('design');
+    else if (/产品|需求|原型/i.test(t)) result.push('product');
+    else if (/数据|报表|指标/i.test(t)) result.push('data');
+    else result.push('operations');
+  }
   return result.slice(0, 3);
 }
 
