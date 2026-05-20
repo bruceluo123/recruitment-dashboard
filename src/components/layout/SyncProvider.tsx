@@ -29,7 +29,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         useJDStore.setState({ jds: normalized as unknown as JD[] });
       }
       if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
-      setTimeout(() => { skipPush.current = false; }, 2000);
+      setTimeout(() => { skipPush.current = false; }, 5000);
     });
   }, []);
 
