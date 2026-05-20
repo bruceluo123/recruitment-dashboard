@@ -28,6 +28,8 @@ export function JDLibraryPage() {
   const addJdBatch = useJDStore((s) => s.addJdBatch);
   const deleteJD = useJDStore((s) => s.deleteJD);
   const cleanAllJDs = useJDStore((s) => s.cleanAllJDs);
+  const exportAllJDs = useJDStore((s) => s.exportAllJDs);
+  const backupToKV = useJDStore((s) => s.backupToKV);
   const undoDeleteJD = useJDStore((s) => s.undoDeleteJD);
   const lastDeletedJD = useJDStore((s) => s.lastDeletedJD);
   const filteredJDs = useFilteredJDs();
@@ -67,7 +69,7 @@ export function JDLibraryPage() {
     <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
       <div>
         <h2 className="text-2xl font-bold text-gray-800">JD 岗位库</h2>
-        <p className="text-sm text-gray-500 mt-1">共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 · <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button></p>
+        <p className="text-sm text-gray-500 mt-1">共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 · <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button> · <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> · <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button></p>
       </div>
 
       <JDCategoryTabs categories={categories} activeCategory={filter.category} onCategoryChange={(cat) => setFilter({ category: cat })} />

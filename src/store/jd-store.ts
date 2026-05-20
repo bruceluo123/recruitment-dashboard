@@ -28,6 +28,8 @@ interface JDStore {
   importFromExcel: (file: File) => Promise<JDImportResult>;
   cycleStatus: (id: string) => void;
   cleanAllJDs: () => void;
+  exportAllJDs: () => void;
+  backupToKV: () => Promise<void>;
 }
 
 export const useJDStore = create<JDStore>()(
@@ -69,6 +71,38 @@ export const useJDStore = create<JDStore>()(
           requirements: j.requirements.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean),
         })),
       })),
+
+      exportAllJDs: () => {
+        const jds = get().jds;
+        const rows = jds.map((j) => ({
+          '岗位名称': j.title,
+          '部门': j.department,
+          '分类': (j.categories || []).join('/'),
+          '岗位职责': j.responsibilities.join('；'),
+          '岗位需求': j.requirements.join('；'),
+          '薪资': j.salaryText || (j.salaryRange.min ? `${j.salaryRange.min}K-${j.salaryRange.max}K` : ''),
+          '地点': j.location || 'remote',
+          '状态': j.status,
+        }));
+        import('xlsx').then((XLSX) => {
+          const ws = XLSX.utils.json_to_sheet(rows);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'JD库');
+          XLSX.writeFile(wb, `JD岗位库_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        });
+      },
+
+      backupToKV: async () => {
+        const jds = get().jds;
+        try {
+          const res = await fetch('/api/data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'jds', data: jds }),
+          });
+          if (res.ok) console.log('Backup to KV: OK');
+        } catch { /* offline */ }
+      },
 
       importFromExcel: async (file: File) => {
         set({ isImporting: true, importProgress: { current: 0, total: 0, percent: 0, status: 'reading' } });
