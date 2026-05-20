@@ -29,7 +29,7 @@ export interface JD {
   id: string;
   title: string;
   department: string;
-  category: JDCategory;
+  categories: JDCategory[];
   responsibilities: string[];
   requirements: string[];
   preferredQualifications?: string[];
@@ -49,6 +49,18 @@ export const JD_STATUS_COLORS: Record<JDStatus, string> = {
 };
 
 export interface JDFilter { search: string; category: JDCategory | 'all'; department?: string; status?: JDStatus; }
+
+/** Get the primary category (first one) for backward compat */
+export function getPrimaryCategory(jd: { categories?: JDCategory[]; category?: JDCategory }): JDCategory {
+  if (jd.categories && jd.categories.length > 0) return jd.categories[0];
+  if (jd.category) return jd.category;
+  return 'operations';
+}
+
+export function hasCategory(jd: { categories?: JDCategory[]; category?: JDCategory }, cat: JDCategory): boolean {
+  if (jd.categories) return jd.categories.includes(cat);
+  return jd.category === cat;
+}
 export interface JDImportResult { success: number; failed: number; errors: string[]; }
 
 export const JD_CATEGORY_LABELS: Record<JDCategory, string> = {

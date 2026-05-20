@@ -50,7 +50,7 @@ export function JDLibraryPage() {
       id: generateId(),
       title: addForm.title.trim(),
       department: addForm.department.trim(),
-      category: addForm.category as JDCategory || detectCat(addForm.title + ' ' + addForm.department),
+      categories: [addForm.category as JDCategory || detectCat(addForm.title + ' ' + addForm.department)],
       responsibilities: addForm.responsibilities.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       requirements: addForm.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       salaryRange: parseSalary(addForm.salary),

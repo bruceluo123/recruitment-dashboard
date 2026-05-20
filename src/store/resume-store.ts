@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Resume } from '@/types/resume';
 import type { JDCategory } from '@/types/jd';
+import { hasCategory } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { generateId } from '@/lib/utils';
 import { matchResumeToJDs } from '@/lib/deepseek';
@@ -77,7 +78,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       const { jds } = useJDStore.getState();
       let activeJds = jds.filter((j) => j.status !== 'paused');
       if (category !== 'all') {
-        activeJds = activeJds.filter((j) => j.category === category);
+        activeJds = activeJds.filter((j) => hasCategory(j, category));
       }
       if (activeJds.length === 0) {
         set({ isMatching: false, matchError: '没有活跃的 JD 可匹配' });

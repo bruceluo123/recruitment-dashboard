@@ -32,7 +32,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       department: jd.department,
       location: jd.location || 'remote',
       salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min}K-${jd.salaryRange.max}K` : ''),
-      category: jd.category, status: jd.status,
+      category: jd.categories[0], status: jd.status,
       responsibilities: jd.responsibilities.join('；'),
       requirements: jd.requirements.join('；'),
     });
@@ -65,7 +65,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       title: form.title.trim(),
       department: form.department.trim(),
       location: form.location.trim() || 'remote',
-      category: form.category,
+      categories: [form.category],
       responsibilities: form.responsibilities.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       requirements: form.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       salaryRange,
@@ -132,9 +132,11 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
                     ))}
                   </select>
                 ) : (
-                  <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.category])}>
-                    {JD_CATEGORY_LABELS[jd.category]}
-                  </span>
+                  <>{jd.categories.map((cat: JDCategory) => (
+                    <span key={cat} className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[cat])}>
+                      {JD_CATEGORY_LABELS[cat]}
+                    </span>
+                  ))}</>
                 )}
                 {editing ? (
                   <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as JDStatus })}

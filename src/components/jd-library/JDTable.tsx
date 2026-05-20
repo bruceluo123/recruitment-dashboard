@@ -32,7 +32,7 @@ export function JDTable({ jds, onSelect, selectedId, onDelete }: JDTableProps) {
                 <p className="text-sm font-medium text-gray-800">{jd.title}</p>
               </td>
               <td className="py-3 px-4 cursor-pointer" onClick={() => onSelect(jd.id)}>
-                <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.category])}>{JD_CATEGORY_LABELS[jd.category]}</span>
+                <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
               </td>
               <td className="py-3 px-4 cursor-pointer" onClick={() => onSelect(jd.id)}>
                 <p className="text-sm text-gray-500 truncate max-w-[160px]">{jd.department || '-'}</p>

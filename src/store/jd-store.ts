@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { JD, JDFilter, JDCategory, JDImportResult, JDStatus } from '@/types/jd';
+import { hasCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
@@ -139,7 +140,7 @@ export const useJDStore = create<JDStore>()(
                   id: generateId(),
                   title,
                   department,
-                  category: detectCategory(title + ' ' + department),
+                  categories: detectCategories(title + ' ' + department),
                   responsibilities: lines.slice(0, mid),
                   requirements: lines.slice(mid),
                   salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
@@ -172,11 +173,22 @@ export const useJDStore = create<JDStore>()(
         const jds = state.jds || [];
         return {
           jds: jds.map((jd: Record<string, unknown>) => {
-            if (!jd.status && jd.isActive !== undefined) {
-              return { ...jd, status: jd.isActive ? 'active' : 'paused', isActive: undefined };
+            const fixed = { ...jd };
+            // Migrate isActive → status
+            if (!fixed.status && fixed.isActive !== undefined) {
+              fixed.status = fixed.isActive ? 'active' : 'paused';
+              delete fixed.isActive;
             }
-            if (!jd.status) return { ...jd, status: 'active' };
-            return jd;
+            if (!fixed.status) fixed.status = 'active';
+            // Migrate category → categories
+            if (fixed.category && !fixed.categories) {
+              fixed.categories = [fixed.category];
+              delete fixed.category;
+            }
+            if (!fixed.categories || !(fixed.categories as unknown[]).length) {
+              fixed.categories = ['operations'];
+            }
+            return fixed;
           }),
         };
       },
@@ -261,17 +273,14 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['administration', /行政|前台|助理|秘书|档案|车辆|办公室/i],
 ];
 
-function detectCategory(text: string): JDCategory {
+function detectCategories(text: string): JDCategory[] {
   const t = text.toLowerCase();
-  for (const [cat, re] of CATEGORY_KEYWORDS) { if (re.test(t)) return cat; }
-  // Broad fallbacks before defaulting
-  if (/开发|程序|码农|软件/i.test(t)) return 'backend';
-  if (/设计|画|创作|创意/i.test(t)) return 'design';
-  if (/产品|需求|原型|用户研究/i.test(t)) return 'product';
-  if (/数据|报表|指标|数仓/i.test(t)) return 'data';
-  if (/市场|营销|品牌|推广/i.test(t)) return 'advertising';
-  if (/管理|经理|主管|负责/i.test(t)) return 'administration';
-  return 'operations';
+  const result: JDCategory[] = [];
+  for (const [cat, re] of CATEGORY_KEYWORDS) {
+    if (re.test(t) && !result.includes(cat)) result.push(cat);
+  }
+  if (result.length === 0) result.push('operations');
+  return result.slice(0, 3);
 }
 
 function parseSalary(s: string): { min: number; max: number; currency: string } {
@@ -308,7 +317,7 @@ function parseSalary(s: string): { min: number; max: number; currency: string } 
 export function useFilteredJDs(): JD[] {
   const { jds, filter } = useJDStore();
   return jds.filter((jd) => {
-    if (filter.category !== 'all' && jd.category !== filter.category) return false;
+    if (filter.category !== 'all' && !hasCategory(jd, filter.category)) return false;
     if (filter.search) {
       const q = filter.search.toLowerCase();
       const haystack = [jd.title, jd.department, ...jd.responsibilities, ...jd.requirements].join(' ').toLowerCase();
@@ -326,7 +335,7 @@ export function useCategoryCounts(): { id: JDCategory | 'all'; label: string; co
   const { jds } = useJDStore();
   const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: jds.length }];
   for (const cat of ALL_CATS) {
-    entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count: jds.filter((j) => j.category === cat).length });
+    entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count: jds.filter((j) => hasCategory(j, cat)).length });
   }
   return entries;
 }

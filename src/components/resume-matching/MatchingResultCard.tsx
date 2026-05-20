@@ -33,7 +33,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
             <div>
               <h4 className="text-base font-semibold text-gray-800">{jd.title}</h4>
               <div className="flex items-center gap-2 mt-1">
-                <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.category])}>{JD_CATEGORY_LABELS[jd.category]}</span>
+                <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
                 <span className="text-xs text-gray-400">{jd.department}</span>
                 <span className="text-xs text-green-600">{formatSalary(jd.salaryRange)}</span>
               </div>
