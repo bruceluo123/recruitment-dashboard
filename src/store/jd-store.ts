@@ -5,6 +5,7 @@ import { hasCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
+import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
 
 export interface ImportProgress {
   current: number; total: number; percent: number;
@@ -137,46 +138,84 @@ export const useJDStore = create<JDStore>()(
           const batch: JD[] = [];
           const result: JDImportResult = { success: 0, failed: 0, errors: [] };
 
+          // Detect if AI parsing is needed (long unstructured text with few columns)
+          const sampleText = rows.slice(0, Math.min(5, total))
+            .map((r) => contentCols.map((c) => String(r[c] || '').trim()).join(' '))
+            .join(' ');
+          const needsAI = contentCols.length <= 2 && sampleText.length > 500;
+
+          // If AI needed, batch parse all rows first
+          const aiResults: (ParsedJD | null)[] = [];
+          if (needsAI) {
+            set({ importProgress: { current: 0, total, percent: 5, status: 'parsing' } });
+            const texts = rows.map((r) =>
+              contentCols.map((c) => String(r[c] || '').trim()).filter(Boolean).join('\n'));
+            const aiBatch = 5;
+            for (let b = 0; b < texts.length; b += aiBatch) {
+              const batchTexts = texts.slice(b, b + aiBatch);
+              const parsed = await parseMultipleJDs(batchTexts);
+              aiResults.push(...parsed);
+              const pct = Math.round(((b + aiBatch) / texts.length) * 20);
+              set({ importProgress: { current: Math.min(b + aiBatch, total), total, percent: pct, status: 'parsing' } });
+            }
+          }
+
           const CHUNK = 10;
           for (let i = 0; i < total; i += CHUNK) {
             const end = Math.min(i + CHUNK, total);
             for (let j = i; j < end; j++) {
               try {
                 const row = rows[j];
+                const ai = aiResults[j];
                 if (!row) { result.failed++; result.errors.push(`第${j + 1}行: 数据为空`); continue; }
 
-                const title = String(row[titleCol] || '').trim();
-                if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
+                let title: string;
+                let department: string;
+                let rawSalary: string;
+                let location: string;
+                let responsibilities: string[] = [];
+                let requirements: string[] = [];
 
-                const rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : '';
-                // Detect non-numeric salary like "面议"
-                const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
-                // Check if salary has extra info beyond a simple range (like "+绩效", "+年终")
-                const hasExtra = rawSalary && !isNegotiable && !/^[\d.]+[-~至到][\d.]+[kKw万Uu]?$/i.test(rawSalary.replace(/[,，\s]/g, ''));
-                const department = deptCol ? String(row[deptCol] || '').trim() : '';
-                const location = locCol ? String(row[locCol] || '').trim() : 'remote';
+                if (ai && ai.title) {
+                  // Use AI-parsed data
+                  title = ai.title;
+                  department = ai.department || '';
+                  rawSalary = ai.salary || '';
+                  location = ai.location || 'remote';
+                  responsibilities = (Array.isArray(ai.responsibilities) ? ai.responsibilities : []);
+                  requirements = (Array.isArray(ai.requirements) ? ai.requirements : []);
+                } else {
+                  // Fall back to column-based parsing
+                  title = String(row[titleCol] || '').trim();
+                  if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
+                  rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : '';
+                  department = deptCol ? String(row[deptCol] || '').trim() : '';
+                  location = locCol ? String(row[locCol] || '').trim() : 'remote';
 
-                // Collect content from unlabeled columns
-                const allText: string[] = [];
-                for (const col of contentCols) {
-                  const v = String(row[col] || '').trim();
-                  if (v && v.length > 2) allText.push(v);
+                  const allText: string[] = [];
+                  for (const col of contentCols) {
+                    const v = String(row[col] || '').trim();
+                    if (v && v.length > 2) allText.push(v);
+                  }
+                  const lines = allText
+                    .flatMap((s) => s.split(/[；;。\n\r]+/))
+                    .map((s) => s.replace(/^[\d]+[.、.\s]*/, '').trim())
+                    .filter((s) => s.length > 1);
+                  const mid = Math.ceil(lines.length / 2);
+                  responsibilities = lines.slice(0, mid);
+                  requirements = lines.slice(mid);
                 }
 
-                const lines = allText
-                  .flatMap((s) => s.split(/[；;。\n\r]+/))
-                  .map((s) => s.replace(/^[\d]+[.、.\s]*/, '').trim())
-                  .filter((s) => s.length > 1);
-
-                const mid = Math.ceil(lines.length / 2);
+                const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
+                const hasExtra = rawSalary && !isNegotiable && !/^[\d.]+[-~至到][\d.]+[kKw万Uu]?$/i.test(rawSalary.replace(/[,，\s]/g, ''));
 
                 batch.push({
                   id: generateId(),
                   title,
                   department,
                   categories: detectCategories(title + ' ' + department),
-                  responsibilities: lines.slice(0, mid),
-                  requirements: lines.slice(mid),
+                  responsibilities,
+                  requirements,
                   salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
                   salaryText: (isNegotiable || hasExtra) ? rawSalary : undefined,
                   location: location || 'remote',

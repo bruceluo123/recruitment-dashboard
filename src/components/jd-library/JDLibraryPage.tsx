@@ -11,14 +11,14 @@ import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store'
 import { Briefcase, X } from 'lucide-react';
 import { generateId } from '@/lib/utils';
 import type { JDCategory } from '@/types/jd';
-import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [activeOnly, setActiveOnly] = useState(false);
-  const [addForm, setAddForm] = useState({ title: '', department: '', responsibilities: '', requirements: '', category: 'operations' as string, location: 'remote', salary: '' });
+  const [addForm, setAddForm] = useState({ title: '', department: '', responsibilities: '', requirements: '', categories: [] as string[], location: 'remote', salary: '' });
 
   const jds = useJDStore((s) => s.jds);
   const filter = useJDStore((s) => s.filter);
@@ -52,7 +52,7 @@ export function JDLibraryPage() {
       id: generateId(),
       title: addForm.title.trim(),
       department: addForm.department.trim(),
-      categories: [addForm.category as JDCategory || detectCat(addForm.title + ' ' + addForm.department)],
+      categories: addForm.categories.length > 0 ? addForm.categories as JDCategory[] : [detectCat(addForm.title + ' ' + addForm.department)],
       responsibilities: addForm.responsibilities.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       requirements: addForm.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       salaryRange: parseSalary(addForm.salary),
@@ -61,7 +61,7 @@ export function JDLibraryPage() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }]);
-    setAddForm({ title: '', department: '', responsibilities: '', requirements: '', category: 'operations', location: 'remote', salary: '' });
+    setAddForm({ title: '', department: '', responsibilities: '', requirements: '', categories: [], location: 'remote', salary: '' });
     setAddOpen(false);
   };
 
@@ -123,13 +123,29 @@ export function JDLibraryPage() {
                     placeholder="如：技术部" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">分类</label>
-                  <select value={addForm.category} onChange={(e) => setAddForm({ ...addForm, category: e.target.value })}
-                    className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300">
-                    {ALL_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>{JD_CATEGORY_LABELS[cat]}</option>
-                    ))}
-                  </select>
+                  <label className="block text-xs text-gray-500 mb-1">分类（可多选）</label>
+                  <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                    {(ALL_CATEGORIES as JDCategory[]).slice(0, 11).map((cat) => {
+                      const sel = addForm.categories.includes(cat);
+                      return (
+                        <button key={cat} type="button"
+                          onClick={() => setAddForm({ ...addForm, categories: sel ? addForm.categories.filter(c => c !== cat) : [...addForm.categories, cat] })}
+                          className={`px-2 py-0.5 rounded-md text-xs font-medium border transition-all ${sel ? JD_CATEGORY_COLORS[cat] : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'}`}
+                        >{JD_CATEGORY_LABELS[cat]}</button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {(ALL_CATEGORIES as JDCategory[]).slice(11).map((cat) => {
+                      const sel = addForm.categories.includes(cat);
+                      return (
+                        <button key={cat} type="button"
+                          onClick={() => setAddForm({ ...addForm, categories: sel ? addForm.categories.filter(c => c !== cat) : [...addForm.categories, cat] })}
+                          className={`px-2 py-0.5 rounded-md text-xs font-medium border transition-all ${sel ? JD_CATEGORY_COLORS[cat] : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'}`}
+                        >{JD_CATEGORY_LABELS[cat]}</button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
