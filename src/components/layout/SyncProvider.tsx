@@ -14,7 +14,20 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     startSync((type, data) => {
       skipPush.current = true;
-      if (type === 'jds') useJDStore.setState({ jds: data as JD[] });
+      if (type === 'jds') {
+        const normalized = (data as Array<Record<string, unknown>>).map((jd: Record<string, unknown>) => {
+          const f = { ...jd } as Record<string, unknown>;
+          if (f.category && !f.categories) {
+            const map: Record<string, string> = { 'product-design': 'design' };
+            f.categories = [map[f.category as string] || f.category];
+            delete f.category;
+          }
+          if (!f.categories || !(f.categories as unknown[]).length) f.categories = ['operations'];
+          if (!f.status) f.status = 'active';
+          return f;
+        });
+        useJDStore.setState({ jds: normalized as unknown as JD[] });
+      }
       if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
       setTimeout(() => { skipPush.current = false; }, 2000);
     });
