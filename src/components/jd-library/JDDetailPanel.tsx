@@ -3,7 +3,7 @@ import { cn, formatSalary, formatDate } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, JD_STATUS_LABELS, JD_STATUS_COLORS, type JD, type JDCategory, type JDStatus, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useJDStore } from '@/store/jd-store';
 
 interface JDDetailPanelProps { jd: JD | null; isOpen: boolean; onClose: () => void; }
@@ -18,6 +18,9 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const [showAI, setShowAI] = useState(false);
   const jdId = jd?.id || '';
   const aiResult = aiResults[jdId] || null;
+
+  // Reset editing when JD changes
+  useEffect(() => { setEditing(false); }, [jdId]);
   const [form, setForm] = useState({
     title: '', department: '', location: '', salary: '',
     category: 'operations' as JDCategory, status: 'active' as JDStatus,
