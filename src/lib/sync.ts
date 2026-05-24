@@ -1,4 +1,7 @@
-// Multi-user data sync — version-based, debounced, conflict-free
+// Multi-user data sync — direct to Upstash KV, version-based, debounced
+
+const KV_URL = 'https://positive-mongrel-70521.upstash.io';
+const KV_TOKEN = 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
 
 type DataType = 'jds' | 'candidates';
 type ChangeHandler = (type: DataType, data: unknown, version: number) => void;
@@ -8,64 +11,80 @@ let onChange: ChangeHandler | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let pushTimers: Partial<Record<DataType, ReturnType<typeof setTimeout>>> = {};
 
-async function apiGet() {
+async function kvCmd(cmd: string, key: string, body?: string): Promise<string | null> {
   try {
-    const r = await fetch('/api/data');
-    return r.ok ? await r.json() : null;
+    const url = `${KV_URL}/${cmd}/${encodeURIComponent(key)}`;
+    const opts: RequestInit = {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+    };
+    if (body !== undefined) {
+      opts.method = 'POST';
+      opts.headers = { ...opts.headers, 'Content-Type': 'text/plain' };
+      opts.body = body;
+    }
+    const res = await fetch(url, opts);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.result;
   } catch { return null; }
 }
 
-async function apiPost(type: DataType, data: unknown) {
+async function fetchRemote(): Promise<{ jds: unknown[]; candidates: unknown[]; version: number } | null> {
   try {
-    const r = await fetch('/api/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, data }),
-    });
-    if (r.ok) {
-      const j = await r.json();
-      return j.version as number;
-    }
-  } catch { /* offline */ }
-  return null;
+    const [rawJd, rawCand, rawVer] = await Promise.all([
+      kvCmd('get', 'recruit:jds'),
+      kvCmd('get', 'recruit:candidates'),
+      kvCmd('get', 'recruit:version'),
+    ]);
+    if (!rawJd && !rawCand) return null;
+    return {
+      jds: (safeParse(rawJd) as unknown[]) || [],
+      candidates: (safeParse(rawCand) as unknown[]) || [],
+      version: parseInt(rawVer || '0') || 0,
+    };
+  } catch { return null; }
 }
 
-// Check remote and apply if newer
+async function pushData(type: DataType, data: unknown) {
+  const key = type === 'jds' ? 'recruit:jds' : 'recruit:candidates';
+  const ok = await kvCmd('set', key, JSON.stringify(data));
+  if (!ok) return null;
+  const rawV = await kvCmd('get', 'recruit:version');
+  const v = (parseInt(rawV || '0') || 0) + 1;
+  await kvCmd('set', 'recruit:version', String(v));
+  return v;
+}
+
 async function poll() {
-  const remote = await apiGet();
+  const remote = await fetchRemote();
   if (!remote) return;
   if (remote.version > remoteVersion) {
     remoteVersion = remote.version;
     if (onChange) {
-      if (remote.jds) onChange('jds', remote.jds, remote.version);
-      if (remote.candidates) onChange('candidates', remote.candidates, remote.version);
+      if (remote.jds.length) onChange('jds', remote.jds, remote.version);
+      if (remote.candidates.length) onChange('candidates', remote.candidates, remote.version);
     }
   }
 }
 
-// Debounced push — waits for 1s of inactivity
 function schedulePush(type: DataType, getData: () => unknown) {
   if (pushTimers[type]) clearTimeout(pushTimers[type]);
   pushTimers[type] = setTimeout(async () => {
-    const v = await apiPost(type, getData());
+    const v = await pushData(type, getData());
     if (v != null) remoteVersion = v;
   }, 1000);
 }
 
 export function startSync(handler: ChangeHandler) {
   onChange = handler;
-
-  // Initial fetch
-  apiGet().then((remote) => {
+  fetchRemote().then((remote) => {
     if (!remote) return;
     remoteVersion = remote.version;
     if (onChange) {
-      if (remote.jds?.length) onChange('jds', remote.jds, remote.version);
-      if (remote.candidates?.length) onChange('candidates', remote.candidates, remote.version);
+      if (remote.jds.length) onChange('jds', remote.jds, remote.version);
+      if (remote.candidates.length) onChange('candidates', remote.candidates, remote.version);
     }
   });
-
-  // Poll every 10s
   timer = setInterval(poll, 10000);
 }
 
@@ -76,7 +95,11 @@ export function stopSync() {
   pushTimers = {};
 }
 
-// Call after every local change — debounced
 export function syncPush(type: DataType, data: unknown) {
   schedulePush(type, () => data);
+}
+
+function safeParse(raw: string | null): unknown {
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
 }
