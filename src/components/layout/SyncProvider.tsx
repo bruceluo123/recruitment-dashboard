@@ -35,8 +35,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           return f;
         });
         // Only apply remote if it's not empty mock
-        if (!isMockData(normalized as JD[])) {
-          useJDStore.setState({ jds: normalized as unknown as JD[] });
+        const typedJds = normalized as unknown as JD[];
+        if (!isMockData(typedJds)) {
+          useJDStore.setState({ jds: typedJds });
         }
       }
       if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
