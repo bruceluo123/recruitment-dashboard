@@ -95,6 +95,10 @@ export const useJDStore = create<JDStore>()(
 
       backupToKV: async () => {
         const jds = get().jds;
+        if (jds.length > 0 && jds.every((j) => j.id.startsWith('jd-00'))) {
+          alert('当前为示例数据，不能备份。请先导入真实岗位数据。');
+          return;
+        }
         try {
           const res = await fetch('/api/data', {
             method: 'POST',
