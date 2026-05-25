@@ -142,25 +142,23 @@ export const useJDStore = create<JDStore>()(
           const batch: JD[] = [];
           const result: JDImportResult = { success: 0, failed: 0, errors: [] };
 
-          // Detect if AI parsing is needed (long unstructured text with few columns)
-          const sampleText = rows.slice(0, Math.min(5, total))
-            .map((r) => contentCols.map((c) => String(r[c] || '').trim()).join(' '))
-            .join(' ');
-          const needsAI = contentCols.length <= 2 && sampleText.length > 500;
+          // Check which rows need AI (long unstructured text)
+          const rowTexts = rows.map((r) =>
+            contentCols.map((c) => String(r[c] || '').trim()).filter(Boolean).join('\n'));
+          const needAI = rowTexts.map((t) => t.length > 200); // Long text → needs AI
 
-          // If AI needed, batch parse all rows first
-          const aiResults: (ParsedJD | null)[] = [];
-          if (needsAI) {
-            set({ importProgress: { current: 0, total, percent: 5, status: 'parsing' } });
-            const texts = rows.map((r) =>
-              contentCols.map((c) => String(r[c] || '').trim()).filter(Boolean).join('\n'));
-            const aiBatch = 5;
-            for (let b = 0; b < texts.length; b += aiBatch) {
-              const batchTexts = texts.slice(b, b + aiBatch);
-              const parsed = await parseMultipleJDs(batchTexts);
-              aiResults.push(...parsed);
-              const pct = Math.round(((b + aiBatch) / texts.length) * 20);
-              set({ importProgress: { current: Math.min(b + aiBatch, total), total, percent: pct, status: 'parsing' } });
+          // AI batch parse rows that need it
+          const aiResults: (ParsedJD | null)[] = new Array(total).fill(null);
+          const aiIndices = needAI.map((n, i) => n ? i : -1).filter(i => i >= 0);
+          if (aiIndices.length > 0) {
+            const aiBatchSize = 5;
+            for (let b = 0; b < aiIndices.length; b += aiBatchSize) {
+              const batch = aiIndices.slice(b, b + aiBatchSize);
+              const texts = batch.map((idx) => rowTexts[idx]);
+              const parsed = await parseMultipleJDs(texts);
+              batch.forEach((idx, k) => { aiResults[idx] = parsed[k] || null; });
+              const pct = Math.round(((b + aiBatchSize) / aiIndices.length) * 30);
+              set({ importProgress: { current: b + aiBatchSize, total: aiIndices.length, percent: pct, status: 'parsing' } });
             }
           }
 
@@ -180,34 +178,35 @@ export const useJDStore = create<JDStore>()(
                 let responsibilities: string[] = [];
                 let requirements: string[] = [];
 
-                if (ai && ai.title) {
-                  // Use AI-parsed data
+                if (ai?.title) {
                   title = ai.title;
                   department = ai.department || '';
                   rawSalary = ai.salary || '';
                   location = ai.location || 'remote';
-                  responsibilities = (Array.isArray(ai.responsibilities) ? ai.responsibilities : []);
-                  requirements = (Array.isArray(ai.requirements) ? ai.requirements : []);
+                  responsibilities = Array.isArray(ai.responsibilities) ? ai.responsibilities : [];
+                  requirements = Array.isArray(ai.requirements) ? ai.requirements : [];
                 } else {
-                  // Fall back to column-based parsing
                   title = String(row[titleCol] || '').trim();
                   if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
                   rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : '';
                   department = deptCol ? String(row[deptCol] || '').trim() : '';
                   location = locCol ? String(row[locCol] || '').trim() : 'remote';
 
+                  // Collect content, keeping column order
                   const allText: string[] = [];
                   for (const col of contentCols) {
                     const v = String(row[col] || '').trim();
-                    if (v && v.length > 2) allText.push(v);
+                    if (v && v.length > 1) allText.push(v);
                   }
-                  const lines = allText
-                    .flatMap((s) => s.split(/[；;。\n\r]+/))
-                    .map((s) => s.replace(/^[\d]+[.、.\s]*/, '').trim())
-                    .filter((s) => s.length > 1);
-                  const mid = Math.ceil(lines.length / 2);
-                  responsibilities = lines.slice(0, mid);
-                  requirements = lines.slice(mid);
+                  // If only 1 content column, treat as responsibilities (don't split)
+                  if (allText.length === 1) {
+                    responsibilities = allText[0].split(/[；;。\n\r]+/).map((s: string) => s.replace(/^[\d]+[.、.\s]*/, '').trim()).filter((s: string) => s.length > 1);
+                  } else {
+                    const lines = allText.flatMap((s: string) => s.split(/[；;。\n\r]+/)).map((s: string) => s.replace(/^[\d]+[.、.\s]*/, '').trim()).filter((s: string) => s.length > 1);
+                    const mid = Math.ceil(lines.length / 2);
+                    responsibilities = lines.slice(0, mid);
+                    requirements = lines.slice(mid);
+                  }
                 }
 
                 const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
