@@ -189,6 +189,10 @@ export const useJDStore = create<JDStore>()(
                 const ai = aiResults[j];
                 if (!row) { result.failed++; result.errors.push(`第${j + 1}行: 数据为空`); continue; }
 
+                // Skip repeated section header rows mid-sheet
+                const rawTitleCell = String(row[titleCol] || '').trim();
+                if (rawTitleCell && isAllowedTitleHeader(rawTitleCell)) continue;
+
                 let title: string;
                 let department: string;
                 let rawSalary: string;
@@ -328,9 +332,11 @@ function normalizeExcelRows(rawRows: unknown[][]): Record<string, string>[] {
 
   if (!rows.length) return [];
 
-  if (looksLikeHeaderRow(rows[0])) {
-    const headers = rows[0].map((h, i) => h || `列${i + 1}`);
-    return rows.slice(1).map((row) => {
+  // Find the first header row in the first 5 rows (handles sheets with leading blank/metadata rows)
+  const headerRowIdx = rows.slice(0, 5).findIndex(looksLikeHeaderRow);
+  if (headerRowIdx >= 0) {
+    const headers = rows[headerRowIdx].map((h, i) => h || `列${i + 1}`);
+    return rows.slice(headerRowIdx + 1).map((row) => {
       const item: Record<string, string> = {};
       headers.forEach((header, i) => { item[header] = row[i] || ''; });
       return item;
@@ -352,7 +358,11 @@ function looksLikeHeaderRow(row: string[]): boolean {
     matchesAnyKeyword(cell, TITLE_KEYS) ||
     matchesAnyKeyword(cell, SALARY_KEYS) ||
     matchesAnyKeyword(cell, DEPT_KEYS) ||
-    matchesAnyKeyword(cell, LOC_KEYS)
+    matchesAnyKeyword(cell, LOC_KEYS) ||
+    matchesAnyKeyword(cell, ORG_KEYS) ||
+    matchesAnyKeyword(cell, SERVICE_KEYS) ||
+    matchesAnyKeyword(cell, HC_KEYS) ||
+    matchesAnyKeyword(cell, VACANCY_KEYS)
   ).length;
   const hasLongContent = compactCells.some((cell) => cell.length > 80);
   return matched >= 2 && !hasLongContent;

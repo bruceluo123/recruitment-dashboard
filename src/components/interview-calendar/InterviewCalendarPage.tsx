@@ -5,6 +5,7 @@ import { StageKanbanBoard } from './StageKanbanBoard';
 import { useInterviewStore } from '@/store/interview-store';
 import type { CandidateStatus } from '@/types/interview';
 import { ListFilter, X, Bell, Check, Pencil } from 'lucide-react';
+import { formatInterviewDate } from '@/lib/utils';
 
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
@@ -200,7 +201,7 @@ export function InterviewCalendarPage() {
               <Stat label="岗位" value={selected.jdTitle} />
               <Stat label="薪资" value={selected.salary || '-'} />
               <Stat label="分数" value={`${selected.score} 分`} />
-              <Stat label="面试时间" value={selected.interviewDate ? new Date(selected.interviewDate).toLocaleString('zh-CN') : '未安排'} />
+              <div className="p-3 rounded-lg bg-gray-50"><p className="text-xs text-gray-400 mb-0.5">面试时间</p><p className="text-base font-bold text-gray-800">{selected.interviewDate ? formatInterviewDate(selected.interviewDate) : '未安排'}</p></div>
               <Stat label="面试官" value={selected.interviewer || '待定'} />
               <Stat label="投递时间" value={new Date(selected.appliedAt).toLocaleDateString('zh-CN')} />
               <Stat label="入职时间" value={selected.onboardDate ? new Date(selected.onboardDate).toLocaleDateString('zh-CN') : '-'} />

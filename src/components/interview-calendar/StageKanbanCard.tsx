@@ -1,5 +1,5 @@
 'use client';
-import { cn, formatDateTime } from '@/lib/utils';
+import { cn, formatInterviewDate } from '@/lib/utils';
 import type { Candidate } from '@/types/interview';
 import { STAGE_COLORS } from '@/types/interview';
 import { Mail, Trash2 } from 'lucide-react';
@@ -23,7 +23,10 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
           <p className="text-xs text-green-600 font-medium">{candidate.salary}</p>
         )}
         {candidate.interviewDate && (
-          <div className="flex items-center gap-1.5 text-xs text-gray-500"><div className={cn('w-1.5 h-1.5 rounded-full', dotColor)} />{formatDateTime(candidate.interviewDate)}</div>
+          <div className="flex items-center gap-1.5">
+            <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotColor)} />
+            <span className="text-sm font-bold text-gray-800">{formatInterviewDate(candidate.interviewDate)}</span>
+          </div>
         )}
         {candidate.interviewer && <p className="text-xs text-gray-500">面试官: {candidate.interviewer}</p>}
         {candidate.contactEmail && <p className="text-xs text-gray-400 flex items-center gap-1"><Mail className="w-3 h-3" /><span className="truncate">{candidate.contactEmail}</span></p>}
