@@ -58,7 +58,7 @@ async function getServiceAccountToken(serviceAccountJson: string): Promise<strin
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
   const claims = Buffer.from(JSON.stringify({
     iss: sa.client_email,
-    scope: 'https://www.googleapis.com/auth/drive.readonly',
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly',
     aud: 'https://oauth2.googleapis.com/token',
     iat: now,
     exp: now + 3600,
@@ -111,23 +111,18 @@ export async function POST(req: NextRequest) {
 
     const token = await getServiceAccountToken(serviceAccountJson);
 
-    // Drive API 导出（支持私有文件）
-    const exportMime = parsed.type === 'doc'
-      ? 'text/plain'
-      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    const driveUrl = `https://www.googleapis.com/drive/v3/files/${parsed.fileId}/export?mimeType=${encodeURIComponent(exportMime)}`;
-
-    const authRes = await fetch(driveUrl, {
+    // 使用带鉴权的原生导出 URL（不需要开启 Drive API）
+    const authRes = await fetch(parsed.publicExportUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
     if (!authRes.ok) {
       const body = await authRes.text();
-      const isNotShared = body.includes('notFound') || body.includes('not found') || authRes.status === 404;
-      return NextResponse.json(
-        { error: isNotShared ? '服务账号无访问权限，请将文档共享给服务账号邮箱（查看者权限）' : `Google API 错误 ${authRes.status}` },
-        { status: authRes.status }
-      );
+      const isNotShared = body.includes('ServiceAccountNotFound') || body.includes('not found') || authRes.status === 404;
+      const msg = isNotShared
+        ? '服务账号无访问权限，请将文档共享给服务账号邮箱（查看者权限）'
+        : `Google 导出错误 ${authRes.status}`;
+      return NextResponse.json({ error: msg }, { status: authRes.status });
     }
 
     return buildFileResponse(await authRes.arrayBuffer(), parsed.type);
