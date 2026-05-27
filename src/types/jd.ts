@@ -19,7 +19,12 @@ export type JDCategory =
   | 'seo'
   | 'director'
   | 'data'
-  | 'hardware';
+  | 'hardware'
+  | 'art'
+  | 'marketing'
+  | 'video'
+  | 'live'
+  | 'legal';
 
 export type JDStatus = 'active' | 'urgent' | 'paused';
 
@@ -89,6 +94,11 @@ export const JD_CATEGORY_LABELS: Record<JDCategory, string> = {
   director: '总监级',
   data: '数据',
   hardware: '硬件',
+  art: '美术',
+  marketing: '市场',
+  video: '视频',
+  live: '直播',
+  legal: '法务',
 };
 
 export const JD_CATEGORY_COLORS: Record<JDCategory, string> = {
@@ -113,11 +123,16 @@ export const JD_CATEGORY_COLORS: Record<JDCategory, string> = {
   director: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-200',
   data: 'bg-zinc-100 text-zinc-700 ring-1 ring-inset ring-zinc-300',
   hardware: 'bg-neutral-100 text-neutral-700 ring-1 ring-inset ring-neutral-300',
+  art: 'bg-orange-100 text-orange-800 ring-1 ring-inset ring-orange-300',
+  marketing: 'bg-rose-100 text-rose-800 ring-1 ring-inset ring-rose-300',
+  video: 'bg-sky-100 text-sky-800 ring-1 ring-inset ring-sky-300',
+  live: 'bg-red-100 text-red-800 ring-1 ring-inset ring-red-300',
+  legal: 'bg-slate-200 text-slate-800 ring-1 ring-inset ring-slate-400',
 };
 
 export const ALL_CATEGORIES: JDCategory[] = [
   'frontend', 'devops', 'administration', 'advertising', 'gaming',
   'backend', 'operations', 'product', 'design', 'finance', 'algorithm',
   'customer-service', 'project', 'ai', 'testing', 'hr', 'bd', 'seo', 'director',
-  'data', 'hardware',
+  'data', 'hardware', 'art', 'marketing', 'video', 'live', 'legal',
 ];

@@ -25,6 +25,11 @@ const CAT_TAB_COLORS: Record<string, { active: string; idle: string }> = {
   seo:        { active: 'bg-sky-500 text-white border-sky-500', idle: 'text-sky-600 border-sky-200' },
   administration: { active: 'bg-stone-500 text-white border-stone-500', idle: 'text-stone-600 border-stone-200' },
   director:   { active: 'bg-red-500 text-white border-red-500', idle: 'text-red-600 border-red-200' },
+  art:        { active: 'bg-orange-600 text-white border-orange-600', idle: 'text-orange-700 border-orange-300' },
+  marketing:  { active: 'bg-rose-600 text-white border-rose-600', idle: 'text-rose-700 border-rose-300' },
+  video:      { active: 'bg-sky-600 text-white border-sky-600', idle: 'text-sky-700 border-sky-300' },
+  live:       { active: 'bg-red-600 text-white border-red-600', idle: 'text-red-700 border-red-300' },
+  legal:      { active: 'bg-slate-600 text-white border-slate-600', idle: 'text-slate-700 border-slate-300' },
 };
 
 interface JDCategoryTabsProps {
