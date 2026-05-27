@@ -25,6 +25,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
     title: '', department: '', location: '', salary: '',
     categories: [] as JDCategory[], status: 'active' as JDStatus,
     responsibilities: '', requirements: '',
+    headcount: '', gap: '',
   });
 
   if (!jd) return null;
@@ -38,6 +39,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       categories: jd.categories.length > 0 ? jd.categories : ['operations'], status: jd.status,
       responsibilities: jd.responsibilities.join('；'),
       requirements: jd.requirements.join('；'),
+      headcount: jd.headcount || '',
+      gap: jd.gap || '',
     });
     setEditing(true);
   };
@@ -74,6 +77,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       salaryRange,
       salaryText: salaryText || undefined,
       status: form.status,
+      headcount: form.headcount.trim() || undefined,
+      gap: form.gap.trim() || undefined,
     });
     setEditing(false);
   };
@@ -201,6 +206,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
                 <InfoTileEdit icon={Briefcase} label="部门" value={form.department} onChange={(v) => setForm({ ...form, department: v })} />
                 <InfoTileEdit icon={MapPin} label="地点" value={form.location} onChange={(v) => setForm({ ...form, location: v })} />
                 <InfoTileEdit icon={AlertCircle} label="薪资" value={form.salary} onChange={(v) => setForm({ ...form, salary: v })} placeholder="20K-40K" />
+                <InfoTileEdit icon={Users} label="HC" value={form.headcount} onChange={(v) => setForm({ ...form, headcount: v })} placeholder="1" />
+                <InfoTileEdit icon={AlertCircle} label="缺口" value={form.gap} onChange={(v) => setForm({ ...form, gap: v })} placeholder="1" />
               </>
             ) : (
               <>
