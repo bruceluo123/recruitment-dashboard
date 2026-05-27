@@ -29,6 +29,10 @@ export interface JD {
   id: string;
   title: string;
   department: string;
+  organization?: string;
+  serviceUnit?: string;
+  headcount?: string;
+  gap?: string;
   categories: JDCategory[];
   responsibilities: string[];
   requirements: string[];

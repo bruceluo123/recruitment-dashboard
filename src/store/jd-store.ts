@@ -24,6 +24,7 @@ interface JDStore {
   addJdBatch: (jds: JD[]) => void;
   updateJD: (id: string, partial: Partial<JD>) => void;
   deleteJD: (id: string) => void;
+  deleteJDBatch: (ids: string[]) => void;
   undoDeleteJD: () => void;
   lastDeletedJD: JD | null;
   importFromExcel: (file: File) => Promise<JDImportResult>;
@@ -45,13 +46,17 @@ export const useJDStore = create<JDStore>()(
       selectJD: (id) => set({ selectedJdId: id }),
       setFilter: (partial) => set((s) => ({ filter: { ...s.filter, ...partial } })),
       resetFilter: () => set({ filter: { search: '', category: 'all' } }),
-      addJdBatch: (jds) => set((s) => ({ jds: [...s.jds, ...jds] })),
+      addJdBatch: (jds) => set((s) => ({ jds: mergeUniqueJDs(s.jds, jds).jds })),
       updateJD: (id, partial) => set((s) => ({
         jds: s.jds.map((j) => j.id === id ? { ...j, ...partial, updatedAt: new Date().toISOString() } : j),
       })),
       deleteJD: (id) => set((s) => {
         const target = s.jds.find((j) => j.id === id);
         return { jds: s.jds.filter((j) => j.id !== id), lastDeletedJD: target || null };
+      }),
+      deleteJDBatch: (ids) => set((s) => {
+        const idSet = new Set(ids);
+        return { jds: s.jds.filter((j) => !idSet.has(j.id)), lastDeletedJD: null };
       }),
       undoDeleteJD: () => set((s) => {
         if (!s.lastDeletedJD) return {};
@@ -75,22 +80,7 @@ export const useJDStore = create<JDStore>()(
 
       exportAllJDs: () => {
         const jds = get().jds;
-        const rows = jds.map((j) => ({
-          '岗位名称': j.title,
-          '部门': j.department,
-          '分类': (j.categories || []).join('/'),
-          '岗位职责': j.responsibilities.join('；'),
-          '岗位需求': j.requirements.join('；'),
-          '薪资': j.salaryText || (j.salaryRange.min ? `${j.salaryRange.min}K-${j.salaryRange.max}K` : ''),
-          '地点': j.location || 'remote',
-          '状态': j.status,
-        }));
-        import('xlsx').then((XLSX) => {
-          const ws = XLSX.utils.json_to_sheet(rows);
-          const wb = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(wb, ws, 'JD库');
-          XLSX.writeFile(wb, `JD岗位库_${new Date().toISOString().slice(0, 10)}.xlsx`);
-        });
+        exportJDsWithTemplate(jds);
       },
 
       backupToKV: async () => {
@@ -99,14 +89,29 @@ export const useJDStore = create<JDStore>()(
           alert('当前为示例数据，不能备份。请先导入真实岗位数据。');
           return;
         }
+        if (!confirm(`即将把当前 ${jds.length} 条岗位合并备份到云端。\n\n系统会先读取云端已有岗位，再合并去重后写回，避免直接覆盖导致数据丢失。是否继续？`)) {
+          return;
+        }
         try {
+          let dataToBackup = jds;
+          const remoteRes = await fetch('/api/data?type=jds');
+          if (remoteRes.ok) {
+            const remote = await remoteRes.json();
+            const remoteJds = Array.isArray(remote?.data) ? remote.data as JD[] : [];
+            dataToBackup = mergeUniqueJDs(remoteJds, jds).jds;
+          }
           const res = await fetch('/api/data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'jds', data: jds }),
+            body: JSON.stringify({ type: 'jds', data: dataToBackup }),
           });
-          if (res.ok) console.log('Backup to KV: OK');
-        } catch { /* offline */ }
+          if (res.ok) {
+            alert(`备份完成：云端当前共 ${dataToBackup.length} 条岗位。`);
+            console.log('Backup to KV: OK');
+          }
+        } catch {
+          alert('备份失败：当前网络或云端接口不可用。');
+        }
       },
 
       importFromExcel: async (file: File) => {
@@ -122,18 +127,31 @@ export const useJDStore = create<JDStore>()(
           const sheet = wb.Sheets[wb.SheetNames[0]];
           if (!sheet) { set({ isImporting: false }); return { success: 0, failed: 0, errors: ['工作表为空'] }; }
 
-          const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: '' });
+          const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+          const rows = normalizeExcelRows(rawRows);
           if (!rows?.length) { set({ isImporting: false }); return { success: 0, failed: 0, errors: ['没有数据'] }; }
 
           // Analyze headers: find title, salary, department, location columns
           const headers = Object.keys(rows[0]);
-          const titleCol = findTitleColumn(headers, rows);
+          const titleCol = findTitleColumn(headers);
+          if (!titleCol) {
+            set({ isImporting: false });
+            return { success: 0, failed: rows.length, errors: ['未找到岗位名称列，请使用表头：岗位名称 / 职位名称 / 岗位 / 职位 / title / job_title'] };
+          }
           const salaryCol = findColumnByKeywords(headers, SALARY_KEYS);
           const deptCol = findColumnByKeywords(headers, DEPT_KEYS);
           const locCol = findColumnByKeywords(headers, LOC_KEYS);
+          const orgCol = findColumnByKeywords(headers, ORG_KEYS);
+          const serviceCol = findColumnByKeywords(headers, SERVICE_KEYS);
+          const hcCol = findColumnByKeywords(headers, HC_KEYS);
+          const vacancyCol = findColumnByKeywords(headers, VACANCY_KEYS);
+          const skipCols = headers.filter((h) => matchesAnyKeyword(h, SKIP_KEYS));
 
           // Content columns = everything not matched to a known field
-          const knownCols = new Set([titleCol, salaryCol, deptCol, locCol].filter(Boolean));
+          const knownCols = new Set<string>(
+            [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, ...skipCols]
+              .filter((x): x is string => x !== null)
+          );
           const contentCols = headers.filter((h) => !knownCols.has(h));
 
           const total = rows.length;
@@ -178,18 +196,24 @@ export const useJDStore = create<JDStore>()(
                 let responsibilities: string[] = [];
                 let requirements: string[] = [];
 
-                if (ai?.title) {
-                  title = ai.title;
-                  department = ai.department || '';
-                  rawSalary = ai.salary || '';
-                  location = ai.location || 'remote';
+                const organization = orgCol ? String(row[orgCol] || '').trim() : '';
+                const serviceUnit = serviceCol ? String(row[serviceCol] || '').trim() : '';
+                const headcount = hcCol ? String(row[hcCol] || '').trim() : '';
+                const gap = vacancyCol ? String(row[vacancyCol] || '').trim() : '';
+
+                if (ai) {
+                  title = String(row[titleCol] || '').trim();
+                  if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
+                  department = serviceUnit || ai.department || (deptCol ? String(row[deptCol] || '').trim() : '') || organization;
+                  rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : ai.salary || '';
+                  location = ai.location || (locCol ? String(row[locCol] || '').trim() : 'remote');
                   responsibilities = Array.isArray(ai.responsibilities) ? ai.responsibilities : [];
                   requirements = Array.isArray(ai.requirements) ? ai.requirements : [];
                 } else {
                   title = String(row[titleCol] || '').trim();
                   if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
                   rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : '';
-                  department = deptCol ? String(row[deptCol] || '').trim() : '';
+                  department = serviceUnit || (deptCol ? String(row[deptCol] || '').trim() : '') || organization;
                   location = locCol ? String(row[locCol] || '').trim() : 'remote';
 
                   // Collect content, keeping column order
@@ -198,15 +222,11 @@ export const useJDStore = create<JDStore>()(
                     const v = String(row[col] || '').trim();
                     if (v && v.length > 1) allText.push(v);
                   }
-                  // If only 1 content column, treat as responsibilities (don't split)
-                  if (allText.length === 1) {
-                    responsibilities = allText[0].split(/[；;。\n\r]+/).map((s: string) => s.replace(/^[\d]+[.、.\s]*/, '').trim()).filter((s: string) => s.length > 1);
-                  } else {
-                    const lines = allText.flatMap((s: string) => s.split(/[；;。\n\r]+/)).map((s: string) => s.replace(/^[\d]+[.、.\s]*/, '').trim()).filter((s: string) => s.length > 1);
-                    const mid = Math.ceil(lines.length / 2);
-                    responsibilities = lines.slice(0, mid);
-                    requirements = lines.slice(mid);
-                  }
+                  // Split by section headers if present, otherwise by punctuation
+                  const combined = allText.join('\n');
+                  const split = splitJDBySection(combined);
+                  responsibilities = split.responsibilities;
+                  requirements = split.requirements;
                 }
 
                 const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
@@ -216,6 +236,10 @@ export const useJDStore = create<JDStore>()(
                   id: generateId(),
                   title,
                   department,
+                  organization: organization || undefined,
+                  serviceUnit: serviceUnit || undefined,
+                  headcount: headcount || undefined,
+                  gap: gap || undefined,
                   categories: detectCategories(title + ' ' + department),
                   responsibilities,
                   requirements,
@@ -234,7 +258,13 @@ export const useJDStore = create<JDStore>()(
             await new Promise((r) => setTimeout(r, 0));
           }
 
-          get().addJdBatch(batch);
+          const merged = mergeUniqueJDs(get().jds, batch);
+          useJDStore.setState({ jds: merged.jds });
+          if (merged.skipped > 0) {
+            result.success -= merged.skipped;
+            result.failed += merged.skipped;
+            result.errors.push(`已自动跳过 ${merged.skipped} 条重复岗位`);
+          }
           set({ isImporting: false, importProgress: { current: 0, total: 0, percent: 100, status: 'done' } });
           return result;
         } catch (err) {
@@ -278,53 +308,128 @@ export const useJDStore = create<JDStore>()(
 
 // ─── Column keyword lists ───
 
-const SALARY_KEYS = ['薪酬', '薪资', '工资', '待遇', '月薪', '年薪', '薪酬与福利', '薪酬福利', '薪资待遇', '薪酬范围', '薪资范围', '薪资水平', '工资待遇', '薪水', '报酬', 'salary', 'compensation', '底薪', '底薪范围', '综合薪资', '总包', '年包'];
-const DEPT_KEYS = ['部门', '所属部门', '用人部门', '工作部门', '事业部', '团队', '组织', 'department', 'dept', '所在部门', '归属部门', '职能部门'];
+const SALARY_KEYS = ['薪酬', '薪资', '工资', '待遇', '月薪', '年薪', '薪酬与福利', '薪酬福利', '薪资待遇', '薪酬范围', '薪资范围', '薪资区间', '薪资水平', '工资待遇', '薪水', '报酬', 'salary', 'compensation', '底薪', '底薪范围', '综合薪资', '总包', '年包'];
+const DEPT_KEYS = ['部门', '所属部门', '用人部门', '工作部门', '事业部', '团队', 'department', 'dept', '所在部门', '归属部门', '职能部门'];
 const LOC_KEYS = ['地点', '工作地点', '城市', '工作城市', '办公地点', '所在地', '工作地址', '地址', 'location', 'city', 'base'];
+const TITLE_KEYS = ['岗位名称', '职位名称', '岗位', '职位', 'title', 'job_title'];
+const EXCLUDED_TITLE_KEYS = ['序号', '编号', 'id', '自动序号', 'no', 'index'];
+const ORG_KEYS = ['编制组织', '编制', '所属公司', '归属公司', '归属组织'];
+const SERVICE_KEYS = ['服务单位', '所属单位', '业务单位', '所在单位'];
+const HC_KEYS = ['hc', 'headcount', '招聘人数', '编制数', '人数', 'hc数'];
+const VACANCY_KEYS = ['缺口', '空缺', '待招', '招聘缺口'];
+const SKIP_KEYS = ['已到岗', '已发offer', '待入职', '提需日期', '期望到岗日期', '期望到岗'];
 
 // ─── Column detection helpers ───
 
+function normalizeExcelRows(rawRows: unknown[][]): Record<string, string>[] {
+  const rows = rawRows
+    .map((row) => row.map((cell) => String(cell || '').trim()))
+    .filter((row) => row.some(Boolean));
+
+  if (!rows.length) return [];
+
+  if (looksLikeHeaderRow(rows[0])) {
+    const headers = rows[0].map((h, i) => h || `列${i + 1}`);
+    return rows.slice(1).map((row) => {
+      const item: Record<string, string> = {};
+      headers.forEach((header, i) => { item[header] = row[i] || ''; });
+      return item;
+    });
+  }
+
+  const headers = ['岗位名称', '岗位内容', '薪资', '部门', '备注', '备注2', '备注3', '备注4', '备注5'];
+  return rows.map((row) => {
+    const item: Record<string, string> = {};
+    row.forEach((cell, i) => { item[headers[i] || `列${i + 1}`] = cell; });
+    return item;
+  });
+}
+
+function looksLikeHeaderRow(row: string[]): boolean {
+  const compactCells = row.filter(Boolean);
+  if (!compactCells.length) return false;
+  const matched = compactCells.filter((cell) =>
+    matchesAnyKeyword(cell, TITLE_KEYS) ||
+    matchesAnyKeyword(cell, SALARY_KEYS) ||
+    matchesAnyKeyword(cell, DEPT_KEYS) ||
+    matchesAnyKeyword(cell, LOC_KEYS)
+  ).length;
+  const hasLongContent = compactCells.some((cell) => cell.length > 80);
+  return matched >= 2 && !hasLongContent;
+}
+
+function matchesAnyKeyword(value: string, keywords: string[]): boolean {
+  const normalized = value.toLowerCase().replace(/\s+/g, '');
+  return keywords.some((kw) => {
+    const key = kw.toLowerCase().replace(/\s+/g, '');
+    return normalized === key || normalized.includes(key);
+  });
+}
+
 function findColumnByKeywords(headers: string[], keywords: string[]): string | null {
   for (const h of headers) {
-    const hLower = h.toLowerCase().replace(/\s+/g, '');
-    for (const kw of keywords) {
-      if (hLower === kw.toLowerCase().replace(/\s+/g, '') || hLower.includes(kw.toLowerCase().replace(/\s+/g, ''))) {
-        return h;
-      }
-    }
+    if (matchesAnyKeyword(h, keywords)) return h;
   }
   return null;
 }
 
-function findTitleColumn(headers: string[], rows: Record<string, string>[]): string {
-  // First try keyword match
-  const TITLE_WORDS = ['岗位名称', '职位名称', '职位', '岗位', '职务', '招聘岗位', 'title', 'position', '名称', '角色', '岗位名'];
-  const kwMatch = findColumnByKeywords(headers, TITLE_WORDS);
-  if (kwMatch) return kwMatch;
+function findTitleColumn(headers: string[]): string | null {
+  return headers.find((h) => isAllowedTitleHeader(h) && !isExcludedTitleHeader(h)) || null;
+}
 
-  // Fallback: Score each column: ideal title = short values, high uniqueness, non-numeric
-  let bestCol = headers[0];
-  let bestScore = -1;
+function isAllowedTitleHeader(header: string): boolean {
+  const normalized = normalizeHeader(header);
+  return TITLE_KEYS.some((key) => normalized === normalizeHeader(key));
+}
 
-  for (const h of headers) {
-    const vals = rows.map((r) => String(r[h] || '').trim()).filter(Boolean);
-    if (vals.length === 0) continue;
+function isExcludedTitleHeader(header: string): boolean {
+  const normalized = normalizeHeader(header);
+  return EXCLUDED_TITLE_KEYS.some((key) => normalized === normalizeHeader(key));
+}
 
-    const avgLen = vals.reduce((s, v) => s + v.length, 0) / vals.length;
-    const uniqueRatio = new Set(vals).size / vals.length;
-    const hasNumbers = vals.some((v) => /^\d+$/.test(v) || /^\d+[-~]\d+/.test(v));
+function normalizeHeader(value: string): string {
+  return value.toLowerCase().replace(/[\s()（）]/g, '');
+}
 
-    // Score: prefer short values (3-25 chars), high uniqueness, no salary patterns
-    let score = 0;
-    if (avgLen >= 3 && avgLen <= 25) score += 40;
-    if (avgLen <= 15) score += 20;
-    if (uniqueRatio > 0.5) score += 20;
-    if (!hasNumbers) score += 20;
-
-    if (score > bestScore) { bestScore = score; bestCol = h; }
+function splitJDBySection(text: string): { responsibilities: string[]; requirements: string[] } {
+  const RESP_HEADER = /^(【工作内容】|【岗位职责】|【工作职责】|【工作描述】|工作内容[：:。]?|岗位职责[：:。]?|工作职责[：:。]?)/;
+  const REQ_HEADER = /^(【任职要求】|【岗位要求】|【岗位需求】|【条件】|【任职条件】|【资质要求】|任职要求[：:。]?|岗位需求[：:。]?|任职条件[：:。]?)/;
+  const rawLines = text.split(/[\n\r]+/).map((s) => s.trim()).filter(Boolean);
+  let currentBucket: 'resp' | 'req' = 'resp';
+  const responsibilities: string[] = [];
+  const requirements: string[] = [];
+  let hasMarkers = false;
+  for (const line of rawLines) {
+    if (RESP_HEADER.test(line)) {
+      hasMarkers = true;
+      currentBucket = 'resp';
+      const content = line.replace(RESP_HEADER, '').trim();
+      if (content) responsibilities.push(...splitOnPunct(content));
+    } else if (REQ_HEADER.test(line)) {
+      hasMarkers = true;
+      currentBucket = 'req';
+      const content = line.replace(REQ_HEADER, '').trim();
+      if (content) requirements.push(...splitOnPunct(content));
+    } else {
+      const parts = splitOnPunct(line);
+      if (currentBucket === 'req') requirements.push(...parts);
+      else responsibilities.push(...parts);
+    }
   }
+  if (!hasMarkers) {
+    const lines = rawLines
+      .flatMap((s) => s.split(/[；;。]+/))
+      .map((s) => s.replace(/^[\d一二三四五六七八九十]+[.、,，\s]+/, '').trim())
+      .filter((s) => s.length > 1);
+    return { responsibilities: lines, requirements: [] };
+  }
+  return { responsibilities, requirements };
+}
 
-  return bestCol;
+function splitOnPunct(text: string): string[] {
+  return text.split(/[；;。]+/)
+    .map((s) => s.replace(/^[\d一二三四五六七八九十]+[.、,，\s]+/, '').trim())
+    .filter((s) => s.length > 1);
 }
 
 // ─── Category detection ───
@@ -333,7 +438,7 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['seo', /seo|搜索引擎|关键词/i],
   ['advertising', /广告|信息流|投放|sem|feed|千川/i],
   ['gaming', /游戏|unity|unreal|ue[45]|cocos/i],
-  ['ai', /人工智能|大模型|llm|gpt|prompt| ai /i],
+  ['ai', /(^|[\s\-_/｜|（）()【】])ai($|[\s\-_/｜|（）()【】])|人工智能|大模型|llm|gpt|prompt/i],
   ['algorithm', /算法|推荐|nlp|机器学习|深度学习|计算机视觉/i],
   ['frontend', /前端|web|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端/i],
   ['backend', /后端|java|go|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师/i],
@@ -368,6 +473,96 @@ function detectCategories(text: string): JDCategory[] {
     else result.push('operations');
   }
   return result.slice(0, 3);
+}
+
+function mergeUniqueJDs(existing: JD[], incoming: JD[]): { jds: JD[]; skipped: number } {
+  const seen = new Set(existing.map(getJDKey));
+  const unique: JD[] = [];
+
+  for (const jd of incoming) {
+    const key = getJDKey(jd);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(jd);
+  }
+
+  return { jds: [...existing, ...unique], skipped: incoming.length - unique.length };
+}
+
+function getJDKey(jd: Pick<JD, 'title' | 'department' | 'location'>): string {
+  return [jd.title, jd.department || '', jd.location || '']
+    .map((value) => normalizeJDKey(value))
+    .join('|');
+}
+
+function normalizeJDKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[（(]\s*\d+\s*人\s*[）)]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/[，,。；;:：|｜\-—_【】[\]()（）]/g, '');
+}
+
+function formatExportList(items: string[]): string {
+  return items.map((item, index) => `${index + 1}. ${item}`).join('\n');
+}
+
+async function exportJDsWithTemplate(jds: JD[]): Promise<void> {
+  const ExcelJS = await import('exceljs');
+  const res = await fetch('/templates/jd-export-template.xlsx');
+  if (!res.ok) {
+    alert('导出模板加载失败，请稍后重试。');
+    return;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await res.arrayBuffer());
+  const worksheet = workbook.getWorksheet('Sheet1') || workbook.worksheets[0];
+  const templateRow = worksheet.getRow(2);
+  const templateHeight = templateRow.height;
+  const templateStyles = [1, 2, 3, 4, 5].map((col) => ({
+    style: { ...templateRow.getCell(col).style },
+    alignment: { ...templateRow.getCell(col).alignment, wrapText: true, vertical: 'top' as const },
+  }));
+
+  if (worksheet.rowCount > 1) {
+    worksheet.spliceRows(2, worksheet.rowCount - 1);
+  }
+
+  jds.forEach((jd, index) => {
+    const row = worksheet.getRow(index + 2);
+    row.values = [
+      undefined,
+      jd.location || 'remote',
+      jd.title,
+      formatExportList(jd.responsibilities),
+      formatExportList(jd.requirements),
+      jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min} - ${jd.salaryRange.max}${jd.salaryRange.currency}` : ''),
+    ];
+    row.height = templateHeight || 120;
+    templateStyles.forEach((item, colIndex) => {
+      const cell = row.getCell(colIndex + 1);
+      cell.style = item.style;
+      cell.alignment = item.alignment;
+    });
+    row.commit();
+  });
+
+  worksheet.columns = [
+    { key: 'location', width: 12 },
+    { key: 'title', width: 24 },
+    { key: 'responsibilities', width: 70 },
+    { key: 'requirements', width: 70 },
+    { key: 'salary', width: 18 },
+  ];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `JD岗位库_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function parseSalary(s: string): { min: number; max: number; currency: string } {

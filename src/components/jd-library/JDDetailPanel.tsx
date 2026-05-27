@@ -2,7 +2,7 @@
 import { cn, formatSalary, formatDate } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, JD_STATUS_LABELS, JD_STATUS_COLORS, type JD, type JDCategory, type JDStatus, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2 } from 'lucide-react';
+import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useJDStore } from '@/store/jd-store';
 
@@ -23,7 +23,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   useEffect(() => { setEditing(false); }, [jdId]);
   const [form, setForm] = useState({
     title: '', department: '', location: '', salary: '',
-    category: 'operations' as JDCategory, status: 'active' as JDStatus,
+    categories: [] as JDCategory[], status: 'active' as JDStatus,
     responsibilities: '', requirements: '',
   });
 
@@ -35,7 +35,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       department: jd.department,
       location: jd.location || 'remote',
       salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min}K-${jd.salaryRange.max}K` : ''),
-      category: jd.categories[0], status: jd.status,
+      categories: jd.categories.length > 0 ? jd.categories : ['operations'], status: jd.status,
       responsibilities: jd.responsibilities.join('；'),
       requirements: jd.requirements.join('；'),
     });
@@ -68,7 +68,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       title: form.title.trim(),
       department: form.department.trim(),
       location: form.location.trim() || 'remote',
-      categories: [form.category],
+      categories: form.categories.length > 0 ? form.categories : ['operations'],
       responsibilities: form.responsibilities.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       requirements: form.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       salaryRange,
@@ -128,12 +128,25 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
               )}
               <div className="flex items-center gap-2">
                 {editing ? (
-                  <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as JDCategory })}
-                    className="px-2 py-0.5 rounded-md text-xs font-medium border border-gray-200 bg-white">
-                    {ALL_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>{JD_CATEGORY_LABELS[cat]}</option>
-                    ))}
-                  </select>
+                  <div className="flex flex-wrap gap-1 max-w-[360px]">
+                    {ALL_CATEGORIES.map((cat) => {
+                      const selected = form.categories.includes(cat);
+                      return (
+                        <button key={cat} type="button"
+                          onClick={() => setForm({
+                            ...form,
+                            categories: selected ? form.categories.filter((item) => item !== cat) : [...form.categories, cat],
+                          })}
+                          className={cn(
+                            'px-2 py-0.5 rounded-md text-xs font-medium border transition-all',
+                            selected ? JD_CATEGORY_COLORS[cat] : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300',
+                          )}
+                        >
+                          {JD_CATEGORY_LABELS[cat]}
+                        </button>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <>{jd.categories.map((cat: JDCategory) => (
                     <span key={cat} className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[cat])}>
@@ -191,12 +204,19 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
               </>
             ) : (
               <>
-                <InfoTile icon={Briefcase} label="部门" value={jd.department || '-'} />
+                <InfoTile icon={Briefcase} label="服务单位" value={jd.serviceUnit || jd.department || '-'} />
                 <InfoTile icon={MapPin} label="地点" value={jd.location || 'remote'} />
                 <InfoTile icon={AlertCircle} label="薪资" value={jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')} />
               </>
             )}
             <InfoTile icon={Clock} label="更新" value={formatDate(jd.updatedAt)} />
+            {(jd.organization || jd.headcount || jd.gap) && (
+              <>
+                {jd.organization && <InfoTile icon={Building2} label="编制组织" value={jd.organization} />}
+                {jd.headcount && <InfoTile icon={Users} label="HC" value={jd.headcount} />}
+                {jd.gap && <InfoTile icon={AlertCircle} label="缺口" value={jd.gap} />}
+              </>
+            )}
           </div>
 
           {/* AI Analysis */}
