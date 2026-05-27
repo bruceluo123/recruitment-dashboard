@@ -17,7 +17,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <h3 className="text-base font-semibold text-gray-800">DeepSeek API</h3>
-            <p className="text-sm text-gray-500">已配置 · 模型: deepseek-chat</p>
+            <p className="text-sm text-gray-500">已配置 · 模型: deepseek-v4-pro</p>
           </div>
         </div>
         <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-100">

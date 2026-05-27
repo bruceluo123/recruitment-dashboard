@@ -27,13 +27,30 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
     if (!sheetUrl) return;
     setResult(null);
     try {
-      const res = await fetch(sheetUrl);
-      const text = await res.text();
-      const isCsv = text.includes(',') && !text.startsWith('PK');
-      const blob = isCsv ? new Blob([text], { type: 'text/csv' }) : await res.blob();
-      setResult(await importFromExcel(new File([blob], isCsv ? 'import.csv' : 'import.xlsx')));
-    } catch {
-      setResult({ success: 0, failed: 1, errors: ['无法访问链接，请确认已发布为 CSV（文件→共享→发布到网络→CSV格式）'] });
+      const res = await fetch('/api/import/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: sheetUrl }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || '无法访问链接');
+      }
+
+      const blob = await res.blob();
+      if (blob.type.startsWith('text/')) {
+        const text = await blob.text();
+        const XLSX = await import('xlsx');
+        const ws = XLSX.utils.json_to_sheet([{ '岗位名称': '', '岗位内容': text }]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+        const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        setResult(await importFromExcel(new File([buffer], 'google-doc.xlsx')));
+      } else {
+        setResult(await importFromExcel(new File([blob], 'google-sheet.xlsx')));
+      }
+    } catch (err) {
+      setResult({ success: 0, failed: 1, errors: [(err as Error).message || '无法访问链接，请确认 Google 文档已开放查看权限'] });
     }
   };
 
@@ -49,7 +66,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
         <div className="flex border-b border-gray-100 mx-6 mt-4">
           {[
             { id: 'excel' as const, label: 'Excel 文件', icon: FileSpreadsheet },
-            { id: 'sheet' as const, label: 'Google Sheets', icon: Link },
+            { id: 'sheet' as const, label: 'Google 文档', icon: Link },
           ].map((t) => (
             <button key={t.id} onClick={() => { if (!isImporting) { setTab(t.id); setResult(null); } }}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${tab === t.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'} ${isImporting ? 'opacity-50 cursor-not-allowed' : ''}`}>
@@ -103,12 +120,12 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
           {!isImporting && tab === 'sheet' && (
             <>
               <div>
-                <label className="block text-sm text-gray-600 mb-1.5">Google Sheets 发布链接</label>
-                <input value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 transition-all" />
-                <p className="text-xs text-gray-400 mt-1.5">文件 → 共享 → 发布到网络 → CSV 格式</p>
+                <label className="block text-sm text-gray-600 mb-1.5">Google Sheets / Docs 分享链接</label>
+                <input value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/... 或 /document/d/..." className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 transition-all" />
+                <p className="text-xs text-gray-400 mt-1.5">支持开放查看的 Google 表格/文档，每次点击都会读取最新内容并自动查重</p>
               </div>
               <button onClick={handleSheetImport} disabled={!sheetUrl} className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                <Link className="w-4 h-4" />从 Sheets 导入
+                <Link className="w-4 h-4" />从 Google 导入最新 JD
               </button>
             </>
           )}

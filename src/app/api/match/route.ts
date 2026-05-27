@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
-const API_KEY = 'sk-4bad484c2c3e41c2b627cd6d3cb6c3ef';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const model = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
+
+    if (!apiKey) {
+      return NextResponse.json({ error: 'DeepSeek API Key 未配置' }, { status: 500 });
+    }
 
     const response = await fetch(DEEPSEEK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model,
         messages: body.messages,
         temperature: body.temperature ?? 0.3,
         max_tokens: body.max_tokens ?? 2000,

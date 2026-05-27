@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopNav } from '@/components/layout/TopNav';
 import { SyncProvider } from '@/components/layout/SyncProvider';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'] });
+const geistSans = localFont({
+  src: './fonts/GeistVF.woff',
+  variable: '--font-geist-sans',
+});
 
 export const metadata: Metadata = {
   title: '企鹅求职岛 - 猎头岗位匹配系统',
@@ -15,7 +18,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body className={`${inter.className} bg-gray-50 text-gray-900 antialiased`}>
+      <body className={`${geistSans.className} bg-gray-50 text-gray-900 antialiased`}>
         <SyncProvider>
           <Sidebar />
           <div className="pl-[64px] lg:pl-[240px]">

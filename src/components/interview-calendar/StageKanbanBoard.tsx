@@ -16,10 +16,20 @@ export function StageKanbanBoard({ candidates, onCandidateMove, onCandidateClick
     <div className="flex gap-4 overflow-x-auto pb-4">
       {DEFAULT_STAGES.map((stage) => (
         <StageKanbanColumn key={stage.id} stage={stage}
-          candidates={candidates.filter((c) => c.stage === stage.id)}
+          candidates={sortCandidatesByInterviewTime(candidates.filter((c) => c.stage === stage.id))}
           onCandidateMove={onCandidateMove} onCandidateClick={onCandidateClick}
           onDeleteCandidate={onDeleteCandidate} onAddCandidate={onAddCandidate} />
       ))}
     </div>
   );
+}
+
+function sortCandidatesByInterviewTime(candidates: Candidate[]): Candidate[] {
+  return [...candidates].sort((a, b) => getInterviewTime(a) - getInterviewTime(b));
+}
+
+function getInterviewTime(candidate: Candidate): number {
+  if (!candidate.interviewDate) return Number.MAX_SAFE_INTEGER;
+  const time = new Date(candidate.interviewDate).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
 }

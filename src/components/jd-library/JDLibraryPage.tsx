@@ -8,7 +8,7 @@ import { JDDetailPanel } from './JDDetailPanel';
 import { JDImportDialog } from './JDImportDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store';
-import { Briefcase, X } from 'lucide-react';
+import { Briefcase, Sparkles, Trash2, X } from 'lucide-react';
 import { generateId } from '@/lib/utils';
 import type { JDCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
@@ -18,6 +18,9 @@ export function JDLibraryPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [activeOnly, setActiveOnly] = useState(false);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [rawJDText, setRawJDText] = useState('');
   const [addForm, setAddForm] = useState({ title: '', department: '', responsibilities: '', requirements: '', categories: [] as string[], location: 'remote', salary: '' });
 
   const jds = useJDStore((s) => s.jds);
@@ -27,6 +30,7 @@ export function JDLibraryPage() {
   const selectJD = useJDStore((s) => s.selectJD);
   const addJdBatch = useJDStore((s) => s.addJdBatch);
   const deleteJD = useJDStore((s) => s.deleteJD);
+  const deleteJDBatch = useJDStore((s) => s.deleteJDBatch);
   const cleanAllJDs = useJDStore((s) => s.cleanAllJDs);
   const exportAllJDs = useJDStore((s) => s.exportAllJDs);
   const backupToKV = useJDStore((s) => s.backupToKV);
@@ -45,6 +49,34 @@ export function JDLibraryPage() {
 
   const finalFiltered = activeOnly ? filteredJDs.filter((j) => j.status !== 'paused') : filteredJDs;
   const selectedJd = jds.find((j) => j.id === selectedJdId) || null;
+  const visibleIds = finalFiltered.map((j) => j.id);
+  const visibleSelectedCount = selectedIds.filter((id) => visibleIds.includes(id)).length;
+
+  const handleBatchModeChange = (next: boolean) => {
+    setBatchMode(next);
+    setSelectedIds([]);
+    if (next) selectJD(null);
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
+  };
+
+  const handleToggleSelectAll = () => {
+    setSelectedIds((ids) => {
+      const visibleSet = new Set(visibleIds);
+      const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => ids.includes(id));
+      if (allVisibleSelected) return ids.filter((id) => !visibleSet.has(id));
+      return Array.from(new Set([...ids, ...visibleIds]));
+    });
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedIds.length === 0) return;
+    deleteJDBatch(selectedIds);
+    setSelectedIds([]);
+    setBatchMode(false);
+  };
 
   const handleAdd = () => {
     if (!addForm.title.trim()) return;
@@ -62,14 +94,36 @@ export function JDLibraryPage() {
       updatedAt: new Date().toISOString(),
     }]);
     setAddForm({ title: '', department: '', responsibilities: '', requirements: '', categories: [], location: 'remote', salary: '' });
+    setRawJDText('');
     setAddOpen(false);
+  };
+
+  const handleRecognizeJD = () => {
+    const parsed = parseRawJD(rawJDText);
+    if (!parsed.title && !parsed.responsibilities && !parsed.requirements) return;
+    setAddForm((form) => ({
+      ...form,
+      title: parsed.title || form.title,
+      department: parsed.department || form.department,
+      responsibilities: parsed.responsibilities || form.responsibilities,
+      requirements: parsed.requirements || form.requirements,
+      categories: parsed.categories.length > 0 ? parsed.categories : form.categories,
+      location: parsed.location || form.location,
+      salary: parsed.salary || form.salary,
+    }));
   };
 
   return (
     <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
       <div>
         <h2 className="text-2xl font-bold text-gray-800">JD 岗位库</h2>
-        <p className="text-sm text-gray-500 mt-1">共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 · <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button> · <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> · <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button></p>
+        <p className="text-sm text-gray-500 mt-1">
+          共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 ·{' '}
+          <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button> ·{' '}
+          <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
+          <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
+          <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button>
+        </p>
       </div>
 
       <JDCategoryTabs categories={categories} activeCategory={filter.category} onCategoryChange={(cat) => setFilter({ category: cat })} />
@@ -78,11 +132,36 @@ export function JDLibraryPage() {
         search={filter.search} onSearchChange={(search) => setFilter({ search })}
         onImportClick={() => setImportOpen(true)} onAddClick={() => setAddOpen(true)}
         activeOnly={activeOnly} onActiveOnlyChange={setActiveOnly}
+        batchMode={batchMode} onBatchModeChange={handleBatchModeChange}
       />
+
+      {batchMode && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+          <span className="text-sm text-red-700">已选择 {selectedIds.length} 个岗位{visibleSelectedCount !== selectedIds.length ? `，当前列表 ${visibleSelectedCount} 个` : ''}</span>
+          <div className="flex items-center gap-2">
+            <button onClick={handleToggleSelectAll} className="h-9 px-3 rounded-lg bg-white border border-red-100 text-sm text-red-600 hover:bg-red-50 transition-all">
+              {visibleSelectedCount === finalFiltered.length && finalFiltered.length > 0 ? '取消全选' : '全选当前'}
+            </button>
+            <button onClick={handleBatchDelete} disabled={selectedIds.length === 0} className="h-9 px-3 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-500 transition-all flex items-center gap-2">
+              <Trash2 className="w-4 h-4" />删除选中
+            </button>
+            <button onClick={() => handleBatchModeChange(false)} className="h-9 px-3 rounded-lg bg-white border border-gray-200 text-sm text-gray-500 hover:text-gray-700 transition-all">取消</button>
+          </div>
+        </div>
+      )}
 
       <GlassPanel padding="none">
         {finalFiltered.length > 0 ? (
-          <JDTable jds={finalFiltered} onSelect={selectJD} selectedId={selectedJdId} onDelete={deleteJD} />
+          <JDTable
+            jds={finalFiltered}
+            onSelect={selectJD}
+            selectedId={selectedJdId}
+            onDelete={deleteJD}
+            batchMode={batchMode}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
+          />
         ) : (
           <EmptyState icon={Briefcase} title={jds.length === 0 ? '暂无岗位数据' : '无匹配结果'} description={jds.length === 0 ? '点击"添加岗位"或"批量导入"添加数据' : '尝试调整筛选条件'} />
         )}
@@ -105,12 +184,31 @@ export function JDLibraryPage() {
       {addOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/20" onClick={() => setAddOpen(false)} />
-          <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
+          <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-800">添加岗位</h3>
               <button onClick={() => setAddOpen(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <div className="space-y-3">
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-xs font-medium text-indigo-700">粘贴 JD 内容</label>
+                  <button
+                    onClick={handleRecognizeJD}
+                    disabled={!rawJDText.trim()}
+                    className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs font-medium hover:bg-indigo-600 disabled:opacity-40 transition-all flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />一键识别
+                  </button>
+                </div>
+                <textarea
+                  value={rawJDText}
+                  onChange={(e) => setRawJDText(e.target.value)}
+                  placeholder="粘贴完整 JD 文本后点击一键识别"
+                  rows={4}
+                  className="w-full px-3 py-2 rounded-lg bg-white border border-indigo-100 text-sm focus:outline-none focus:border-indigo-300 resize-none"
+                />
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">岗位名称 *</label>
@@ -200,6 +298,66 @@ function detectCat(text: string): JDCategory {
   const t = text.toLowerCase();
   for (const [cat, re] of CAT_MAP) { if (re.test(t)) return cat; }
   return 'operations';
+}
+
+function detectCats(text: string): JDCategory[] {
+  const t = text.toLowerCase();
+  const cats: JDCategory[] = [];
+  for (const [cat, re] of CAT_MAP) {
+    if (re.test(t) && !cats.includes(cat)) cats.push(cat);
+  }
+  return cats.length > 0 ? cats.slice(0, 3) : ['operations'];
+}
+
+function parseRawJD(raw: string): {
+  title: string;
+  department: string;
+  salary: string;
+  location: string;
+  responsibilities: string;
+  requirements: string;
+  categories: string[];
+} {
+  const text = raw.replace(/\r/g, '').trim();
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  const titleLine = pickField(text, /(?:职位名称|岗位名称)[:：]\s*([^\n]+)/i) ||
+    lines.find((line) => !/薪资|办公地点|工作地点|岗位亮点|岗位职责|工作内容|任职要求|岗位要求|职位要求|加分项/.test(line)) || '';
+  const title = cleanupTitle(titleLine);
+  const department = pickField(text, /(?:部门|所属部门|渠道|团队)[:：]\s*([^\n]+)/i);
+  const salary = pickField(text, /(?:薪资待遇|薪资|月薪|薪酬)[:：]\s*([^\n]+)/i);
+  const location = pickField(text, /(?:办公地点|工作地点|地点)[:：]\s*([^\n]+)/i);
+  const responsibilities = extractSection(text, ['岗位职责', '工作职责', '工作内容', '职位职责'], ['任职要求', '岗位要求', '职位要求', '加分项']);
+  const requirements = [
+    extractSection(text, ['任职要求', '岗位要求', '职位要求'], ['加分项', '岗位职责', '工作职责', '工作内容']),
+    extractSection(text, ['加分项'], []),
+  ].filter(Boolean).join('\n');
+  const categories = detectCats([title, responsibilities, requirements].join(' '));
+
+  return { title, department, salary, location, responsibilities, requirements, categories };
+}
+
+function cleanupTitle(line: string): string {
+  return line
+    .replace(/^【[^】]+】\s*/, '')
+    .replace(/[（(]\s*\d+\s*人\s*[）)]/g, '')
+    .replace(/^\s*急聘\s*[|｜-]?\s*/i, '')
+    .trim();
+}
+
+function pickField(text: string, re: RegExp): string {
+  return text.match(re)?.[1]?.trim() || '';
+}
+
+function extractSection(text: string, startKeys: string[], endKeys: string[]): string {
+  const startPattern = startKeys.join('|');
+  const endPattern = endKeys.length > 0 ? endKeys.join('|') : '$';
+  const re = new RegExp(`(?:^|\\n)(?:${startPattern})\\s*[:：]?\\s*\\n?([\\s\\S]*?)(?=\\n\\s*(?:${endPattern})\\s*[:：]?\\s*(?:\\n|$)|$)`);
+  const content = text.match(re)?.[1]?.trim() || '';
+  return content
+    .split('\n')
+    .map((line) => line.replace(/^[\d]+[.、]\s*/, '').replace(/^[-•·]\s*/, '').trim())
+    .filter(Boolean)
+    .join('\n');
 }
 
 function parseSalary(s: string): { min: number; max: number; currency: string } {

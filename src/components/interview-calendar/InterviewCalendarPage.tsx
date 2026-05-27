@@ -99,7 +99,9 @@ export function InterviewCalendarPage() {
   };
 
   const selected = candidates.find((c) => c.id === selectedId);
-  const activeCount = candidates.filter((c) => c.stage !== 'offer').length;
+  const firstInterviewCount = candidates.filter((c) => c.stage === 'interview-1').length;
+  const secondInterviewCount = candidates.filter((c) => c.stage === 'interview-2').length;
+  const offerCount = candidates.filter((c) => c.stage === 'offer').length;
   const isEditing = editingId === selectedId;
 
   if (!mounted) return null;
@@ -123,7 +125,12 @@ export function InterviewCalendarPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <div><h2 className="text-2xl font-bold text-gray-800">面试日历</h2><p className="text-sm text-gray-500 mt-1">{candidates.length} 个候选人，{activeCount} 个流程中</p></div>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">面试日历</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            共 {candidates.length} 个候选人，一面 {firstInterviewCount} 个，二面 {secondInterviewCount} 个，Offer {offerCount} 个
+          </p>
+        </div>
         <span className="text-xs text-gray-400 flex items-center gap-1"><ListFilter className="w-3.5 h-3.5" />拖拽卡片切换阶段</span>
       </div>
 
