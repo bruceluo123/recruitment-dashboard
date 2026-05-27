@@ -445,32 +445,39 @@ function splitOnPunct(text: string): string[] {
 // ─── Category detection ───
 
 const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
-  ['seo', /seo|搜索引擎|关键词/i],
-  ['advertising', /广告|信息流|投放|sem|feed|千川/i],
-  ['gaming', /游戏|unity|unreal|ue[45]|cocos/i],
-  ['ai', /(^|[\s\-_/｜|（）()【】])ai($|[\s\-_/｜|（）()【】])|人工智能|大模型|llm|gpt|prompt/i],
-  ['algorithm', /算法|推荐|nlp|机器学习|深度学习|计算机视觉/i],
-  ['frontend', /前端|web|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端/i],
-  ['backend', /后端|java|go|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师/i],
+  ['seo', /seo|搜索引擎优化|关键词优化/i],
+  ['advertising', /广告|信息流|投放|sem|feed|千川|广告素材|广告策略/i],
+  ['gaming', /游戏|unity|unreal|ue[45]|cocos|fps|mmo/i],
+  // AI: 匹配独立AI词、AI+中文前缀(AI应用/AI效能/AI产品...)、AIGC、Agent、comfyui
+  ['ai', /(^|[\s\-_/｜|（）()【】])ai(?=$|[\s\-_/｜|（）()【】])|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|gpt|prompt|aigc|\bagent\b|comfyui/i],
+  ['algorithm', /算法|推荐系统|nlp|机器学习|深度学习|计算机视觉/i],
+  ['frontend', /前端|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端|web\s*sdk/i],
+  ['backend', /后端|java|\bgo\b|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师|架构设计|springcloud/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
-  ['testing', /测试|qa|质量/i],
-  ['product', /产品经理|产品总监|产品负责人|产品助理/i],
+  ['testing', /测试|qa|质量|代码审计/i],
+  ['product', /产品经理|产品总监|产品负责人|产品助理|产品调优|产品定价|专案产品|平台产品/i],
   ['design', /ui|ux|设计|视觉|动效/i],
-  ['art', /美术|原画|概念设计|插画师|3d建模|建模师|动画师|绑定|技术美术|ta(?=\s|$|[_\-/（）【】])|rigging|concept.?art/i],
-  ['marketing', /品牌|市场推广|市场营销|kol|公关|增长黑客|growth|市场总监|市场专员|市场经理/i],
-  ['video', /视频|剪辑|后期|短视频|视频制作|导演|摄像|影视|cinemat|videograph/i],
-  ['live', /直播(?!运营)|主播|场控|中控|带货主播|直播间|直播策划/i],
+  // 美术: 3D系列、spine、动作设计、角色设计、绑定
+  ['art', /美术|原画|概念设计|插画师|3d角色|3d动画|3d战斗|3d建模|建模师|动画师|绑定师|绑定|技术美术|ta(?=\s|$|[_\-/（）【】])|rigging|spine|动作设计|角色设计/i],
+  // 市场: 品牌、市场策划/推广/运营、新媒体孵化
+  ['marketing', /品牌|市场策划|市场推广|市场营销|市场运营|市场经理|市场总监|kol|公关|新媒体孵化|增长黑客|growth/i],
+  // 视频: 加编导
+  ['video', /视频|剪辑|后期|短视频|视频制作|导演|摄像|影视|编导|cinemat|videograph/i],
+  // 直播: 加团播
+  ['live', /直播(?!运营)|主播|场控|中控|带货主播|直播间|直播策划|直播主持|团播/i],
   ['legal', /法务|法律顾问|律师|合规|知识产权|版权|专利/i],
   ['finance', /财务|会计|出纳|审计|税务/i],
   ['data', /数据|数据挖掘|爬虫|etl|数据仓库|数据分析|数据工程|大数据/i],
   ['hardware', /gpu|硬件|芯片|嵌入式|固件|pcb|电路|cpu/i],
   ['hr', /hr|人力|招聘|薪酬|培训|员工关系|组织发展/i],
-  ['bd', /商务|bd|拓展|渠道|合作|销售/i],
+  ['bd', /商务|bd|拓展|渠道|合作|销售|新客户/i],
   ['customer-service', /客服|客户服务|售后/i],
-  ['operations', /运营|电商|直播运营|带货|主播|中控|场控|选品/i],
+  ['operations', /运营|电商|直播运营|带货|主播|中控|场控|选品|新媒体运营/i],
   ['project', /项目|pmo|scrum/i],
-  ['director', /总监|vp|副总裁|cto|ceo|负责人/i],
-  ['administration', /行政|前台|助理|秘书|档案|车辆|办公室/i],
+  // director: 加组长(Java后端组长、新媒体运营组长)
+  ['director', /总监|vp|副总裁|cto|ceo|负责人|组长/i],
+  // administration: 加督导
+  ['administration', /行政|前台|助理|秘书|档案|车辆|办公室|督导/i],
 ];
 
 function detectCategories(text: string): JDCategory[] {
