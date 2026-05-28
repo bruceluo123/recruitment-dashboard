@@ -17,7 +17,9 @@ interface JDStore {
   filter: JDFilter;
   selectedJdId: string | null;
   isImporting: boolean;
+  importCancelled: boolean;
   importProgress: ImportProgress;
+  cancelImport: () => void;
   selectJD: (id: string | null) => void;
   setFilter: (partial: Partial<JDFilter>) => void;
   resetFilter: () => void;
@@ -41,7 +43,9 @@ export const useJDStore = create<JDStore>()(
       filter: { search: '', category: 'all' },
       selectedJdId: null,
       isImporting: false,
+      importCancelled: false,
       importProgress: { current: 0, total: 0, percent: 0, status: 'idle' },
+      cancelImport: () => set({ importCancelled: true }),
 
       selectJD: (id) => set({ selectedJdId: id }),
       setFilter: (partial) => set((s) => ({ filter: { ...s.filter, ...partial } })),
@@ -115,7 +119,7 @@ export const useJDStore = create<JDStore>()(
       },
 
       importFromExcel: async (file: File) => {
-        set({ isImporting: true, importProgress: { current: 0, total: 0, percent: 0, status: 'reading' } });
+        set({ isImporting: true, importCancelled: false, importProgress: { current: 0, total: 0, percent: 0, status: 'reading' } });
         try {
           const buf = await file.arrayBuffer();
           if (!buf?.byteLength) { set({ isImporting: false }); return { success: 0, failed: 0, errors: ['文件为空'] }; }
@@ -171,6 +175,10 @@ export const useJDStore = create<JDStore>()(
           if (aiIndices.length > 0) {
             const aiBatchSize = 5;
             for (let b = 0; b < aiIndices.length; b += aiBatchSize) {
+              if (get().importCancelled) {
+                set({ isImporting: false, importCancelled: false });
+                return { success: 0, failed: 0, errors: ['已取消导入'] };
+              }
               const batch = aiIndices.slice(b, b + aiBatchSize);
               const texts = batch.map((idx) => rowTexts[idx]);
               const parsed = await parseMultipleJDs(texts);
@@ -182,6 +190,10 @@ export const useJDStore = create<JDStore>()(
 
           const CHUNK = 10;
           for (let i = 0; i < total; i += CHUNK) {
+            if (get().importCancelled) {
+              set({ isImporting: false, importCancelled: false });
+              return { success: 0, failed: 0, errors: ['已取消导入'] };
+            }
             const end = Math.min(i + CHUNK, total);
             for (let j = i; j < end; j++) {
               try {

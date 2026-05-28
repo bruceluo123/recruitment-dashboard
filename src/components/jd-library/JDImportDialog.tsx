@@ -14,6 +14,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
   const isImporting = useJDStore((s) => s.isImporting);
   const progress = useJDStore((s) => s.importProgress);
   const importFromExcel = useJDStore((s) => s.importFromExcel);
+  const cancelImport = useJDStore((s) => s.cancelImport);
 
   if (!isOpen) return null;
 
@@ -89,13 +90,21 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
               <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-500 rounded-full transition-all duration-150" style={{ width: `${progress.percent}%` }} />
               </div>
+              <button onClick={cancelImport} className="w-full h-9 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all">
+                取消导入
+              </button>
             </div>
           )}
 
           {isImporting && progress.status === 'reading' && (
-            <div className="flex items-center gap-3 py-4 justify-center text-gray-500">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span className="text-sm">读取文件中...</span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 py-4 justify-center text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm">读取文件中...</span>
+              </div>
+              <button onClick={cancelImport} className="w-full h-9 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all">
+                取消导入
+              </button>
             </div>
           )}
 
