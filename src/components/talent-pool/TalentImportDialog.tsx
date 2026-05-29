@@ -24,7 +24,7 @@ export function TalentImportDialog({ isOpen, onClose }: TalentImportDialogProps)
     setFiles([]);
   };
 
-  const statusLabel = progress.status === 'uploading' ? '上传简历中...' : '识别姓名/岗位中...';
+  const statusLabel = progress.status === 'uploading' ? '上传简历中...' : 'AI 分析岗位分类中...';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

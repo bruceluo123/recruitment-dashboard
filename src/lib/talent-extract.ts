@@ -1,5 +1,9 @@
 // AI-based talent info extractor — only extracts 姓名 + 最近一份岗位 title
 
+import type { JDCategory } from '@/types/jd';
+import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
+import { detectCategories } from '@/lib/jd-parse-core';
+
 export interface ExtractedTalent {
   name: string;
   jobTitle: string;
@@ -7,6 +11,63 @@ export interface ExtractedTalent {
 
 function cleanJson(content: string): string {
   return content.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+}
+
+// ─── AI 岗位分类（参照 JD 库 28 个分类，支持多分类） ───
+
+const VALID_CATEGORIES = new Set<string>(ALL_CATEGORIES);
+
+/** 校验 AI 返回的分类数组；非法或为空时回退到关键词分类。 */
+function sanitizeCategories(raw: unknown, fallbackTitle: string): JDCategory[] {
+  if (Array.isArray(raw)) {
+    const cats = raw
+      .map((c) => String(c).trim().toLowerCase())
+      .filter((c): c is JDCategory => VALID_CATEGORIES.has(c));
+    const unique = Array.from(new Set(cats)).slice(0, 3);
+    if (unique.length) return unique;
+  }
+  const fallback = detectCategories(fallbackTitle);
+  return fallback.length ? fallback : ['operations'];
+}
+
+/** 用 AI 把一批岗位名称分类到 JD 库的分类体系（每个岗位 1-3 个分类）。 */
+export async function classifyTitleCategories(titles: string[]): Promise<JDCategory[][]> {
+  const list = titles.map((t) => (t || '').trim());
+  if (list.length === 0) return [];
+
+  const catLegend = ALL_CATEGORIES.map((c) => `${c}(${JD_CATEGORY_LABELS[c]})`).join('、');
+  try {
+    const prompt = `你是招聘岗位分类专家。请为下面每个岗位名称分配 1-3 个最匹配的分类。
+
+## 可选分类（只能从中选择，输出英文 id）
+${catLegend}
+
+## 岗位名称列表
+${list.map((t, i) => `${i + 1}. ${t || '(空)'}`).join('\n')}
+
+## 规则
+- 每个岗位返回 1-3 个最相关分类的英文 id 数组，如 ["ai","backend"]
+- 含"总监/负责人/组长/VP/CTO"等管理头衔时可附加 director
+- 只能使用上面列出的 id，不要编造新分类
+- 岗位为空或无法判断时返回 []
+
+## 输出严格JSON数组（顺序与列表一致，不要markdown代码块）：
+[["id1","id2"], ["id1"], ...]`;
+
+    const res = await fetch('/api/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1500 }),
+    });
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) return list.map((t) => sanitizeCategories(null, t));
+    const parsed = JSON.parse(cleanJson(content));
+    if (!Array.isArray(parsed)) return list.map((t) => sanitizeCategories(null, t));
+    return list.map((t, i) => sanitizeCategories(parsed[i], t));
+  } catch {
+    return list.map((t) => sanitizeCategories(null, t));
+  }
 }
 
 /** Heuristic fallback: pick a likely name from the first lines if AI fails. */

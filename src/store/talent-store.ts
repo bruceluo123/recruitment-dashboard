@@ -4,7 +4,7 @@ import type { Talent, TalentFilter, TalentImportResult } from '@/types/talent';
 import type { JDCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
 import { generateId } from '@/lib/utils';
-import { detectCategories } from '@/lib/jd-parse-core';
+import { classifyTitleCategories } from '@/lib/talent-extract';
 
 export interface TalentImportProgress {
   current: number; total: number; percent: number;
@@ -95,8 +95,8 @@ export const useTalentStore = create<TalentStore>()(
 
         set({ isImporting: true, importCancelled: false, importProgress: { current: 0, total: files.length, percent: 0, status: 'uploading' } });
 
-        // 上传文件并从文件名解析「姓名-岗位」，无需 AI 解析正文
-        const batch: Talent[] = [];
+        // 1) 上传文件 + 从文件名解析「姓名-岗位」（0-60%）
+        const parsed: { name: string; jobTitle: string; up: Awaited<ReturnType<typeof uploadResume>>; fileName: string }[] = [];
         for (let i = 0; i < files.length; i++) {
           if (get().importCancelled) {
             set({ isImporting: false, importCancelled: false });
@@ -105,24 +105,44 @@ export const useTalentStore = create<TalentStore>()(
           const file = files[i];
           const up = await uploadResume(file);
           if (!up) { result.errors.push(`${file.name}: 文件上传失败`); }
-
           const { name, jobTitle } = parseFileName(file.name);
-          batch.push({
-            id: generateId(),
-            name: name || file.name.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, ''),
-            jobTitle,
-            categories: jobTitle ? detectCategories(jobTitle) : ['operations'],
-            resumeUrl: up?.downloadUrl || undefined,
-            resumeFileName: up?.fileName || file.name,
-            tg: '',
-            notes: '',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-          result.success++;
-          const pct = Math.round(((i + 1) / files.length) * 100);
+          parsed.push({ name: name || file.name.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, ''), jobTitle, up, fileName: file.name });
+          const pct = Math.round(((i + 1) / files.length) * 60);
           set({ importProgress: { current: i + 1, total: files.length, percent: pct, status: 'uploading' } });
         }
+
+        // 2) 用 AI 按岗位名称批量分类（参照 JD 库分类体系，60-100%）
+        set({ importProgress: { current: 0, total: files.length, percent: 60, status: 'parsing' } });
+        const titles = parsed.map((p) => p.jobTitle);
+        const categories: JDCategory[][] = new Array(parsed.length);
+        const BATCH = 30;
+        for (let b = 0; b < titles.length; b += BATCH) {
+          if (get().importCancelled) {
+            set({ isImporting: false, importCancelled: false });
+            return { success: 0, failed: 0, errors: ['已取消导入'] };
+          }
+          const slice = titles.slice(b, b + BATCH);
+          const cats = await classifyTitleCategories(slice);
+          cats.forEach((c, k) => { categories[b + k] = c.length ? c : ['operations']; });
+          const done = Math.min(b + BATCH, titles.length);
+          const pct = 60 + Math.round((done / titles.length) * 40);
+          set({ importProgress: { current: done, total: titles.length, percent: Math.min(100, pct), status: 'parsing' } });
+        }
+
+        // 3) 组装人选记录
+        const batch: Talent[] = parsed.map((p, i) => ({
+          id: generateId(),
+          name: p.name,
+          jobTitle: p.jobTitle,
+          categories: categories[i]?.length ? categories[i] : ['operations'],
+          resumeUrl: p.up?.downloadUrl || undefined,
+          resumeFileName: p.up?.fileName || p.fileName,
+          tg: '',
+          notes: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }));
+        result.success = batch.length;
 
         set((s) => ({
           talents: [...batch, ...s.talents],
