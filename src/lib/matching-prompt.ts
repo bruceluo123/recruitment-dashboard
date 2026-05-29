@@ -1,5 +1,10 @@
 import type { JD } from '@/types/jd';
 
+/** 裁剪过长字段，控制 prompt 体积以提速 */
+function clip(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
 export function buildBatchMatchingPrompt(resumeText: string, jds: JD[]): string {
   const jdList = jds.map((jd, i) => {
     return `### JD-${i + 1}
@@ -7,8 +12,8 @@ export function buildBatchMatchingPrompt(resumeText: string, jds: JD[]): string 
 - 部门：${jd.department}
 - 地点：${jd.location || '不限'}
 - 薪资：${jd.salaryRange.min}K-${jd.salaryRange.max}K
-- 职责：${jd.responsibilities.join('；')}
-- 要求：${jd.requirements.join('；')}`;
+- 职责：${clip(jd.responsibilities.join('；'), 200)}
+- 要求：${clip(jd.requirements.join('；'), 250)}`;
   }).join('\n\n');
 
   return `你是资深招聘专家。请评估以下简历与${jds.length}个岗位的匹配度。

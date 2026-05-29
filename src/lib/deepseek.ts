@@ -1,12 +1,20 @@
 import type { JD } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { buildBatchMatchingPrompt, buildMatchingPrompt } from './matching-prompt';
+import { prefilterJDs } from './jd-prefilter';
 
-async function callAI(messages: Array<{ role: string; content: string }>, signal?: AbortSignal): Promise<string> {
+// 一次 AI 调用最多精排的 JD 数（超出则本地预筛取 Top N）
+const MAX_AI_CANDIDATES = 25;
+
+async function callAI(
+  messages: Array<{ role: string; content: string }>,
+  signal?: AbortSignal,
+  maxTokens = 2000,
+): Promise<string> {
   const response = await fetch('/api/match', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, temperature: 0.3, max_tokens: 2000 }),
+    body: JSON.stringify({ messages, temperature: 0.3, max_tokens: maxTokens }),
     signal,
   });
 
@@ -63,18 +71,21 @@ export async function matchResumeToJDs(
 ): Promise<MatchingResult[]> {
   if (jds.length === 0) return [];
 
+  // 本地预筛：岗位过多时只把最相关的 Top N 交给 AI，避免超大 prompt + 输出截断
+  const candidates = prefilterJDs(resumeText, jds, MAX_AI_CANDIDATES);
+
   // Single batch call for speed
   try {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const prompt = buildBatchMatchingPrompt(resumeText, jds);
-    const content = await callAI([{ role: 'user', content: prompt }], signal);
+    const prompt = buildBatchMatchingPrompt(resumeText, candidates);
+    const content = await callAI([{ role: 'user', content: prompt }], signal, 4000);
     const parsed = parseJson(content);
 
     if (parsed.results && Array.isArray(parsed.results)) {
       return (parsed.results as Array<Record<string, unknown>>)
         .map((r) => {
           const idx = Number(r.jdIndex) - 1;
-          return jds[idx] ? buildResult(jds[idx], resumeId, r) : null;
+          return candidates[idx] ? buildResult(candidates[idx], resumeId, r) : null;
         })
         .filter((r): r is MatchingResult => r !== null)
         .sort((a, b) => b.score - a.score);
@@ -82,11 +93,11 @@ export async function matchResumeToJDs(
     throw new Error('Unexpected response format');
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
-    // Fallback to per-JD calls
+    // Fallback to per-JD calls（已预筛，数量可控）
     try {
-      return await matchPerJd(resumeText, jds, resumeId, signal);
+      return await matchPerJd(resumeText, candidates, resumeId, signal);
     } catch {
-      return jds.map((jd) => makeFallback(jd, resumeId)).sort((a, b) => b.score - a.score);
+      return candidates.map((jd) => makeFallback(jd, resumeId)).sort((a, b) => b.score - a.score);
     }
   }
 }
