@@ -4,7 +4,9 @@ import { buildBatchMatchingPrompt, buildMatchingPrompt } from './matching-prompt
 import { prefilterJDs } from './jd-prefilter';
 
 // 一次 AI 调用最多精排的 JD 数（超出则本地预筛取 Top N）
-const MAX_AI_CANDIDATES = 25;
+const MAX_AI_CANDIDATES = 15;
+// 非推理快速模型：实测 ~24s 完成；推理模型(deepseek-v4-pro)会思考耗光token预算、~84s且空输出
+const MATCH_MODEL = 'deepseek-chat';
 
 async function callAI(
   messages: Array<{ role: string; content: string }>,
@@ -14,7 +16,7 @@ async function callAI(
   const response = await fetch('/api/match', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, temperature: 0.3, max_tokens: maxTokens }),
+    body: JSON.stringify({ model: MATCH_MODEL, messages, temperature: 0.3, max_tokens: maxTokens }),
     signal,
   });
 
@@ -79,7 +81,7 @@ export async function matchResumeToJDs(
   try {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const prompt = buildBatchMatchingPrompt(resumeText, candidates);
-    const content = await callAI([{ role: 'user', content: prompt }], signal, 4000);
+    const content = await callAI([{ role: 'user', content: prompt }], signal, 4500);
     const parsed = parseJson(content);
 
     if (parsed.results && Array.isArray(parsed.results)) {
