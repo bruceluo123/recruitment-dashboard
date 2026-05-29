@@ -19,7 +19,23 @@
       "Bash(curl -sL --max-time 60 \"https://qieqiuzhidao.vercel.app/api/data?key=jds\" -o ./_jds_tmp.json)",
       "Bash(node _cat_test.mjs title)",
       "Bash(curl -sL --max-time 40 -X POST \"https://qieqiuzhidao.vercel.app/api/data\" -H \"Content-Type: application/json\" -d '{\"\"\"\"type\"\"\"\":\"\"\"\"jds\"\"\"\",\"\"\"\"data\"\"\"\":[]}')",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(node _speedtest.mjs)",
+      "Bash(for url:*)",
+      "Bash(do echo:*)",
+      "Bash(curl -s -o /dev/null -w \"connect=%{time_connect}s total=%{time_total}s http=%{http_code}\\\\n\" --max-time 40 \"$url/api/data\")",
+      "Bash(done)",
+      "Bash(env)",
+      "Bash(node -e \"console.log\\(''''http_proxy='''',process.env.HTTP_PROXY||process.env.http_proxy||''''none''''\\)\")",
+      "Bash(curl -s --max-time 60 \"https://qieqiuzhidao.vercel.app/api/data\" -o _jds.json -w \"fetch_total=%{time_total}s size=%{size_download}bytes\\\\n\")",
+      "Bash(node -e \"const d=require\\(''./_jds.json''\\);console.log\\(''JD count:'',d.jds.length,''active:'',d.jds.filter\\(j=>j.status!==''paused''\\).length\\)\")",
+      "Bash(curl -s --retry 4 --retry-all-errors --max-time 90 \"https://qieqiuzhidao.vercel.app/api/data\" -o _jds.json -w \"fetch_total=%{time_total}s size=%{size_download}\\\\n\")",
+      "Bash(curl -s --retry 3 --retry-all-errors --max-time 120 -X POST \"https://qieqiuzhidao.vercel.app/api/match\" -H \"Content-Type: application/json\" --data @_payload.json -o _resp.json -w \"AI往返=%{time_total}s http=%{http_code} size=%{size_download}\\\\n\")",
+      "Bash(node -e \"const j=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''./_resp.json'',''utf8''\\)\\);if\\(j.error\\){console.log\\(''ERROR:'',j.error\\);process.exit\\(\\)}const c=j.choices?.[0]?.message?.content||'''';console.log\\(''content长度:'',c.length\\);try{const p=JSON.parse\\(c.replace\\(/^\\\\`\\\\`\\\\`json\\\\s*/i,''''\\).replace\\(/\\\\s*\\\\`\\\\`\\\\`$/,''''\\).trim\\(\\)\\);const cand=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''./_cand.json'',''utf8''\\)\\);console.log\\(''解析OK results:'',p.results?.length\\);console.log\\(''Top5:'',p.results.slice\\(0,5\\).map\\(r=>cand[r.jdIndex-1]+''=''+r.score\\).join\\('' | ''\\)\\)}catch\\(e\\){console.log\\(''解析失败\\(截断?\\):'',e.message\\)}\")",
+      "Bash(node -e \"const j=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''./_resp.json'',''utf8''\\)\\);console.log\\(''keys:'',Object.keys\\(j\\)\\);console.log\\(''model:'',j.model\\);console.log\\(''usage:'',JSON.stringify\\(j.usage\\)\\);console.log\\(''finish_reason:'',j.choices?.[0]?.finish_reason\\);console.log\\(''message keys:'',Object.keys\\(j.choices?.[0]?.message||{}\\)\\);console.log\\(''content head:'',JSON.stringify\\(\\(j.choices?.[0]?.message?.content||''''\\).slice\\(0,200\\)\\)\\);console.log\\(''reasoning head:'',JSON.stringify\\(\\(j.choices?.[0]?.message?.reasoning_content||''''\\).slice\\(0,200\\)\\)\\)\")",
+      "Bash(node -e \"const fs=require\\(''fs''\\);const p=JSON.parse\\(fs.readFileSync\\(''./_payload.json'',''utf8''\\)\\);p.model=''deepseek-chat'';p.max_tokens=3000;fs.writeFileSync\\(''./_payload_chat.json'',JSON.stringify\\(p\\)\\)\")",
+      "Bash(curl -s --retry 3 --retry-all-errors --max-time 120 -X POST \"https://qieqiuzhidao.vercel.app/api/match\" -H \"Content-Type: application/json\" --data @_payload_chat.json -o _resp_chat.json -w \"往返=%{time_total}s http=%{http_code}\\\\n\")",
+      "Bash(node -e \"const j=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''./_resp_chat.json'',''utf8''\\)\\);if\\(j.error\\){console.log\\(''ERROR:'',j.error\\);process.exit\\(\\)}console.log\\(''model:'',j.model,''finish:'',j.choices?.[0]?.finish_reason,''completion_tokens:'',j.usage?.completion_tokens,''reasoning_tokens:'',j.usage?.completion_tokens_details?.reasoning_tokens\\);const c=j.choices?.[0]?.message?.content||'''';console.log\\(''content长度:'',c.length\\);try{const p=JSON.parse\\(c.replace\\(/^[\\\\`]+json\\\\s*/i,''''\\).replace\\(/\\\\s*[\\\\`]+$/,''''\\).trim\\(\\)\\);const cand=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''./_cand.json'',''utf8''\\)\\);console.log\\(''解析OK results:'',p.results?.length\\);console.log\\(''Top5:'',p.results.slice\\(0,5\\).map\\(r=>cand[r.jdIndex-1]+''=''+r.score\\).join\\('' | ''\\)\\)}catch\\(e\\){console.log\\(''解析失败:'',e.message,''尾:'',c.slice\\(-60\\)\\)}\")"
     ]
   }
 }
