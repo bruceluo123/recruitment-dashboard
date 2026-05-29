@@ -6,7 +6,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const apiKey = process.env.DEEPSEEK_API_KEY;
-    const model = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
+    // 默认用非推理快速模型 deepseek-chat（V3）。推理模型(如deepseek-v4-pro/reasoner)会把 token 预算耗在思考上、又慢又可能空输出。
+    // 由客户端(body.model)决定模型，便于按任务选型；env 作兜底默认。
+    const model = body.model || process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 
     if (!apiKey) {
       return NextResponse.json({ error: 'DeepSeek API Key 未配置' }, { status: 500 });
