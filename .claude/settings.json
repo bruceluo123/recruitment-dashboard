@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /d/projects/recruitment-dashboard && git status --porcelain | grep -q . && git add -A && git commit -m \"auto: session end $(date +%Y-%m-%d)\" && git push origin master 2>/dev/null || true",
-            "timeout": 30
+            "command": "cd /d/projects/recruitment-dashboard && (git status --porcelain | grep -q . && git add -A && git commit -m \"auto: session end $(date +%Y-%m-%d)\" && git push origin master || true) && npx vercel deploy --prod --yes 2>&1 | tail -3 || true",
+            "timeout": 180
           }
         ]
       }
