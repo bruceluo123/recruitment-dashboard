@@ -4,8 +4,10 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { ScoreRadarChart } from './ScoreRadarChart';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
-import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles } from 'lucide-react';
+import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useJDStore } from '@/store/jd-store';
 
 interface MatchingResultCardProps { result: MatchingResult; rank: number; }
 
@@ -14,6 +16,13 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   const [viewMode, setViewMode] = useState<'ai' | 'jd'>('ai');
   const { jd, score, breakdown, reasoning, highlights, concerns } = result;
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
+  const router = useRouter();
+  const selectJD = useJDStore((s) => s.selectJD);
+
+  const handleViewDetail = () => {
+    selectJD(jd.id);
+    router.push('/jd-library');
+  };
 
   return (
     <GlassPanel padding="md" hover className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
@@ -53,6 +62,10 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                   className={cn('flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5',
                     viewMode === 'jd' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
                   <FileText className="w-3.5 h-3.5" />原文 JD
+                </button>
+                <button onClick={handleViewDetail}
+                  className="flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 text-gray-500 hover:text-indigo-600 hover:bg-white hover:shadow-sm">
+                  <ExternalLink className="w-3.5 h-3.5" />查看详情
                 </button>
               </div>
 
