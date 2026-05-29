@@ -62,7 +62,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                     <ScoreRadarChart breakdown={breakdown} size={160} />
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-2">
-                        {[{ label: '技能', v: breakdown.skillsMatch }, { label: '经验', v: breakdown.experienceMatch }, { label: '教育', v: breakdown.educationMatch }, { label: '综合', v: breakdown.overallFit }].map((d) => (
+                        {[{ label: '技能', v: breakdown.skillsMatch }, { label: '经验', v: breakdown.experienceMatch }, { label: '方向', v: breakdown.domainMatch }, { label: '职级', v: breakdown.seniorityMatch }, { label: '综合', v: breakdown.overallFit }].map((d) => (
                           <div key={d.label} className="p-2 rounded-lg bg-gray-50"><p className="text-xs text-gray-400">{d.label}</p><p className={cn('text-sm font-bold', d.v >= 80 ? 'text-green-600' : d.v >= 60 ? 'text-amber-600' : 'text-red-600')}>{d.v}</p></div>
                         ))}
                       </div>

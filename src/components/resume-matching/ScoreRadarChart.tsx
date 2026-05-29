@@ -8,7 +8,8 @@ export function ScoreRadarChart({ breakdown, size = 160 }: ScoreRadarChartProps)
   const data = [
     { dimension: '技能', score: breakdown.skillsMatch, fullMark: 100 },
     { dimension: '经验', score: breakdown.experienceMatch, fullMark: 100 },
-    { dimension: '教育', score: breakdown.educationMatch, fullMark: 100 },
+    { dimension: '方向', score: breakdown.domainMatch, fullMark: 100 },
+    { dimension: '职级', score: breakdown.seniorityMatch, fullMark: 100 },
     { dimension: '综合', score: breakdown.overallFit, fullMark: 100 },
   ];
   return (

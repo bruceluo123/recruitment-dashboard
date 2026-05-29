@@ -46,7 +46,8 @@ function buildResult(jd: JD, resumeId: string, parsed: Record<string, unknown>):
     breakdown: {
       skillsMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.skillsMatch),
       experienceMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.experienceMatch),
-      educationMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.educationMatch),
+      domainMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.domainMatch),
+      seniorityMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.seniorityMatch),
       overallFit: clampNum((parsed.breakdown as Record<string, unknown>)?.overallFit),
     },
     reasoning: String(parsed.reasoning || ''),
@@ -60,7 +61,7 @@ function makeFallback(jd: JD, resumeId: string): MatchingResult {
   const s = () => Math.floor(Math.random() * 25) + 40;
   return buildResult(jd, resumeId, {
     score: s(),
-    breakdown: { skillsMatch: s(), experienceMatch: s(), educationMatch: s(), overallFit: s() },
+    breakdown: { skillsMatch: s(), experienceMatch: s(), domainMatch: s(), seniorityMatch: s(), overallFit: s() },
     reasoning: 'API 暂不可用，显示为估算结果',
     highlights: [], concerns: ['当前为估算模式，分数仅供参考'],
   });
