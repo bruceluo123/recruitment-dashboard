@@ -151,6 +151,8 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['backend', /后端|java|\bgo\b|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师|架构设计|springcloud/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
   ['testing', /测试|qa|质量|代码审计/i],
+  // 培训/学习发展（经验萃取、SOP工程化等知识管理岗）
+  ['training', /培训|讲师|课程开发|教研|学习发展|经验萃取|sop工程化|赋能|带教|培训师|教学设计/i],
   ['product', /产品经理|产品总监|产品负责人|产品助理|产品调优|产品定价|专案产品|平台产品/i],
   ['design', /ui|ux|设计|视觉|动效/i],
   // 美术: 3D系列、spine、动作设计、角色设计、绑定
@@ -165,9 +167,11 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['finance', /财务|会计|出纳|审计|税务/i],
   ['data', /数据|数据挖掘|爬虫|etl|数据仓库|数据分析|数据工程|大数据/i],
   ['hardware', /gpu|硬件|芯片|嵌入式|固件|pcb|电路|cpu/i],
-  ['hr', /hr|人力|招聘|薪酬|培训|员工关系|组织发展/i],
+  ['hr', /hr|人力|招聘|薪酬|员工关系|组织发展/i],
   ['bd', /商务|bd|拓展|渠道|合作|销售|新客户/i],
   ['customer-service', /客服|客户服务|售后/i],
+  // 内容创作/编辑（区别于"内容运营"——后者归运营）
+  ['content', /内容创作|内容编辑|内容生产|内容工程|采编|文案|脚本策划|aigc/i],
   ['operations', /运营|电商|直播运营|带货|主播|中控|场控|选品|新媒体运营/i],
   ['project', /项目|pmo|scrum/i],
   // director: 加组长(Java后端组长、新媒体运营组长)
@@ -330,7 +334,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     serviceUnit: serviceUnit || undefined,
     headcount: headcount || undefined,
     gap: gap || undefined,
-    categories: detectCategories(title + ' ' + department),
+    categories: detectCategories(title),
     responsibilities: split.responsibilities,
     requirements: split.requirements,
     salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),

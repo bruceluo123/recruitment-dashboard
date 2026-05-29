@@ -251,7 +251,7 @@ export const useJDStore = create<JDStore>()(
                   serviceUnit: serviceUnit || undefined,
                   headcount: headcount || undefined,
                   gap: gap || undefined,
-                  categories: detectCategories(title + ' ' + department),
+                  categories: detectCategories(title),
                   responsibilities,
                   requirements,
                   salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),

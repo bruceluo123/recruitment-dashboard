@@ -30,6 +30,8 @@ const CAT_TAB_COLORS: Record<string, { active: string; idle: string }> = {
   video:      { active: 'bg-sky-600 text-white border-sky-600', idle: 'text-sky-700 border-sky-300' },
   live:       { active: 'bg-red-600 text-white border-red-600', idle: 'text-red-700 border-red-300' },
   legal:      { active: 'bg-slate-600 text-white border-slate-600', idle: 'text-slate-700 border-slate-300' },
+  training:   { active: 'bg-teal-600 text-white border-teal-600', idle: 'text-teal-700 border-teal-300' },
+  content:    { active: 'bg-emerald-600 text-white border-emerald-600', idle: 'text-emerald-700 border-emerald-300' },
 };
 
 interface JDCategoryTabsProps {

@@ -24,7 +24,9 @@ export type JDCategory =
   | 'marketing'
   | 'video'
   | 'live'
-  | 'legal';
+  | 'legal'
+  | 'training'
+  | 'content';
 
 export type JDStatus = 'active' | 'urgent' | 'paused';
 
@@ -100,6 +102,8 @@ export const JD_CATEGORY_LABELS: Record<JDCategory, string> = {
   video: '视频',
   live: '直播',
   legal: '法务',
+  training: '培训',
+  content: '内容',
 };
 
 export const JD_CATEGORY_COLORS: Record<JDCategory, string> = {
@@ -129,6 +133,8 @@ export const JD_CATEGORY_COLORS: Record<JDCategory, string> = {
   video: 'bg-sky-100 text-sky-800 ring-1 ring-inset ring-sky-300',
   live: 'bg-red-100 text-red-800 ring-1 ring-inset ring-red-300',
   legal: 'bg-slate-200 text-slate-800 ring-1 ring-inset ring-slate-400',
+  training: 'bg-teal-100 text-teal-800 ring-1 ring-inset ring-teal-300',
+  content: 'bg-emerald-100 text-emerald-800 ring-1 ring-inset ring-emerald-300',
 };
 
 export const ALL_CATEGORIES: JDCategory[] = [
@@ -136,4 +142,5 @@ export const ALL_CATEGORIES: JDCategory[] = [
   'backend', 'operations', 'product', 'design', 'finance', 'algorithm',
   'customer-service', 'project', 'ai', 'testing', 'hr', 'bd', 'seo', 'director',
   'data', 'hardware', 'art', 'marketing', 'video', 'live', 'legal',
+  'training', 'content',
 ];
