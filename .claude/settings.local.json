@@ -36,7 +36,8 @@
       "Bash(node -e \"const fs=require\\(''fs''\\);const p=JSON.parse\\(fs.readFileSync\\(''./_payload.json'',''utf8''\\)\\);p.model=''deepseek-chat'';p.max_tokens=3000;fs.writeFileSync\\(''./_payload_chat.json'',JSON.stringify\\(p\\)\\)\")",
       "Bash(curl -s --retry 3 --retry-all-errors --max-time 120 -X POST \"https://qieqiuzhidao.vercel.app/api/match\" -H \"Content-Type: application/json\" --data @_payload_chat.json -o _resp_chat.json -w \"往返=%{time_total}s http=%{http_code}\\\\n\")",
       "Bash(node -e \"const j=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''./_resp_chat.json'',''utf8''\\)\\);if\\(j.error\\){console.log\\(''ERROR:'',j.error\\);process.exit\\(\\)}console.log\\(''model:'',j.model,''finish:'',j.choices?.[0]?.finish_reason,''completion_tokens:'',j.usage?.completion_tokens,''reasoning_tokens:'',j.usage?.completion_tokens_details?.reasoning_tokens\\);const c=j.choices?.[0]?.message?.content||'''';console.log\\(''content长度:'',c.length\\);try{const p=JSON.parse\\(c.replace\\(/^[\\\\`]+json\\\\s*/i,''''\\).replace\\(/\\\\s*[\\\\`]+$/,''''\\).trim\\(\\)\\);const cand=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''./_cand.json'',''utf8''\\)\\);console.log\\(''解析OK results:'',p.results?.length\\);console.log\\(''Top5:'',p.results.slice\\(0,5\\).map\\(r=>cand[r.jdIndex-1]+''=''+r.score\\).join\\('' | ''\\)\\)}catch\\(e\\){console.log\\(''解析失败:'',e.message,''尾:'',c.slice\\(-60\\)\\)}\")",
-      "Bash(git rev-list:*)"
+      "Bash(git rev-list:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

@@ -27,7 +27,7 @@ export default function SettingsPage() {
       </GlassPanel>
 
       <GlassPanel>
-        <h3 className="text-base font-semibold text-gray-800 mb-4">关于企鹅求职岛</h3>
+        <h3 className="text-base font-semibold text-gray-800 mb-4">关于企鹅岛</h3>
         <div className="space-y-3 text-sm text-gray-500">
           <p>猎头岗位匹配系统 v1.0</p>
           <div className="grid grid-cols-2 gap-2">

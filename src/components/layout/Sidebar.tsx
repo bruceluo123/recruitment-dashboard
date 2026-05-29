@@ -3,11 +3,12 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings, Users } from 'lucide-react';
 
 const menuItems = [
   { href: '/', label: '仪表盘', icon: LayoutDashboard },
   { href: '/jd-library', label: 'JD 库', icon: Briefcase },
+  { href: '/talent-pool', label: '人才库', icon: Users },
   { href: '/resume-matching', label: '简历匹配', icon: FileSearch },
   { href: '/interview-calendar', label: '面试日历', icon: CalendarDays },
 ];
@@ -25,7 +26,7 @@ export function Sidebar() {
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shrink-0">
           <span className="text-white text-sm">🐧</span>
         </div>
-        {!collapsed && <span className="font-semibold text-sm text-gray-800">企鹅求职岛</span>}
+        {!collapsed && <span className="font-semibold text-sm text-gray-800">企鹅岛</span>}
       </div>
 
       <nav className="flex-1 py-4 px-2 space-y-1">

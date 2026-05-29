@@ -5,7 +5,7 @@ export function TopNav() {
   return (
     <header className="sticky top-0 z-20 h-16 border-b border-gray-200 bg-white/80 backdrop-blur-xl flex items-center justify-between px-6">
       <div>
-        <h1 className="text-lg font-semibold text-gray-800">企鹅求职岛</h1>
+        <h1 className="text-lg font-semibold text-gray-800">企鹅岛</h1>
         <p className="text-xs text-gray-500">猎头岗位匹配系统</p>
       </div>
       <div className="flex items-center gap-4">

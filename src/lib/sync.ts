@@ -3,8 +3,14 @@
 const KV_URL = 'https://positive-mongrel-70521.upstash.io';
 const KV_TOKEN = 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
 
-type DataType = 'jds' | 'candidates';
+type DataType = 'jds' | 'candidates' | 'talents';
 type ChangeHandler = (type: DataType, data: unknown, version: number) => void;
+
+const KV_KEYS: Record<DataType, string> = {
+  jds: 'recruit:jds',
+  candidates: 'recruit:candidates',
+  talents: 'recruit:talents',
+};
 
 let remoteVersion = 0;
 let onChange: ChangeHandler | null = null;
@@ -29,24 +35,26 @@ async function kvCmd(cmd: string, key: string, body?: string): Promise<string | 
   } catch { return null; }
 }
 
-async function fetchRemote(): Promise<{ jds: unknown[]; candidates: unknown[]; version: number } | null> {
+async function fetchRemote(): Promise<{ jds: unknown[]; candidates: unknown[]; talents: unknown[]; version: number } | null> {
   try {
-    const [rawJd, rawCand, rawVer] = await Promise.all([
+    const [rawJd, rawCand, rawTalent, rawVer] = await Promise.all([
       kvCmd('get', 'recruit:jds'),
       kvCmd('get', 'recruit:candidates'),
+      kvCmd('get', 'recruit:talents'),
       kvCmd('get', 'recruit:version'),
     ]);
-    if (!rawJd && !rawCand) return null;
+    if (!rawJd && !rawCand && !rawTalent) return null;
     return {
       jds: (safeParse(rawJd) as unknown[]) || [],
       candidates: (safeParse(rawCand) as unknown[]) || [],
+      talents: (safeParse(rawTalent) as unknown[]) || [],
       version: parseInt(rawVer || '0') || 0,
     };
   } catch { return null; }
 }
 
 async function pushData(type: DataType, data: unknown) {
-  const key = type === 'jds' ? 'recruit:jds' : 'recruit:candidates';
+  const key = KV_KEYS[type];
   const ok = await kvCmd('set', key, JSON.stringify(data));
   if (!ok) return null;
   const rawV = await kvCmd('get', 'recruit:version');
@@ -63,6 +71,7 @@ async function poll() {
     if (onChange) {
       if (remote.jds.length) onChange('jds', remote.jds, remote.version);
       if (remote.candidates.length) onChange('candidates', remote.candidates, remote.version);
+      if (remote.talents.length) onChange('talents', remote.talents, remote.version);
     }
   }
 }
@@ -83,6 +92,7 @@ export function startSync(handler: ChangeHandler) {
     if (onChange) {
       if (remote.jds.length) onChange('jds', remote.jds, remote.version);
       if (remote.candidates.length) onChange('candidates', remote.candidates, remote.version);
+      if (remote.talents.length) onChange('talents', remote.talents, remote.version);
     }
   });
   timer = setInterval(poll, 10000);

@@ -4,8 +4,10 @@ import { startSync, syncPush } from '@/lib/sync';
 import { stripContactMeta } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
+import { useTalentStore } from '@/store/talent-store';
 import type { JD } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
+import type { Talent } from '@/types/talent';
 
 // Check if JDs are mock data (all IDs start with "jd-00")
 function isMockData(jds: JD[]): boolean {
@@ -16,6 +18,7 @@ function isMockData(jds: JD[]): boolean {
 export function SyncProvider({ children }: { children: React.ReactNode }) {
   const jds = useJDStore((s) => s.jds);
   const candidates = useInterviewStore((s) => s.candidates);
+  const talents = useTalentStore((s) => s.talents);
   const skipPush = useRef(true);
   const remoteReceived = useRef(false);
 
@@ -45,6 +48,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
+      if (type === 'talents') useTalentStore.setState({ talents: data as Talent[] });
       setTimeout(() => { skipPush.current = false; }, 1000);
     });
   }, []);
@@ -60,6 +64,11 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     if (skipPush.current) return;
     syncPush('candidates', candidates);
   }, [candidates]);
+
+  useEffect(() => {
+    if (skipPush.current) return;
+    syncPush('talents', talents);
+  }, [talents]);
 
   return <>{children}</>;
 }
