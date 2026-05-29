@@ -14,6 +14,7 @@ import {
   normalizeExcelRows,
   parseSalary,
   splitJDBySection,
+  stripContactMeta,
 } from '@/lib/jd-parse-core';
 
 export interface ImportProgress {
@@ -86,8 +87,8 @@ export const useJDStore = create<JDStore>()(
       cleanAllJDs: () => set((s) => ({
         jds: s.jds.map((j) => ({
           ...j,
-          responsibilities: j.responsibilities.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean),
-          requirements: j.requirements.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean),
+          responsibilities: stripContactMeta(j.responsibilities.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean)),
+          requirements: stripContactMeta(j.requirements.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean)),
         })),
       })),
 
@@ -252,8 +253,8 @@ export const useJDStore = create<JDStore>()(
                   headcount: headcount || undefined,
                   gap: gap || undefined,
                   categories: detectCategories(title),
-                  responsibilities,
-                  requirements,
+                  responsibilities: stripContactMeta(responsibilities),
+                  requirements: stripContactMeta(requirements),
                   salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
                   salaryText: (isNegotiable || hasExtra) ? rawSalary : undefined,
                   location: location || 'remote',
@@ -284,7 +285,7 @@ export const useJDStore = create<JDStore>()(
         }
       },
     }),
-    { name: 'recruitai-jd-store', version: 3,
+    { name: 'recruitai-jd-store', version: 4,
       partialize: (state) => {
         // Exclude transient import state — always reset on page reload
         const { isImporting, importCancelled, importProgress, cancelImport, ...rest } = state;
@@ -314,6 +315,13 @@ export const useJDStore = create<JDStore>()(
             }
             if (!fixed.categories || !(fixed.categories as unknown[]).length) {
               fixed.categories = ['operations'];
+            }
+            // v4: 清理混入职责/要求的联系人/来源/部门元数据（来源表格/对应ODC/对应SSC/@TG/主管等）
+            if (Array.isArray(fixed.responsibilities)) {
+              fixed.responsibilities = stripContactMeta((fixed.responsibilities as unknown[]).map(String));
+            }
+            if (Array.isArray(fixed.requirements)) {
+              fixed.requirements = stripContactMeta((fixed.requirements as unknown[]).map(String));
             }
             return fixed;
           }),

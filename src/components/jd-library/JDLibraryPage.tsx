@@ -119,7 +119,7 @@ export function JDLibraryPage() {
         <h2 className="text-2xl font-bold text-gray-800">JD 岗位库</h2>
         <p className="text-sm text-gray-500 mt-1">
           共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 ·{' '}
-          <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button> ·{' '}
+          <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理编号/联系人</button> ·{' '}
           <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
           <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}
