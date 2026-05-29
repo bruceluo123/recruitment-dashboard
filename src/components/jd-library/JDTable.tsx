@@ -40,6 +40,7 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">分类</th>
             <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider w-14">HC</th>
             <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider w-14">缺口</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">编制组织</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">服务单位</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">薪资</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">状态</th>
@@ -74,6 +75,9 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
               </td>
               <td className={cn('py-3 px-2 text-center w-14', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <span className={cn('text-sm font-medium', jd.gap && jd.gap !== '0' ? 'text-red-500' : 'text-gray-400')}>{jd.gap || '-'}</span>
+              </td>
+              <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
+                <p className="text-sm text-gray-500 truncate max-w-[140px]">{jd.organization || '-'}</p>
               </td>
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <p className="text-sm text-gray-500 truncate max-w-[140px]">{jd.serviceUnit || jd.department || '-'}</p>

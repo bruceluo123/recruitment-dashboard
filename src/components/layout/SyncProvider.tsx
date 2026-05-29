@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import { startSync, syncPush } from '@/lib/sync';
+import { stripContactMeta } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import type { JD } from '@/types/jd';
@@ -32,6 +33,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           }
           if (!f.categories || !(f.categories as unknown[]).length) f.categories = ['operations'];
           if (!f.status) f.status = 'active';
+          // 清理混入职责/要求尾部的联系人/来源/部门元数据（KV 数据不经过 persist 迁移）
+          if (Array.isArray(f.responsibilities)) f.responsibilities = stripContactMeta((f.responsibilities as unknown[]).map(String));
+          if (Array.isArray(f.requirements)) f.requirements = stripContactMeta((f.requirements as unknown[]).map(String));
           return f;
         });
         // Only apply remote if it's not empty mock
