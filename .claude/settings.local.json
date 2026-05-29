@@ -7,7 +7,16 @@
       "Bash(python -c \":*)",
       "Bash(sed -i '604,632d' src/store/jd-store.ts)",
       "Bash(sed -i '327,541d' src/store/jd-store.ts)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(curl -sL \"https://docs.google.com/spreadsheets/d/1PCnqi6OiX4HmWZ1EcTnNXraYhkyDwvRo4oGxLDUOnBo/export?format=xlsx&gid=0\" -o /tmp/sheet.xlsx)",
+      "Read(//tmp/**)",
+      "Bash(curl -sL --max-time 60 \"https://docs.google.com/spreadsheets/d/1PCnqi6OiX4HmWZ1EcTnNXraYhkyDwvRo4oGxLDUOnBo/export?format=xlsx&gid=0\" -o /tmp/sheet.xlsx)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(node -e \":*)",
+      "Bash(curl -sL --max-time 60 \"https://docs.google.com/spreadsheets/d/1PCnqi6OiX4HmWZ1EcTnNXraYhkyDwvRo4oGxLDUOnBo/export?format=xlsx&gid=0\" -o ./_sheet_tmp.xlsx)",
+      "Bash(curl -sL --max-time 40 \"https://qieqiuzhidao.vercel.app/api/data?key=jds\")",
+      "Bash(curl -sL --max-time 90 \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\")",
+      "Bash(curl -sL --max-time 60 \"https://qieqiuzhidao.vercel.app/api/data?key=jds\" -o ./_jds_tmp.json)"
     ]
   }
 }
