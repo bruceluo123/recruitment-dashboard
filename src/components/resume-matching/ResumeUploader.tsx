@@ -1,5 +1,6 @@
 'use client';
 import { Upload, FileText, Loader2, Check, AlertCircle } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Resume } from '@/types/resume';
 
@@ -8,14 +9,51 @@ interface ResumeUploaderProps {
   resumes: Resume[]; activeResumeId: string | null; onSelectResume: (id: string) => void;
 }
 
+const ACCEPTED_EXT = /\.(pdf|docx?)$/i;
+
 export function ResumeUploader({ onFileSelected, isUploading, resumes, activeResumeId, onSelectResume }: ResumeUploaderProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const pickFile = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const list = Array.from(files);
+    const file = list.find((f) => ACCEPTED_EXT.test(f.name)) || list[0];
+    if (file) onFileSelected(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (isUploading) return;
+    pickFile(e.dataTransfer.files);
+  };
+
   return (
     <div className="space-y-4">
-      <label className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-indigo-300 transition-all bg-gray-50 group">
-        <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 transition-all"><Upload className="w-6 h-6 text-indigo-500" /></div>
-        <div className="text-center"><p className="text-sm text-gray-600">拖拽或点击上传简历</p><p className="text-xs text-gray-400 mt-1">支持 PDF / DOCX 格式</p></div>
-        <input type="file" accept=".pdf,.docx" className="hidden" disabled={isUploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileSelected(f); }} />
-      </label>
+      <div
+        onClick={() => { if (!isUploading) inputRef.current?.click(); }}
+        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }}
+        onDrop={handleDrop}
+        className={cn(
+          'flex flex-col items-center justify-center gap-3 p-10 min-h-[220px] border-2 border-dashed rounded-xl cursor-pointer transition-all group',
+          isDragging ? 'border-indigo-400 bg-indigo-50/70' : 'border-gray-200 bg-gray-50 hover:border-indigo-300',
+          isUploading && 'opacity-60 cursor-not-allowed',
+        )}
+      >
+        <div className={cn('w-12 h-12 rounded-xl flex items-center justify-center transition-all', isDragging ? 'bg-indigo-200' : 'bg-indigo-100 group-hover:bg-indigo-200')}>
+          <Upload className="w-6 h-6 text-indigo-500" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm text-gray-600">{isDragging ? '松开鼠标即可上传' : '拖拽简历到此处，或点击上传'}</p>
+          <p className="text-xs text-gray-400 mt-1">支持 PDF / DOCX 格式</p>
+        </div>
+        <input ref={inputRef} type="file" accept=".pdf,.docx,.doc" className="hidden" disabled={isUploading}
+          onChange={(e) => { pickFile(e.target.files); e.target.value = ''; }} />
+      </div>
       {resumes.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-medium text-gray-400 uppercase">已上传简历</p>
