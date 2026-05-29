@@ -1,6 +1,6 @@
 import type { JD } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
-import { buildBatchMatchingPrompt, buildMatchingPrompt } from './matching-prompt';
+import { buildBatchMatchingPrompt, buildMatchingPrompt, buildStreamMatchingPrompt } from './matching-prompt';
 import { prefilterJDs } from './jd-prefilter';
 
 // 一次 AI 调用最多精排的 JD 数（超出则本地预筛取 Top N）
@@ -101,6 +101,104 @@ export async function matchResumeToJDs(
       return await matchPerJd(resumeText, candidates, resumeId, signal);
     } catch {
       return candidates.map((jd) => makeFallback(jd, resumeId)).sort((a, b) => b.score - a.score);
+    }
+  }
+}
+
+export type OnResult = (result: MatchingResult) => void;
+
+/** 把一行 JSONL 解析为匹配结果，失败返回 null */
+function parseStreamLine(line: string, candidates: JD[], resumeId: string): MatchingResult | null {
+  const trimmed = line.trim().replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+  if (!trimmed || trimmed[0] !== '{') return null;
+  try {
+    const r = JSON.parse(trimmed) as Record<string, unknown>;
+    const idx = Number(r.jdIndex) - 1;
+    return candidates[idx] ? buildResult(candidates[idx], resumeId, r) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 流式匹配：边生成边把结果逐条回调给 UI（体感更快，总耗时与批量相当）。
+ * 模型按 JSONL 逐行输出，收到完整一行即解析回调。失败时回退到批量匹配。
+ */
+export async function matchResumeToJDsStream(
+  resumeText: string, jds: JD[], resumeId: string, onResult: OnResult, signal?: AbortSignal,
+): Promise<void> {
+  if (jds.length === 0) return;
+  const candidates = prefilterJDs(resumeText, jds, MAX_AI_CANDIDATES);
+
+  const seen = new Set<string>();
+  const emit = (result: MatchingResult) => {
+    if (seen.has(result.jdId)) return;
+    seen.add(result.jdId);
+    onResult(result);
+  };
+
+  try {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const prompt = buildStreamMatchingPrompt(resumeText, candidates);
+    const response = await fetch('/api/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MATCH_MODEL, stream: true,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3, max_tokens: 4500,
+      }),
+      signal,
+    });
+    if (!response.ok || !response.body) throw new Error(`API ${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuf = '';
+    let contentBuf = '';
+
+    const drainContent = () => {
+      const lines = contentBuf.split('\n');
+      contentBuf = lines.pop() ?? '';
+      for (const l of lines) {
+        const r = parseStreamLine(l, candidates, resumeId);
+        if (r) emit(r);
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      sseBuf += decoder.decode(value, { stream: true });
+      const events = sseBuf.split('\n');
+      sseBuf = events.pop() ?? '';
+      for (const ev of events) {
+        const line = ev.trim();
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const obj = JSON.parse(payload);
+          const delta: string | undefined = obj?.choices?.[0]?.delta?.content;
+          if (delta) { contentBuf += delta; drainContent(); }
+        } catch { /* 不完整的 data 行，等后续 chunk 补全 */ }
+      }
+    }
+    // flush 最后一行（无换行结尾的对象）
+    const last = parseStreamLine(contentBuf, candidates, resumeId);
+    if (last) emit(last);
+
+    // 一条都没解析出来 → 回退批量
+    if (seen.size === 0) {
+      const batch = await matchResumeToJDs(resumeText, jds, resumeId, signal);
+      batch.forEach(emit);
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    // 流式失败且尚无结果 → 回退批量；已有部分结果则保留
+    if (seen.size === 0) {
+      const batch = await matchResumeToJDs(resumeText, jds, resumeId, signal).catch(() => [] as MatchingResult[]);
+      batch.forEach(emit);
     }
   }
 }

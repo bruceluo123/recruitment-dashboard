@@ -6,7 +6,8 @@ import type { MatchingResult } from '@/types/matching';
 interface MatchingResultsListProps { results: MatchingResult[]; isMatching: boolean; }
 
 export function MatchingResultsList({ results, isMatching }: MatchingResultsListProps) {
-  if (isMatching) {
+  // 流式：首条结果到达前显示加载态；到达后即展示，匹配中持续追加
+  if (isMatching && results.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 space-y-4">
         <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
@@ -22,7 +23,10 @@ export function MatchingResultsList({ results, isMatching }: MatchingResultsList
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm font-medium text-gray-700">匹配结果 <span className="text-gray-400">({results.length} 个岗位)</span></p>
+        <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
+          匹配结果 <span className="text-gray-400">({results.length} 个岗位)</span>
+          {isMatching && <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />}
+        </p>
         <div className="flex items-center gap-3 text-xs text-gray-400">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />高匹配 (≥80)</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />中匹配 (≥60)</span>

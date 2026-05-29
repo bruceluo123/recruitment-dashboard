@@ -5,26 +5,8 @@ function clip(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + '…' : text;
 }
 
-export function buildBatchMatchingPrompt(resumeText: string, jds: JD[]): string {
-  const jdList = jds.map((jd, i) => {
-    return `### JD-${i + 1}
-- 职位：${jd.title}
-- 部门：${jd.department}
-- 地点：${jd.location || '不限'}
-- 薪资：${jd.salaryRange.min}K-${jd.salaryRange.max}K
-- 职责：${clip(jd.responsibilities.join('；'), 200)}
-- 要求：${clip(jd.requirements.join('；'), 250)}`;
-  }).join('\n\n');
-
-  return `你是资深猎头顾问。请评估以下简历与${jds.length}个岗位的匹配度。
-
-## 简历
-${resumeText}
-
-## 岗位列表
-${jdList}
-
-## 评分维度（0-100）
+/** 评分维度与原则，批量/流式/单条共用，避免口径漂移 */
+const SCORING_RUBRIC = `## 评分维度（0-100）
 - skillsMatch 技能/工具匹配：候选人掌握的技能、工具是否覆盖岗位要求
 - experienceMatch 经验/项目匹配：相关年限、项目深度、0-1经历是否匹配
 - domainMatch 行业/方向匹配：所在赛道与岗位方向是否一致（如AI产品、Web3、运营等）
@@ -37,7 +19,30 @@ ${jdList}
 3. 方向不对口要明确扣 domainMatch（如开发岗配运营简历）。
 4. 职级错配要在 seniorityMatch 体现并在 concerns 里说明（如"level偏低/薪资期望不符"）。
 5. highlights 用"证据→对应要求"的形式，具体到简历事实（如"社区0到280K粉丝，对口流量增长要求"）。
-6. concerns 写真实短板或风险，没有就给空数组。
+6. concerns 写真实短板或风险，没有就给空数组。`;
+
+function buildJDList(jds: JD[]): string {
+  return jds.map((jd, i) => {
+    return `### JD-${i + 1}
+- 职位：${jd.title}
+- 部门：${jd.department}
+- 地点：${jd.location || '不限'}
+- 薪资：${jd.salaryRange.min}K-${jd.salaryRange.max}K
+- 职责：${clip(jd.responsibilities.join('；'), 200)}
+- 要求：${clip(jd.requirements.join('；'), 250)}`;
+  }).join('\n\n');
+}
+
+export function buildBatchMatchingPrompt(resumeText: string, jds: JD[]): string {
+  return `你是资深猎头顾问。请评估以下简历与${jds.length}个岗位的匹配度。
+
+## 简历
+${resumeText}
+
+## 岗位列表
+${buildJDList(jds)}
+
+${SCORING_RUBRIC}
 
 reasoning 控制在25字内。按 score 降序排列。返回严格JSON（不要markdown代码块）：
 {
@@ -52,6 +57,23 @@ reasoning 控制在25字内。按 score 降序排列。返回严格JSON（不要
     }
   ]
 }`;
+}
+
+/** 流式匹配：要求模型逐行输出（JSONL），便于边生成边解析、结果逐条蹦出 */
+export function buildStreamMatchingPrompt(resumeText: string, jds: JD[]): string {
+  return `你是资深猎头顾问。请评估以下简历与${jds.length}个岗位的匹配度。
+
+## 简历
+${resumeText}
+
+## 岗位列表
+${buildJDList(jds)}
+
+${SCORING_RUBRIC}
+
+reasoning 控制在25字内。**按 score 从高到低**逐个岗位输出。
+输出格式：每行一个独立的 JSON 对象（JSONL），不要数组、不要markdown代码块、不要任何额外说明文字。每行示例：
+{"jdIndex":1,"score":88,"breakdown":{"skillsMatch":85,"experienceMatch":90,"domainMatch":92,"seniorityMatch":80,"overallFit":88},"reasoning":"AI产品方向高度对口","highlights":["有Agent架构经验，对应Multi-Agent要求"],"concerns":["薪资期望略高"]}`;
 }
 
 export function buildMatchingPrompt(resumeText: string, jd: JD): string {

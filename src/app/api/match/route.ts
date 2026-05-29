@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'DeepSeek API Key 未配置' }, { status: 500 });
     }
 
+    const stream = body.stream === true;
     const response = await fetch(DEEPSEEK_URL, {
       method: 'POST',
       headers: {
@@ -25,12 +26,24 @@ export async function POST(req: NextRequest) {
         messages: body.messages,
         temperature: body.temperature ?? 0.3,
         max_tokens: body.max_tokens ?? 2000,
+        ...(stream ? { stream: true } : {}),
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
       return NextResponse.json({ error: `DeepSeek API ${response.status}: ${errText}` }, { status: response.status });
+    }
+
+    // 流式：直接把上游 SSE 字节透传给浏览器，前端边收边解析
+    if (stream && response.body) {
+      return new Response(response.body, {
+        headers: {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+        },
+      });
     }
 
     const data = await response.json();

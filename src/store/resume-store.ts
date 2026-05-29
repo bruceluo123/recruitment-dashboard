@@ -4,7 +4,7 @@ import type { JDCategory } from '@/types/jd';
 import { hasCategory } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { generateId } from '@/lib/utils';
-import { matchResumeToJDs } from '@/lib/deepseek';
+import { matchResumeToJDsStream } from '@/lib/deepseek';
 import { useJDStore } from './jd-store';
 
 interface ResumeStore {
@@ -85,9 +85,16 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
         return;
       }
 
-      const results = await matchResumeToJDs(resume.rawText, activeJds, resumeId, ac.signal);
+      // 流式：结果逐条到达即追加并按分数排序，体感更快
+      await matchResumeToJDsStream(resume.rawText, activeJds, resumeId, (result) => {
+        if (ac.signal.aborted) return;
+        set((s) => ({
+          matchingResults: [...s.matchingResults, result].sort((a, b) => b.score - a.score),
+        }));
+      }, ac.signal);
+
       if (!ac.signal.aborted) {
-        set({ matchingResults: results.slice(0, 5), isMatching: false, abortController: null });
+        set((s) => ({ matchingResults: s.matchingResults.slice(0, 5), isMatching: false, abortController: null }));
       }
     } catch (err) {
       if (!ac.signal.aborted) {
