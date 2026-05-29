@@ -16,7 +16,7 @@ export function InterviewCalendarPage() {
   const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
-    name: '', jdTitle: '', score: 0, interviewDate: '',
+    name: '', jdTitle: '', score: '', interviewDate: '',
     interviewer: '', contactEmail: '', notes: '', salary: '', onboardDate: '',
   });
   const remindedRef = useRef<Set<string>>(new Set());
@@ -62,7 +62,7 @@ export function InterviewCalendarPage() {
   const startEdit = (c: typeof candidates[0]) => {
     setEditingId(c.id);
     setEditForm({
-      name: c.name, jdTitle: c.jdTitle, score: c.score,
+      name: c.name, jdTitle: c.jdTitle, score: String(c.score ?? ''),
       interviewDate: c.interviewDate ? toLocalDatetime(c.interviewDate) : '',
       interviewer: c.interviewer || '', contactEmail: c.contactEmail || '', notes: c.notes || '',
       salary: c.salary || '', onboardDate: c.onboardDate ? toLocalDatetime(c.onboardDate).slice(0, 10) : '',
@@ -74,7 +74,7 @@ export function InterviewCalendarPage() {
     updateCandidate(editingId, {
       name: editForm.name,
       jdTitle: editForm.jdTitle,
-      score: editForm.score,
+      score: editForm.score.trim() === '' ? 0 : Number(editForm.score),
       interviewDate: editForm.interviewDate ? new Date(editForm.interviewDate).toISOString() : undefined,
       interviewer: editForm.interviewer || undefined,
       contactEmail: editForm.contactEmail || undefined,
@@ -189,7 +189,7 @@ export function InterviewCalendarPage() {
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs text-gray-500 mb-1">姓名</label><input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">岗位</label><input value={editForm.jdTitle} onChange={(e) => setEditForm({ ...editForm, jdTitle: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">分数</label><input type="number" value={editForm.score} onChange={(e) => setEditForm({ ...editForm, score: Number(e.target.value) })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">分数</label><input type="text" inputMode="decimal" value={editForm.score} onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) setEditForm({ ...editForm, score: v }); }} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={editForm.salary || ''} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">面试时间</label><input type="datetime-local" value={editForm.interviewDate} onChange={(e) => setEditForm({ ...editForm, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">面试官</label><input value={editForm.interviewer} onChange={(e) => setEditForm({ ...editForm, interviewer: e.target.value })} placeholder="面试官姓名" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
