@@ -5,11 +5,21 @@ import type { JDCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
 import { generateId } from '@/lib/utils';
 import { detectCategories } from '@/lib/jd-parse-core';
-import { extractMultipleTalents } from '@/lib/talent-extract';
 
 export interface TalentImportProgress {
   current: number; total: number; percent: number;
   status: 'idle' | 'uploading' | 'parsing' | 'done';
+}
+
+/** 从文件名解析姓名与岗位，格式约定为「姓名-岗位.ext」，分隔符支持 - _ －。 */
+function parseFileName(fileName: string): { name: string; jobTitle: string } {
+  const base = fileName.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, '').trim();
+  const sep = base.search(/[-_－]/);
+  if (sep === -1) return { name: base, jobTitle: '' };
+  return {
+    name: base.slice(0, sep).trim(),
+    jobTitle: base.slice(sep + 1).trim(),
+  };
 }
 
 interface TalentStore {
@@ -43,17 +53,6 @@ async function uploadResume(file: File): Promise<{ url: string; downloadUrl: str
     if (!data?.url) return null;
     return { url: data.url, downloadUrl: data.downloadUrl || data.url, fileName: data.fileName || file.name };
   } catch { return null; }
-}
-
-async function parseResumeText(file: File): Promise<string> {
-  try {
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch('/api/resume/parse', { method: 'POST', body: fd });
-    if (!res.ok) return '';
-    const data = await res.json();
-    return String(data?.text || '');
-  } catch { return ''; }
 }
 
 export const useTalentStore = create<TalentStore>()(
@@ -96,60 +95,33 @@ export const useTalentStore = create<TalentStore>()(
 
         set({ isImporting: true, importCancelled: false, importProgress: { current: 0, total: files.length, percent: 0, status: 'uploading' } });
 
-        // 1) 上传 + 解析文本（每个文件并行做这两件事）
-        const uploaded: ({ url: string; downloadUrl: string; fileName: string } | null)[] = new Array(files.length).fill(null);
-        const texts: string[] = new Array(files.length).fill('');
-
+        // 上传文件并从文件名解析「姓名-岗位」，无需 AI 解析正文
+        const batch: Talent[] = [];
         for (let i = 0; i < files.length; i++) {
           if (get().importCancelled) {
             set({ isImporting: false, importCancelled: false });
             return { success: 0, failed: 0, errors: ['已取消导入'] };
           }
           const file = files[i];
-          const [up, txt] = await Promise.all([uploadResume(file), parseResumeText(file)]);
-          uploaded[i] = up;
-          texts[i] = txt;
+          const up = await uploadResume(file);
           if (!up) { result.errors.push(`${file.name}: 文件上传失败`); }
-          const pct = Math.round(((i + 1) / files.length) * 50);
-          set({ importProgress: { current: i + 1, total: files.length, percent: pct, status: 'uploading' } });
-        }
 
-        // 2) AI 批量识别姓名 + 最近岗位 title
-        set({ importProgress: { current: 0, total: files.length, percent: 50, status: 'parsing' } });
-        const extracted: ({ name: string; jobTitle: string } | null)[] = new Array(files.length).fill(null);
-        const BATCH = 5;
-        for (let b = 0; b < files.length; b += BATCH) {
-          if (get().importCancelled) {
-            set({ isImporting: false, importCancelled: false });
-            return { success: 0, failed: 0, errors: ['已取消导入'] };
-          }
-          const slice = texts.slice(b, b + BATCH);
-          const parsed = await extractMultipleTalents(slice);
-          parsed.forEach((p, k) => { extracted[b + k] = p; });
-          const pct = 50 + Math.round((Math.min(b + BATCH, files.length) / files.length) * 50);
-          set({ importProgress: { current: Math.min(b + BATCH, files.length), total: files.length, percent: Math.min(100, pct), status: 'parsing' } });
-        }
-
-        // 3) 组装人选记录
-        const batch: Talent[] = [];
-        for (let i = 0; i < files.length; i++) {
-          const up = uploaded[i];
-          const ex = extracted[i];
-          const name = ex?.name?.trim() || files[i].name.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, '');
-          const jobTitle = ex?.jobTitle?.trim() || '';
+          const { name, jobTitle } = parseFileName(file.name);
           batch.push({
             id: generateId(),
-            name,
+            name: name || file.name.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, ''),
             jobTitle,
             categories: jobTitle ? detectCategories(jobTitle) : ['operations'],
             resumeUrl: up?.downloadUrl || undefined,
-            resumeFileName: up?.fileName || files[i].name,
+            resumeFileName: up?.fileName || file.name,
             tg: '',
             notes: '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           });
           result.success++;
+          const pct = Math.round(((i + 1) / files.length) * 100);
+          set({ importProgress: { current: i + 1, total: files.length, percent: pct, status: 'uploading' } });
         }
 
         set((s) => ({

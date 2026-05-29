@@ -84,7 +84,7 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
                   <button onClick={() => handleCopyTg(t)} title="点击复制到剪贴板"
                     className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-indigo-600 transition-colors">
                     {copiedId === t.id ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-400" />}
-                    <span>{copiedId === t.id ? '已复制' : t.tg}</span>
+                    <span>{t.tg}</span>
                   </button>
                 ) : <span className="text-sm text-gray-300">-</span>}
               </td>
