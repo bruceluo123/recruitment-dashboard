@@ -4,7 +4,10 @@
       "Bash(jq -e '.hooks.Stop[] | .hooks[] | select\\(.type == \"\"command\"\"\\) | .command' \"D:\\\\projects\\\\recruitment-dashboard\\\\.claude\\\\settings.json\")",
       "Bash(node -e \"const s = require\\(''fs''\\).readFileSync\\(''D:/projects/recruitment-dashboard/.claude/settings.json'',''utf8''\\); const j = JSON.parse\\(s\\); console.log\\(j.hooks.Stop[0].hooks[0].command\\);\")",
       "Read(//c/Users/Administrator/Desktop/**)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(sed -i '604,632d' src/store/jd-store.ts)",
+      "Bash(sed -i '327,541d' src/store/jd-store.ts)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

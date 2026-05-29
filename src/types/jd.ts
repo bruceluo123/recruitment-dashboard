@@ -46,6 +46,7 @@ export interface JD {
   salaryText?: string;
   location?: string;
   status: JDStatus;
+  source?: 'manual' | 'google-sync';  // 来源：手动添加 / 谷歌表格自动同步
   createdAt: string;
   updatedAt: string;
 }
