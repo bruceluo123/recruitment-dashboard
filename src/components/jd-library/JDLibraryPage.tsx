@@ -122,7 +122,8 @@ export function JDLibraryPage() {
           <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理所有编号</button> ·{' '}
           <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
-          <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button>
+          <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}
+          <button onClick={() => { if (window.confirm(`确定要清空全部 ${jds.length} 个岗位吗？此操作不可撤销。`)) { deleteJDBatch(jds.map((j) => j.id)); } }} className="text-red-600 hover:text-red-700 underline text-xs font-medium">清空全部</button>
         </p>
       </div>
 
