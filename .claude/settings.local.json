@@ -18,7 +18,8 @@
       "Bash(curl -sL --max-time 90 \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\")",
       "Bash(curl -sL --max-time 60 \"https://qieqiuzhidao.vercel.app/api/data?key=jds\" -o ./_jds_tmp.json)",
       "Bash(node _cat_test.mjs title)",
-      "Bash(curl -sL --max-time 40 -X POST \"https://qieqiuzhidao.vercel.app/api/data\" -H \"Content-Type: application/json\" -d '{\"\"\"\"type\"\"\"\":\"\"\"\"jds\"\"\"\",\"\"\"\"data\"\"\"\":[]}')"
+      "Bash(curl -sL --max-time 40 -X POST \"https://qieqiuzhidao.vercel.app/api/data\" -H \"Content-Type: application/json\" -d '{\"\"\"\"type\"\"\"\":\"\"\"\"jds\"\"\"\",\"\"\"\"data\"\"\"\":[]}')",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }
