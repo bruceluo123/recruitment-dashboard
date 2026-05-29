@@ -290,6 +290,12 @@ export const useJDStore = create<JDStore>()(
       },
     }),
     { name: 'recruitai-jd-store', version: 3,
+      partialize: (state) => {
+        // Exclude transient import state — always reset on page reload
+        const { isImporting, importCancelled, importProgress, cancelImport, ...rest } = state;
+        void isImporting; void importCancelled; void importProgress; void cancelImport;
+        return rest;
+      },
       migrate: (old: unknown) => {
         const state = old as { jds?: Array<Record<string, unknown>> };
         const jds = state.jds || [];
