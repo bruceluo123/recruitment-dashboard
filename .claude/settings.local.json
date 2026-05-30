@@ -48,7 +48,8 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 30)",
       "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -H \"Authorization: Bearer 822373130bf060e4e3b820f06b68e9aef7a6fad01f49320c8482ce7eda17d926\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 30)",
       "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 45)",
-      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -H \"Authorization: Bearer 822373130bf060e4e3b820f06b68e9aef7a6fad01f49320c8482ce7eda17d926\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 45)"
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -H \"Authorization: Bearer 822373130bf060e4e3b820f06b68e9aef7a6fad01f49320c8482ce7eda17d926\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 45)",
+      "Bash(node read_sheet.mjs)"
     ]
   }
 }
