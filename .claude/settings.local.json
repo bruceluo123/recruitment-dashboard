@@ -39,7 +39,8 @@
       "Bash(git rev-list:*)",
       "Bash(npm install:*)",
       "Bash(printf 'y\\\\n')",
-      "Bash(printf 'y\\\\n\\\\n')"
+      "Bash(printf 'y\\\\n\\\\n')",
+      "Bash(curl -s \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 30)"
     ]
   }
 }
