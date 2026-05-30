@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { JD, JDFilter, JDCategory, JDImportResult, JDStatus } from '@/types/jd';
-import { hasCategory } from '@/types/jd';
+import { hasCategory, parsePriority } from '@/types/jd';
 import { JD_CATEGORY_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
@@ -152,7 +152,7 @@ export const useJDStore = create<JDStore>()(
             set({ isImporting: false });
             return { success: 0, failed: rows.length, errors: ['未找到岗位名称列，请使用表头：岗位名称 / 职位名称 / 岗位 / 职位 / title / job_title'] };
           }
-          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, contentCols } = cols;
+          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, contentCols } = cols;
 
           const total = rows.length;
           set({ importProgress: { current: 0, total, percent: 0, status: 'parsing' } });
@@ -212,6 +212,7 @@ export const useJDStore = create<JDStore>()(
                 const serviceUnit = serviceCol ? String(row[serviceCol] || '').trim() : '';
                 const headcount = hcCol ? String(row[hcCol] || '').trim() : '';
                 const gap = vacancyCol ? String(row[vacancyCol] || '').trim() : '';
+                const priority = priorityCol ? parsePriority(String(row[priorityCol] || '').trim()) : undefined;
 
                 if (ai) {
                   title = String(row[titleCol] || '').trim();
@@ -252,6 +253,7 @@ export const useJDStore = create<JDStore>()(
                   serviceUnit: serviceUnit || undefined,
                   headcount: headcount || undefined,
                   gap: gap || undefined,
+                  priority,
                   categories: detectCategories(title),
                   responsibilities: stripContactMeta(responsibilities),
                   requirements: stripContactMeta(requirements),

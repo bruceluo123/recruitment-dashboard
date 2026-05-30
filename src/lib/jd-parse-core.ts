@@ -2,6 +2,7 @@
 // server-side Google Sheet sync cron. No React / Zustand / browser-only deps.
 
 import type { JD, JDCategory } from '@/types/jd';
+import { parsePriority } from '@/types/jd';
 import { generateId } from '@/lib/utils';
 
 // ─── Column keyword lists ───
@@ -15,6 +16,7 @@ export const ORG_KEYS = ['编制组织', '编制', '所属公司', '归属公司
 export const SERVICE_KEYS = ['服务单位', '所属单位', '业务单位', '所在单位'];
 export const HC_KEYS = ['hc', 'headcount', '招聘人数', '编制数', '人数', 'hc数'];
 export const VACANCY_KEYS = ['缺口', '空缺', '待招', '招聘缺口'];
+export const PRIORITY_KEYS = ['优先级', '优先级别', '优先', 'priority', '急招级别', '紧急程度', '紧急度', 'p级'];
 export const SKIP_KEYS = ['已到岗', '已发offer', '待入职', '提需日期', '期望到岗日期', '期望到岗'];
 // 联系人/来源等元数据列：不识别为岗位内容（如"来源表格""对应的ODC""对应的SSC""对接人""联系方式"）
 export const META_KEYS = ['来源表格', '对应的odc', '对应的ssc', 'odc', 'ssc', '对接人', '联系人', '联系方式', 'tg', 'telegram'];
@@ -313,6 +315,7 @@ export interface ColumnMap {
   serviceCol: string | null;
   hcCol: string | null;
   vacancyCol: string | null;
+  priorityCol: string | null;
   contentCols: string[];
 }
 
@@ -327,16 +330,17 @@ export function analyzeColumns(headers: string[]): ColumnMap | null {
   const serviceCol = findColumnByKeywords(headers, SERVICE_KEYS);
   const hcCol = findColumnByKeywords(headers, HC_KEYS);
   const vacancyCol = findColumnByKeywords(headers, VACANCY_KEYS);
+  const priorityCol = findColumnByKeywords(headers, PRIORITY_KEYS);
   const skipCols = headers.filter((h) => matchesAnyKeyword(h, SKIP_KEYS));
   const metaCols = headers.filter((h) => matchesAnyKeyword(h, META_KEYS));
 
   const knownCols = new Set<string>(
-    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, ...skipCols, ...metaCols]
+    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, ...skipCols, ...metaCols]
       .filter((x): x is string => x !== null)
   );
   const contentCols = headers.filter((h) => !knownCols.has(h));
 
-  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, contentCols };
+  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, contentCols };
 }
 
 /** Build a JD from a row using deterministic column parsing (no AI).
@@ -351,6 +355,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   const serviceUnit = cols.serviceCol ? String(row[cols.serviceCol] || '').trim() : '';
   const headcount = cols.hcCol ? String(row[cols.hcCol] || '').trim() : '';
   const gap = cols.vacancyCol ? String(row[cols.vacancyCol] || '').trim() : '';
+  const priority = cols.priorityCol ? parsePriority(String(row[cols.priorityCol] || '').trim()) : undefined;
 
   const title = rawTitleCell;
   const rawSalary = cols.salaryCol ? String(row[cols.salaryCol] || '').trim() : '';
@@ -377,6 +382,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     serviceUnit: serviceUnit || undefined,
     headcount: headcount || undefined,
     gap: gap || undefined,
+    priority,
     categories: detectCategories(title),
     responsibilities: stripContactMeta(split.responsibilities),
     requirements: stripContactMeta(split.requirements),

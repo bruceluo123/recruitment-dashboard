@@ -40,6 +40,7 @@ export interface JD {
   serviceUnit?: string;
   headcount?: string;
   gap?: string;
+  priority?: string;             // 优先级：P0 / P1 / P2 / P3（源表"优先级"列）
   categories: JDCategory[];
   responsibilities: string[];
   requirements: string[];
@@ -61,6 +62,36 @@ export const JD_STATUS_COLORS: Record<JDStatus, string> = {
 };
 
 export interface JDFilter { search: string; category: JDCategory | 'all'; department?: string; status?: JDStatus; }
+
+/** 从原始文本中解析优先级，归一化为 P0/P1/P2/P3。无法识别返回 undefined */
+export function parsePriority(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const m = String(raw).match(/P\s*([0-3])/i);
+  return m ? `P${m[1]}` : undefined;
+}
+
+/** 是否急招优先级（P0 或 P1） */
+export function isUrgentPriority(priority?: string): boolean {
+  return priority === 'P0' || priority === 'P1';
+}
+
+/** 优先级排序权重：P0 最高 */
+export function priorityRank(priority?: string): number {
+  switch (priority) {
+    case 'P0': return 0;
+    case 'P1': return 1;
+    case 'P2': return 2;
+    case 'P3': return 3;
+    default: return 99;
+  }
+}
+
+export const PRIORITY_COLORS: Record<string, string> = {
+  P0: 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-300',
+  P1: 'bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-300',
+  P2: 'bg-sky-100 text-sky-700 ring-1 ring-inset ring-sky-300',
+  P3: 'bg-gray-100 text-gray-600 ring-1 ring-inset ring-gray-300',
+};
 
 /** Get the primary category (first one) for backward compat */
 export function getPrimaryCategory(jd: { categories?: JDCategory[]; category?: JDCategory }): JDCategory {
