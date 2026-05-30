@@ -23,6 +23,12 @@ export function ResumeMatchingPage() {
   const matchWithJDs = useResumeStore((s) => s.matchWithJDs);
   const cancelMatching = useResumeStore((s) => s.cancelMatching);
   const clearMatches = useResumeStore((s) => s.clearMatches);
+  const removeResume = useResumeStore((s) => s.removeResume);
+
+  const handleRemoveResume = (id: string) => {
+    if (id === activeResumeId) clearMatches();
+    removeResume(id);
+  };
 
   useEffect(() => setMounted(true), []);
   const activeResume = resumes.find((r) => r.id === activeResumeId);
@@ -100,7 +106,7 @@ export function ResumeMatchingPage() {
         <div className="space-y-4">
           <GlassPanel>
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2"><FileSearch className="w-4 h-4 text-indigo-500" />上传简历</h3>
-            <ResumeUploader onFileSelected={(f) => uploadResume(f)} isUploading={isUploading} resumes={resumes} activeResumeId={activeResumeId} onSelectResume={setActiveResume} />
+            <ResumeUploader onFileSelected={(f) => uploadResume(f)} isUploading={isUploading} resumes={resumes} activeResumeId={activeResumeId} onSelectResume={setActiveResume} onRemoveResume={handleRemoveResume} />
           </GlassPanel>
           {activeResume && activeResume.rawText && (
             <GlassPanel>

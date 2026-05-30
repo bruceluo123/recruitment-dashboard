@@ -1,5 +1,5 @@
 'use client';
-import { Upload, FileText, Loader2, Check, AlertCircle } from 'lucide-react';
+import { Upload, FileText, Loader2, Check, AlertCircle, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Resume } from '@/types/resume';
@@ -7,11 +7,12 @@ import type { Resume } from '@/types/resume';
 interface ResumeUploaderProps {
   onFileSelected: (file: File) => void; isUploading: boolean;
   resumes: Resume[]; activeResumeId: string | null; onSelectResume: (id: string) => void;
+  onRemoveResume?: (id: string) => void;
 }
 
 const ACCEPTED_EXT = /\.(pdf|docx?)$/i;
 
-export function ResumeUploader({ onFileSelected, isUploading, resumes, activeResumeId, onSelectResume }: ResumeUploaderProps) {
+export function ResumeUploader({ onFileSelected, isUploading, resumes, activeResumeId, onSelectResume, onRemoveResume }: ResumeUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -58,13 +59,22 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
         <div className="space-y-2">
           <p className="text-xs font-medium text-gray-400 uppercase">已上传简历</p>
           {resumes.map((r) => (
-            <button key={r.id} onClick={() => onSelectResume(r.id)} className={cn('w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all border', activeResumeId === r.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100 hover:bg-gray-50')}>
+            <div key={r.id} onClick={() => onSelectResume(r.id)} className={cn('group w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all border cursor-pointer', activeResumeId === r.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100 hover:bg-gray-50')}>
               <FileText className="w-5 h-5 text-gray-400 shrink-0" />
               <div className="flex-1 min-w-0"><p className="text-sm text-gray-700 truncate">{r.fileName}</p><p className="text-xs text-gray-400">{r.parsingStatus === 'parsing' ? '解析中...' : r.parsingStatus === 'completed' ? `${r.rawText.length} 字符` : r.parsingStatus === 'failed' ? '解析失败' : '等待解析'}</p></div>
-              {r.parsingStatus === 'parsing' && <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />}
-              {r.parsingStatus === 'completed' && <Check className="w-4 h-4 text-green-500" />}
-              {r.parsingStatus === 'failed' && <AlertCircle className="w-4 h-4 text-red-500" />}
-            </button>
+              {r.parsingStatus === 'parsing' && <Loader2 className="w-4 h-4 text-indigo-500 animate-spin shrink-0" />}
+              {r.parsingStatus === 'completed' && <Check className="w-4 h-4 text-green-500 shrink-0" />}
+              {r.parsingStatus === 'failed' && <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />}
+              {onRemoveResume && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemoveResume(r.id); }}
+                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100 shrink-0"
+                  title="删除简历"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
