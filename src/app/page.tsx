@@ -1,34 +1,71 @@
 'use client';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { Briefcase, FileSearch, CalendarDays, Users, TrendingUp, ArrowUpRight, ArrowRight } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Briefcase, FileSearch, CalendarDays, Users, Award, ArrowUpRight, ArrowRight, Flame, Clock } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useJDStore } from '@/store/jd-store';
-import { useResumeStore } from '@/store/resume-store';
+import { useTalentStore } from '@/store/talent-store';
 import { useInterviewStore } from '@/store/interview-store';
+import { STAGE_COLORS } from '@/types/interview';
+import { JD_STATUS_COLORS, JD_STATUS_LABELS } from '@/types/jd';
+import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
+
+/** 把缺口文本（"3"、"5人"、"急招2"）解析为数字，无法解析时为 0。 */
+function parseGap(gap?: string): number {
+  if (!gap) return 0;
+  const m = gap.match(/\d+/);
+  return m ? parseInt(m[0], 10) : 0;
+}
+
+const STAGE_LABELS: Record<string, string> = { 'interview-1': '一面', 'interview-2': '二面', offer: 'Offer' };
 
 export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
+  const router = useRouter();
   const jds = useJDStore((s) => s.jds);
-  const resumes = useResumeStore((s) => s.resumes);
+  const selectJD = useJDStore((s) => s.selectJD);
+  const talents = useTalentStore((s) => s.talents);
   const candidates = useInterviewStore((s) => s.candidates);
 
   useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
 
   const totalJDs = jds.length;
-  const activeJDs = jds.filter((j) => j.status !== 'paused').length;
-  const totalResumes = resumes.length;
+  const urgentJDs = jds.filter((j) => j.status === 'urgent').length;
+  const talentCount = talents.length;
   const inPipeline = candidates.filter((c) => c.stage !== 'offer').length;
-  const offerCount = candidates.filter((c) => c.stage === 'offer').length;
+  const offerCandidates = candidates.filter((c) => c.stage === 'offer');
+  const offerCount = offerCandidates.length;
+  const offerScoreTotal = offerCandidates.reduce((sum, c) => sum + (c.score || 0), 0);
+  const onboardedCount = offerCandidates.filter((c) => c.onboardDate).length;
+
+  // 本周待面试（未来 7 天内有面试日期、且未到 Offer 阶段）
+  const now = Date.now();
+  const weekEnd = now + 7 * 24 * 60 * 60 * 1000;
+  const upcomingInterviews = candidates
+    .filter((c) => c.stage !== 'offer' && c.interviewDate)
+    .map((c) => ({ c, t: new Date(c.interviewDate as string).getTime() }))
+    .filter(({ t }) => !Number.isNaN(t) && t >= now - 12 * 60 * 60 * 1000 && t <= weekEnd)
+    .sort((a, b) => a.t - b.t);
+  const weekInterviewCount = upcomingInterviews.length;
+
+  // 急招岗位：按缺口数量降序
+  const urgentByGap = jds
+    .map((j) => ({ j, gap: parseGap(j.gap) }))
+    .filter(({ gap, j }) => gap > 0 || j.status === 'urgent')
+    .sort((a, b) => b.gap - a.gap)
+    .slice(0, 6);
 
   const stats = [
-    { label: 'JD 总数', value: totalJDs, sub: `${activeJDs} 活跃`, icon: Briefcase, color: 'from-indigo-500 to-cyan-500' },
-    { label: '已上传简历', value: totalResumes, sub: '本月新增', icon: FileSearch, color: 'from-violet-500 to-pink-500' },
-    { label: '管道中候选人', value: inPipeline, sub: `${offerCount} 已发 Offer`, icon: Users, color: 'from-amber-500 to-orange-500' },
-    { label: '匹配率', value: '85%', sub: '较上月 +5%', icon: TrendingUp, color: 'from-green-500 to-emerald-500' },
+    { label: 'JD 总数', value: totalJDs, sub: `${urgentJDs} 急招`, icon: Briefcase, color: 'from-indigo-500 to-cyan-500' },
+    { label: '人才库人数', value: talentCount, sub: '已入库简历', icon: FileSearch, color: 'from-violet-500 to-pink-500' },
+    { label: '管道中候选人', value: inPipeline, sub: `${weekInterviewCount} 本周待面`, icon: Users, color: 'from-amber-500 to-orange-500' },
+    { label: 'Offer 人选', value: offerCount, sub: `总分 ${offerScoreTotal}${onboardedCount > 0 ? ` · ${onboardedCount} 已入职` : ''}`, icon: Award, color: 'from-green-500 to-emerald-500' },
   ];
 
-  if (!mounted) return null;
+  const handleOpenJD = (id: string) => { selectJD(id); router.push('/jd-library'); };
 
   return (
     <div className="animate-fade-in space-y-6 max-w-7xl mx-auto">
@@ -52,6 +89,64 @@ export default function DashboardPage() {
             </div>
           </GlassPanel>
         ))}
+      </div>
+
+      {/* 急招岗位（缺口最多） + 本周面试 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <GlassPanel>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Flame className="w-4 h-4 text-red-500" />急招岗位 · 缺口最多</h3>
+            <Link href="/jd-library" className="text-sm text-indigo-500 hover:text-indigo-600 flex items-center gap-1">JD 库 <ArrowUpRight className="w-3 h-3" /></Link>
+          </div>
+          {urgentByGap.length > 0 ? (
+            <div className="space-y-2">
+              {urgentByGap.map(({ j, gap }) => (
+                <button key={j.id} onClick={() => handleOpenJD(j.id)}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all text-left group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate group-hover:text-indigo-600">{j.title}</p>
+                    <p className="text-xs text-gray-400 truncate">{j.department || j.organization || '—'}</p>
+                  </div>
+                  {j.status === 'urgent' && (
+                    <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium shrink-0', JD_STATUS_COLORS.urgent)}>{JD_STATUS_LABELS.urgent}</span>
+                  )}
+                  {gap > 0 && (
+                    <span className="shrink-0 text-right">
+                      <span className="text-lg font-bold text-red-500">{gap}</span>
+                      <span className="text-xs text-gray-400 ml-0.5">缺口</span>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={Flame} title="暂无缺口岗位" description="JD 设置缺口数量后将在此排序展示" />
+          )}
+        </GlassPanel>
+
+        <GlassPanel>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Clock className="w-4 h-4 text-blue-500" />本周面试安排</h3>
+            <Link href="/interview-calendar" className="text-sm text-indigo-500 hover:text-indigo-600 flex items-center gap-1">面试日历 <ArrowUpRight className="w-3 h-3" /></Link>
+          </div>
+          {upcomingInterviews.length > 0 ? (
+            <div className="space-y-2">
+              {upcomingInterviews.slice(0, 6).map(({ c, t }) => (
+                <Link key={c.id} href="/interview-calendar"
+                  className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all group">
+                  <div className={cn('w-2 h-2 rounded-full shrink-0', STAGE_COLORS[c.stage])} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate group-hover:text-indigo-600">{c.name} <span className="text-gray-400 font-normal">· {STAGE_LABELS[c.stage]}</span></p>
+                    <p className="text-xs text-gray-400 truncate">{c.jdTitle}</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-gray-500">{new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={Clock} title="本周暂无面试" description="候选人设置面试日期后将在此展示" />
+          )}
+        </GlassPanel>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -112,7 +207,7 @@ export default function DashboardPage() {
           {[
             { label: '一面', count: candidates.filter((c) => c.stage === 'interview-1').length, color: 'bg-blue-500' },
             { label: '二面', count: candidates.filter((c) => c.stage === 'interview-2').length, color: 'bg-amber-500' },
-            { label: 'Offer', count: candidates.filter((c) => c.stage === 'offer').length, color: 'bg-green-500' },
+            { label: 'Offer', count: offerCount, color: 'bg-green-500' },
           ].map((stage) => (
             <div key={stage.label} className="text-center p-3 rounded-xl bg-gray-50">
               <div className="text-xl font-bold text-gray-800">{stage.count}</div>
