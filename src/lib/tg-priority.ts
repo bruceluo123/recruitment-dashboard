@@ -47,7 +47,7 @@ export function parseTgNotification(text: string): TgJobEntry[] {
     if (!title) continue;
     // P 标记之后的括号组：[0]=优先级标签（中/紧急/高），[1]=部门
     const afterP = body.slice(pm.index + pm[0].length);
-    const parens = [...afterP.matchAll(/[（(]\s*([^（）()]*?)\s*[）)]/g)].map((m) => m[1].trim());
+    const parens = Array.from(afterP.matchAll(/[（(]\s*([^（）()]*?)\s*[）)]/g), (m) => m[1].trim());
     const dept = parens[1] || undefined;
     // 招聘状态：取箭头右侧的新状态
     const st = body.match(/招聘状态[：:]\s*[^→]*→\s*([^\s，,。\n]+)/);
@@ -144,11 +144,11 @@ export async function fetchTgPriority(): Promise<TgPriorityResult> {
   }
 }
 
+type TgClient = import('telegram').TelegramClient;
+type TgEntityLike = Parameters<TgClient['getMessages']>[0];
+
 /** 解析群 entity：先用 session 缓存直接拿，失败再遍历会话列表匹配 id。 */
-async function resolveGroup(
-  client: { getInputEntity: (id: string) => Promise<unknown>; getDialogs: (o: { limit: number }) => Promise<unknown[]> },
-  groupId: string,
-): Promise<unknown> {
+async function resolveGroup(client: TgClient, groupId: string): Promise<TgEntityLike> {
   try {
     return await client.getInputEntity(groupId);
   } catch {
@@ -156,7 +156,7 @@ async function resolveGroup(
   }
   const targetId = groupId.replace(/^-100/, '');
   const dialogs = await client.getDialogs({ limit: 200 });
-  for (const d of dialogs as Array<{ id?: { toString: () => string }; entity?: unknown }>) {
+  for (const d of dialogs) {
     const id = d.id?.toString() || '';
     if (id === groupId || id === targetId || id === `-${targetId}`) {
       return d.entity;

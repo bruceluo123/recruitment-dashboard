@@ -3,6 +3,10 @@
     {
       "path": "/api/sync/google-cron",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/sync/tg-cron",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

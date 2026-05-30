@@ -23,6 +23,7 @@ export function JDLibraryPage() {
   const [rawJDText, setRawJDText] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
+  const [tgSyncing, setTgSyncing] = useState(false);
   const [addForm, setAddForm] = useState({ title: '', department: '', responsibilities: '', requirements: '', categories: [] as string[], location: 'remote', salary: '' });
 
   const jds = useJDStore((s) => s.jds);
@@ -105,6 +106,31 @@ export function JDLibraryPage() {
     }
   };
 
+  const handleTgSync = async () => {
+    if (tgSyncing) return;
+    setTgSyncing(true);
+    setSyncMsg('同步 TG 优先级中…');
+    try {
+      const res = await fetch('/api/sync/tg-run', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        const parts = [
+          data.matched ? `更新 ${data.matched}` : '',
+          data.cleared ? `清除 ${data.cleared}` : '',
+        ].filter(Boolean);
+        const stat = `P0 ${data.p0} · P1 ${data.p1}`;
+        setSyncMsg(parts.length ? `TG 优先级同步完成：${parts.join(' · ')}（${stat}）` : `TG 优先级已是最新（${stat}）`);
+      } else {
+        setSyncMsg(`TG 同步失败：${data.error || '未知错误'}`);
+      }
+    } catch (err) {
+      setSyncMsg(`TG 同步失败：${(err as Error).message}`);
+    } finally {
+      setTgSyncing(false);
+      setTimeout(() => setSyncMsg(''), 8000);
+    }
+  };
+
   const handleAdd = () => {
     if (!addForm.title.trim()) return;
     addJdBatch([{
@@ -151,6 +177,7 @@ export function JDLibraryPage() {
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
           <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}
           <button onClick={handleSync} disabled={syncing} className="text-blue-600 hover:text-blue-700 underline text-xs disabled:opacity-50">{syncing ? '同步中…' : '立即同步源表'}</button> ·{' '}
+          <button onClick={handleTgSync} disabled={tgSyncing} className="text-orange-600 hover:text-orange-700 underline text-xs disabled:opacity-50">{tgSyncing ? '同步中…' : '同步 TG 优先级'}</button> ·{' '}
           <button onClick={() => { if (window.confirm(`确定要清空全部 ${jds.length} 个岗位吗？此操作不可撤销。`)) { deleteJDBatch(jds.map((j) => j.id)); } }} className="text-red-600 hover:text-red-700 underline text-xs font-medium">清空全部</button>
         </p>
         {syncMsg && <p className="text-xs text-gray-500 mt-1">{syncMsg}</p>}
