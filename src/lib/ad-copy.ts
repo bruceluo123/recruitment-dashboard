@@ -25,9 +25,14 @@ function isRemoteLocation(loc?: string): boolean {
   return l === '' || l === 'remote' || l.includes('远程') || l.includes('居家') || l.includes('remote');
 }
 
+/** 清洗薪资自由文本：源数据有时把 K 写在最前（"K20-40K"），应为 "20K-40K"。 */
+function normalizeSalaryText(s: string): string {
+  return s.replace(/^[Kk](?=\s*\d)/, '');
+}
+
 /** 单个岗位的薪资文本：优先自由文本，否则退回薪资区间，再否则「面议」。 */
 function salaryOf(jd: JD): string {
-  if (jd.salaryText && jd.salaryText.trim()) return jd.salaryText.trim();
+  if (jd.salaryText && jd.salaryText.trim()) return normalizeSalaryText(jd.salaryText.trim());
   const { min, max, currency } = jd.salaryRange || { min: 0, max: 0, currency: '' };
   if (min > 0 || max > 0) {
     const cur = currency && currency !== 'CNY' && currency !== 'RMB' ? currency : '';
