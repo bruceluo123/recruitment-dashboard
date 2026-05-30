@@ -23,7 +23,6 @@ export function TalentPoolPage() {
   const addTalent = useTalentStore((s) => s.addTalent);
   const deleteTalent = useTalentStore((s) => s.deleteTalent);
   const deleteTalentBatch = useTalentStore((s) => s.deleteTalentBatch);
-  const clearAllTalents = useTalentStore((s) => s.clearAllTalents);
   const undoDeleteTalent = useTalentStore((s) => s.undoDeleteTalent);
   const lastDeletedTalent = useTalentStore((s) => s.lastDeletedTalent);
   const filteredTalents = useFilteredTalents();
@@ -81,8 +80,7 @@ export function TalentPoolPage() {
         <h2 className="text-2xl font-bold text-gray-800">人才库</h2>
         <p className="text-sm text-gray-500 mt-1">
           共 {talents.length} 位人选 ·{' '}
-          <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
-          <button onClick={() => { if (window.confirm(`确定要清空全部 ${talents.length} 位人选吗？此操作不可撤销。`)) clearAllTalents(); }} className="text-red-600 hover:text-red-700 underline text-xs font-medium">清空全部</button>
+          <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button>
         </p>
       </div>
 
