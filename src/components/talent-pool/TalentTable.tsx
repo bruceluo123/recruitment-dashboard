@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useTalentStore } from '@/store/talent-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
 import type { Talent } from '@/types/talent';
-import { FileText, Pencil, Copy, Check, Trash2 } from 'lucide-react';
+import { FileText, Pencil, Copy, Check, Trash2, X } from 'lucide-react';
 
 interface TalentTableProps {
   talents: Talent[];
@@ -17,6 +18,9 @@ interface TalentTableProps {
 
 export function TalentTable({ talents, onEdit, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll }: TalentTableProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingTgId, setEditingTgId] = useState<string | null>(null);
+  const [tgDraft, setTgDraft] = useState('');
+  const updateTalent = useTalentStore((s) => s.updateTalent);
   if (talents.length === 0) return <div className="text-center py-12 text-gray-400"><p>暂无匹配的人选</p></div>;
 
   const selectedSet = new Set(selectedIds);
@@ -29,6 +33,22 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
       setCopiedId(talent.id);
       setTimeout(() => setCopiedId((cur) => (cur === talent.id ? null : cur)), 1500);
     } catch { /* clipboard 不可用时忽略 */ }
+  };
+
+  const startEditTg = (talent: Talent) => {
+    setEditingTgId(talent.id);
+    setTgDraft(talent.tg || '');
+  };
+
+  const saveTg = (id: string) => {
+    updateTalent(id, { tg: tgDraft.trim() });
+    setEditingTgId(null);
+    setTgDraft('');
+  };
+
+  const cancelEditTg = () => {
+    setEditingTgId(null);
+    setTgDraft('');
   };
 
   return (
@@ -80,13 +100,30 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
                 ) : <span className="text-sm text-gray-300">-</span>}
               </td>
               <td className="py-3 px-4">
-                {t.tg ? (
-                  <button onClick={() => handleCopyTg(t)} title="点击复制到剪贴板"
-                    className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-indigo-600 transition-colors">
-                    {copiedId === t.id ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-400" />}
-                    <span>{t.tg}</span>
-                  </button>
-                ) : <span className="text-sm text-gray-300">-</span>}
+                {editingTgId === t.id ? (
+                  <div className="inline-flex items-center gap-1">
+                    <input autoFocus value={tgDraft} onChange={(e) => setTgDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveTg(t.id); if (e.key === 'Escape') cancelEditTg(); }}
+                      placeholder="@username"
+                      className="h-7 w-32 px-2 rounded-md border border-indigo-300 text-sm focus:outline-none focus:border-indigo-400" />
+                    <button onClick={() => saveTg(t.id)} title="保存" className="p-1 rounded text-green-500 hover:bg-green-50"><Check className="w-3.5 h-3.5" /></button>
+                    <button onClick={cancelEditTg} title="取消" className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5">
+                    {t.tg ? (
+                      <button onClick={() => handleCopyTg(t)} title="点击复制到剪贴板"
+                        className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-indigo-600 transition-colors">
+                        {copiedId === t.id ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-400" />}
+                        <span>{t.tg}</span>
+                      </button>
+                    ) : <span className="text-sm text-gray-300">-</span>}
+                    <button onClick={() => startEditTg(t)} title="编辑 TG 号"
+                      className="p-1 rounded text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all opacity-0 group-hover:opacity-100">
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </td>
               <td className="py-3 px-4"><p className="text-sm text-gray-500 truncate max-w-[160px]">{t.notes || '-'}</p></td>
               <td className="py-3 px-4">
