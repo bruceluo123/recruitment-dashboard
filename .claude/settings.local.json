@@ -49,7 +49,17 @@
       "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -H \"Authorization: Bearer 822373130bf060e4e3b820f06b68e9aef7a6fad01f49320c8482ce7eda17d926\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 30)",
       "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 45)",
       "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -H \"Authorization: Bearer 822373130bf060e4e3b820f06b68e9aef7a6fad01f49320c8482ce7eda17d926\" \"https://qieqiuzhidao.vercel.app/api/sync/google-cron\" --max-time 45)",
-      "Bash(node read_sheet.mjs)"
+      "Bash(node read_sheet.mjs)",
+      "Bash(echo '{\"\"\"\"tool_name\"\"\"\":\"\"\"\"Edit\"\"\"\",\"\"\"\"tool_input\"\"\"\":{\"\"\"\"file_path\"\"\"\":\"\"\"\"D:\\\\\\\\projects\\\\\\\\recruitment-dashboard\\\\\\\\src\\\\\\\\lib\\\\\\\\ad-copy.ts\"\"\"\"}}')",
+      "Bash(node .claude/hooks/guard-write-scope.js)",
+      "Bash(echo '{\"\"\"\"tool_name\"\"\"\":\"\"\"\"Edit\"\"\"\",\"\"\"\"tool_input\"\"\"\":{\"\"\"\"file_path\"\"\"\":\"\"\"\"D:\\\\\\\\wiki\\\\\\\\个人知识库\\\\\\\\daily\\\\\\\\test.md\"\"\"\"}}')",
+      "Bash(echo '{\"\"\"\"tool_name\"\"\"\":\"\"\"\"Write\"\"\"\",\"\"\"\"tool_input\"\"\"\":{\"\"\"\"file_path\"\"\"\":\"\"\"\"D:\\\\\\\\wiki\\\\\\\\个人知识库\\\\\\\\projects\\\\\\\\recruitment-dashboard\\\\\\\\src\\\\\\\\components\\\\\\\\X.tsx\"\"\"\"}}')",
+      "Bash(echo '{\"\"\"\"tool_name\"\"\"\":\"\"\"\"Edit\"\"\"\",\"\"\"\"tool_input\"\"\"\":{\"\"\"\"file_path\"\"\"\":\"\"\"\"C:\\\\\\\\Users\\\\\\\\Administrator\\\\\\\\.claude\\\\\\\\settings.json\"\"\"\"}}')",
+      "Bash(printf '%s' '{\"\"\"\"tool_name\"\"\"\":\"\"\"\"Edit\"\"\"\",\"\"\"\"tool_input\"\"\"\":{\"\"\"\"file_path\"\"\"\":\"\"\"\"D:\\\\\\\\wiki\\\\\\\\test.md\"\"\"\"}}')",
+      "Bash(node .claude/hooks/guard-write-scope.js echo \"EXITCODE=$?\")",
+      "Bash(node -e ':*)",
+      "Bash(node _guard_test.mjs)",
+      "Bash(echo \"RESULT=$?\")"
     ]
   }
 }
