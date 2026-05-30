@@ -27,7 +27,9 @@ export interface SyncSummary {
 }
 
 /** 同步管理下会从源表刷新的内容字段（id/createdAt/status/source 不在内）。
- * 用于判断已有岗位是否需要更新。 */
+ * 用于判断已有岗位是否需要更新。
+ * 注意：priority 不在此签名内——优先级由 TG 同步（/api/sync/tg-*）独占管理，
+ * 源表没有优先级列，google-sync 不应触碰它。 */
 function contentSignature(jd: JD): string {
   return JSON.stringify({
     title: jd.title,
@@ -36,7 +38,6 @@ function contentSignature(jd: JD): string {
     serviceUnit: jd.serviceUnit || '',
     headcount: jd.headcount || '',
     gap: jd.gap || '',
-    priority: jd.priority || '',
     categories: jd.categories,
     responsibilities: jd.responsibilities,
     requirements: jd.requirements,
@@ -46,7 +47,8 @@ function contentSignature(jd: JD): string {
   });
 }
 
-/** 用源表最新解析结果刷新已有岗位的内容，保留 id/createdAt/status。 */
+/** 用源表最新解析结果刷新已有岗位的内容，保留 id/createdAt/status/priority。
+ * priority 由 TG 同步管理，这里原样保留 existing.priority。 */
 function refreshFromSheet(existing: JD, fresh: JD): JD {
   return {
     ...existing,
@@ -56,7 +58,6 @@ function refreshFromSheet(existing: JD, fresh: JD): JD {
     serviceUnit: fresh.serviceUnit,
     headcount: fresh.headcount,
     gap: fresh.gap,
-    priority: fresh.priority,
     categories: fresh.categories,
     responsibilities: fresh.responsibilities,
     requirements: fresh.requirements,
