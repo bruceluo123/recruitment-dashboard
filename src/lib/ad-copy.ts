@@ -33,13 +33,19 @@ function normalizeSalaryText(s: string): string {
   return s.replace(/^[Kk]\s*(\d+)/, '$1K');
 }
 
+// 这些「货币」其实是单位 K（千），不作为前缀展示，改用 K 后缀。
+const K_UNIT_CURRENCIES = new Set(['', 'K', 'k', 'CNY', 'RMB']);
+
 /** 单个岗位的薪资文本：优先自由文本，否则退回薪资区间，再否则「面议」。 */
 function salaryOf(jd: JD): string {
   if (jd.salaryText && jd.salaryText.trim()) return normalizeSalaryText(jd.salaryText.trim());
   const { min, max, currency } = jd.salaryRange || { min: 0, max: 0, currency: '' };
   if (min > 0 || max > 0) {
-    const cur = currency && currency !== 'CNY' && currency !== 'RMB' ? currency : '';
-    return `${cur}${min}-${max}K`.replace(/^([^0-9]*)/, '$1');
+    // currency 为 K/空/人民币 → 数字带 K 后缀（如 20K-40K）；其它真实货币 → 作前缀
+    if (K_UNIT_CURRENCIES.has(currency || '')) {
+      return min === max ? `${min}K` : `${min}K-${max}K`;
+    }
+    return min === max ? `${currency}${min}` : `${currency}${min}-${max}`;
   }
   return '面议';
 }
