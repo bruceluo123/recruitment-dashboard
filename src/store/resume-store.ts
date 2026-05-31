@@ -51,10 +51,19 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       formData.append('file', file);
       const res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
       const data = await res.json();
+      // 解析失败（如图片型 PDF 无法识别）或正文为空 → 标记失败，保留错误信息
+      if (!res.ok || data.error || !data.text) {
+        const errMsg = data.error || '简历正文为空，无法解析';
+        set((s) => ({
+          isUploading: false,
+          resumes: s.resumes.map((r) => r.id === id ? { ...r, parsingStatus: 'failed' as const, parseError: errMsg } : r),
+        }));
+        return id;
+      }
       set((s) => ({
         isUploading: false,
         resumes: s.resumes.map((r) =>
-          r.id === id ? { ...r, rawText: data.text || '', parsingStatus: 'completed' as const } : r),
+          r.id === id ? { ...r, rawText: data.text, parsingStatus: 'completed' as const } : r),
       }));
     } catch {
       set((s) => ({

@@ -61,7 +61,7 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
           {resumes.map((r) => (
             <div key={r.id} onClick={() => onSelectResume(r.id)} className={cn('group w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all border cursor-pointer', activeResumeId === r.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100 hover:bg-gray-50')}>
               <FileText className="w-5 h-5 text-gray-400 shrink-0" />
-              <div className="flex-1 min-w-0"><p className="text-sm text-gray-700 truncate">{r.fileName}</p><p className="text-xs text-gray-400">{r.parsingStatus === 'parsing' ? '解析中...' : r.parsingStatus === 'completed' ? `${r.rawText.length} 字符` : r.parsingStatus === 'failed' ? '解析失败' : '等待解析'}</p></div>
+              <div className="flex-1 min-w-0"><p className="text-sm text-gray-700 truncate">{r.fileName}</p><p className={cn('text-xs truncate', r.parsingStatus === 'failed' ? 'text-red-500' : 'text-gray-400')} title={r.parsingStatus === 'failed' ? r.parseError : undefined}>{r.parsingStatus === 'parsing' ? '解析中...' : r.parsingStatus === 'completed' ? `${r.rawText.length} 字符` : r.parsingStatus === 'failed' ? (r.parseError || '解析失败') : '等待解析'}</p></div>
               {r.parsingStatus === 'parsing' && <Loader2 className="w-4 h-4 text-indigo-500 animate-spin shrink-0" />}
               {r.parsingStatus === 'completed' && <Check className="w-4 h-4 text-green-500 shrink-0" />}
               {r.parsingStatus === 'failed' && <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />}

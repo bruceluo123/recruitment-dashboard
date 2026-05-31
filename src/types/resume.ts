@@ -32,4 +32,5 @@ export interface Resume {
   parsedData: ResumeParsedData;
   uploadedAt: string;
   parsingStatus: 'pending' | 'parsing' | 'completed' | 'failed';
+  parseError?: string;
 }
