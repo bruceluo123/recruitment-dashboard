@@ -25,9 +25,12 @@ function isRemoteLocation(loc?: string): boolean {
   return l === '' || l === 'remote' || l.includes('远程') || l.includes('居家') || l.includes('remote');
 }
 
-/** 清洗薪资自由文本：源数据有时把 K 写在最前（"K20-40K"），应为 "20K-40K"。 */
+/**
+ * 清洗薪资自由文本：源数据常把 K 错写在最前（"K20-40K"），应为 "20K-40K"，
+ * 即把开头的 K 挪到第一个数字之后。例：K20-40K→20K-40K、K18-30K→18K-30K。
+ */
 function normalizeSalaryText(s: string): string {
-  return s.replace(/^[Kk](?=\s*\d)/, '');
+  return s.replace(/^[Kk]\s*(\d+)/, '$1K');
 }
 
 /** 单个岗位的薪资文本：优先自由文本，否则退回薪资区间，再否则「面议」。 */
