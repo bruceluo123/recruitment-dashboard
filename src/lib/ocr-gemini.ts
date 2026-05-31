@@ -2,7 +2,7 @@
 // DeepSeek 是纯文本模型无视觉能力，图片型简历必须走此路径。
 // 需要环境变量 GEMINI_API_KEY（Google AI Studio 免费申请）。
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const EXTRACT_PROMPT = [
