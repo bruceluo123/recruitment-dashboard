@@ -1,6 +1,6 @@
 'use client';
 import { cn, formatSalary } from '@/lib/utils';
-import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JD } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority, type JD } from '@/types/jd';
 import { ChevronRight, Trash2 } from 'lucide-react';
 
 interface JDTableProps {
@@ -65,7 +65,12 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
                 </td>
               )}
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <p className="text-sm font-medium text-gray-800">{jd.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-gray-800">{jd.title}</p>
+                  {isUrgentPriority(jd.priority) && (
+                    <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold shrink-0', PRIORITY_COLORS[jd.priority!])}>{jd.priority}</span>
+                  )}
+                </div>
               </td>
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
