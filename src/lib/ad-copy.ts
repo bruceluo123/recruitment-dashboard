@@ -16,7 +16,7 @@ const CATEGORY_EMOJI: Record<JDCategory, string> = {
 };
 
 const SIGNATURE = '欢迎自荐或转推荐，投递联系麦满分同学🍔 @bruceluo123';
-const HEADER_PREFIX = '纯远程居家工作';
+const HEADER_PREFIX = '全远程居家工作';
 
 /** 远程/居家类地点不在文案中展示。 */
 function isRemoteLocation(loc?: string): boolean {
@@ -128,11 +128,13 @@ export function buildAdCopy(jds: JD[], priorityLabel: string, perSegment = 22): 
   }
   flush();
 
+  const now = new Date();
+  const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日`;
   const total = segments.length;
   return segments.map((seg, i) => {
-    const seq = total > 1 ? `（${i + 1}/${total}）` : '';
-    const title = `${priorityLabel} 急招${seq}`;
-    const header = `${HEADER_PREFIX}—${priorityLabel} 急招岗位🍔🍔${seq}`;
+    const seq = total > 1 ? `${dateLabel} · ${i + 1}/${total}` : dateLabel;
+    const title = `${priorityLabel} 急招${total > 1 ? `（${i + 1}/${total}）` : ''}`;
+    const header = `${HEADER_PREFIX}—今日 ${priorityLabel} 急招岗位🍔🍔（${seq}）`;
     const text = [header, '', ...seg.lines, '', SIGNATURE].join('\n');
     return { title, text, count: seg.count };
   });
