@@ -34,11 +34,24 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full">
+      <table className="w-full min-w-[1040px] table-fixed">
+        <colgroup>
+          {batchMode && <col className="w-10" />}
+          <col className="w-[200px]" />
+          <col className="w-[72px]" />
+          <col className="w-[56px]" />
+          <col className="w-[56px]" />
+          <col className="w-[120px]" />
+          <col className="w-[120px]" />
+          <col className="w-[190px]" />
+          <col className="w-[110px]" />
+          <col className="w-[88px]" />
+          <col className="w-12" />
+        </colgroup>
         <thead>
           <tr className="border-b border-gray-100">
             {batchMode && (
-              <th className="w-10 py-3 px-4">
+              <th className="py-3 px-4">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -48,16 +61,16 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
                 />
               </th>
             )}
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">岗位名称</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">分类</th>
-            <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider w-14">HC</th>
-            <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider w-14">缺口</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">编制组织</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">服务单位</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">对接ODC</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">薪资</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">状态</th>
-            <th className="w-10" />
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">岗位名称</th>
+            <th className="text-left py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">分类</th>
+            <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">HC</th>
+            <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">缺口</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">编制组织</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">服务单位</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">对接ODC</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">薪资</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">状态</th>
+            <th className="w-12" />
           </tr>
         </thead>
         <tbody>
@@ -78,15 +91,15 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
                 </td>
               )}
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-gray-800">{jd.title}</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">{jd.title}</p>
                   {isUrgentPriority(jd.priority) && (
                     <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold shrink-0', PRIORITY_COLORS[jd.priority!])}>{jd.priority}</span>
                   )}
                 </div>
               </td>
-              <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
+              <td className={cn('py-3 px-2', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
+                <span className={cn('inline-block px-2 py-0.5 rounded-md text-xs font-medium whitespace-nowrap', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
               </td>
               <td className={cn('py-3 px-2 text-center w-14', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <span className="text-sm font-medium text-gray-700">{jd.headcount || '-'}</span>
@@ -100,7 +113,7 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
                 const renderOrgService = (label: string) => orgServiceText ? (
                   <button onClick={(e) => { e.stopPropagation(); copyText(orgKey, orgServiceText); }}
                     title={`点击复制：${orgServiceText}`}
-                    className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-[150px]">
+                    className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-full">
                     <span className="truncate">{label}</span>
                     {copiedKey === orgKey
                       ? <Check className="w-3 h-3 text-green-600 shrink-0" />
@@ -116,7 +129,7 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
                       {jd.odc ? (
                         <button onClick={(e) => { e.stopPropagation(); copyText(odcKey, jd.odc!); }}
                           title={`点击复制：${jd.odc}`}
-                          className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-[150px]">
+                          className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-full">
                           <span className="truncate">{jd.odc}</span>
                           {copiedKey === odcKey
                             ? <Check className="w-3 h-3 text-green-600 shrink-0" />
@@ -128,7 +141,7 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
                 );
               })()}
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <span className="text-sm text-green-600 font-medium">{jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')}</span>
+                <span className="text-sm text-green-600 font-medium whitespace-nowrap">{jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')}</span>
               </td>
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <span className={cn('inline-flex items-center gap-1.5 text-xs',
