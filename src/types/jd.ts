@@ -41,6 +41,7 @@ export interface JD {
   headcount?: string;
   gap?: string;
   priority?: string;             // 优先级：P0 / P1 / P2 / P3（源表"优先级"列）
+  odc?: string;                  // 对接 ODC（源表"对应的ODC"列）
   categories: JDCategory[];
   responsibilities: string[];
   requirements: string[];

@@ -4,7 +4,7 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { ScoreRadarChart } from './ScoreRadarChart';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
-import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink } from 'lucide-react';
+import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink, UserRound, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJDStore } from '@/store/jd-store';
@@ -13,7 +13,8 @@ interface MatchingResultCardProps { result: MatchingResult; rank: number; }
 
 export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [viewMode, setViewMode] = useState<'ai' | 'jd'>('ai');
+  const [viewMode, setViewMode] = useState<'ai' | 'jd' | 'odc'>('ai');
+  const [odcCopied, setOdcCopied] = useState(false);
   const { jd, score, breakdown, reasoning, highlights, concerns } = result;
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
   const router = useRouter();
@@ -22,6 +23,15 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   const handleViewDetail = () => {
     selectJD(jd.id);
     router.push('/jd-library');
+  };
+
+  const handleCopyOdc = async () => {
+    if (!jd.odc) return;
+    try {
+      await navigator.clipboard.writeText(jd.odc);
+      setOdcCopied(true);
+      setTimeout(() => setOdcCopied(false), 1500);
+    } catch { /* clipboard 不可用时忽略 */ }
   };
 
   return (
@@ -72,9 +82,31 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                   className="flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 text-gray-500 hover:text-indigo-600 hover:bg-white hover:shadow-sm">
                   <ExternalLink className="w-3.5 h-3.5" />查看详情
                 </button>
+                <button onClick={() => setViewMode(viewMode === 'odc' ? 'ai' : 'odc')}
+                  className={cn('flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5',
+                    viewMode === 'odc' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+                  <UserRound className="w-3.5 h-3.5" />对接 ODC
+                </button>
               </div>
 
-              {viewMode === 'ai' ? (
+              {viewMode === 'odc' && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-gray-400">对接 ODC</p>
+                  {jd.odc ? (
+                    <button onClick={handleCopyOdc}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-left transition-colors group">
+                      <span className="text-sm font-medium text-gray-800">{jd.odc}</span>
+                      {odcCopied
+                        ? <span className="flex items-center gap-1 text-xs text-green-600"><Check className="w-3.5 h-3.5" />已复制</span>
+                        : <span className="flex items-center gap-1 text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"><Copy className="w-3.5 h-3.5" />点击复制</span>}
+                    </button>
+                  ) : (
+                    <p className="text-sm text-gray-400 px-3 py-2.5 rounded-lg bg-gray-50">暂无 ODC 信息</p>
+                  )}
+                </div>
+              )}
+
+              {viewMode === 'ai' && (
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <ScoreRadarChart breakdown={breakdown} size={160} />
@@ -94,7 +126,9 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                     <div className="space-y-1.5"><p className="text-xs font-medium text-amber-600 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" />潜在顾虑</p>{concerns.map((c, i) => <p key={i} className="text-sm text-gray-500 pl-5">• {c}</p>)}</div>
                   )}
                 </>
-              ) : (
+              )}
+
+              {viewMode === 'jd' && (
                 <div className="space-y-4">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-2">岗位职责</h4>
