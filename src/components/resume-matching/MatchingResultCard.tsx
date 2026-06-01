@@ -27,7 +27,9 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   };
 
   const handleCopyJd = async () => {
-    const text = `${jd.title}\n\n岗位职责：\n${jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\n岗位需求：\n${jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}`;
+    const salary = formatSalary(jd.salaryRange, jd.salaryText);
+    const salaryLine = salary && salary !== '-' ? `\n\n薪资范围：${salary}` : '';
+    const text = `${jd.title}${salaryLine}\n\n岗位职责：\n${jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\n岗位需求：\n${jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}`;
     try {
       await navigator.clipboard.writeText(text);
       setJdCopied(true);
