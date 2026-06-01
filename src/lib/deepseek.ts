@@ -5,6 +5,12 @@ import { prefilterJDs } from './jd-prefilter';
 
 // 一次 AI 调用最多精排的 JD 数（超出则本地预筛取 Top N）
 const MAX_AI_CANDIDATES = 15;
+
+// 仅匹配仍有缺口的岗位：缺口为 0（或非正数）= 不需要再招，跳过匹配
+function hasOpenGap(jd: JD): boolean {
+  const n = parseInt(String(jd.gap ?? '').trim(), 10);
+  return Number.isFinite(n) && n > 0;
+}
 // 非推理快速模型：实测 ~24s 完成；推理模型(deepseek-v4-pro)会思考耗光token预算、~84s且空输出
 const MATCH_MODEL = 'deepseek-chat';
 
@@ -74,8 +80,12 @@ export async function matchResumeToJDs(
 ): Promise<MatchingResult[]> {
   if (jds.length === 0) return [];
 
+  // 跳过无缺口岗位（缺口=0 表示不再招）
+  const openJds = jds.filter(hasOpenGap);
+  if (openJds.length === 0) return [];
+
   // 本地预筛：岗位过多时只把最相关的 Top N 交给 AI，避免超大 prompt + 输出截断
-  const candidates = prefilterJDs(resumeText, jds, MAX_AI_CANDIDATES);
+  const candidates = prefilterJDs(resumeText, openJds, MAX_AI_CANDIDATES);
 
   // Single batch call for speed
   try {
@@ -128,7 +138,12 @@ export async function matchResumeToJDsStream(
   resumeText: string, jds: JD[], resumeId: string, onResult: OnResult, signal?: AbortSignal,
 ): Promise<void> {
   if (jds.length === 0) return;
-  const candidates = prefilterJDs(resumeText, jds, MAX_AI_CANDIDATES);
+
+  // 跳过无缺口岗位（缺口=0 表示不再招）
+  const openJds = jds.filter(hasOpenGap);
+  if (openJds.length === 0) return;
+
+  const candidates = prefilterJDs(resumeText, openJds, MAX_AI_CANDIDATES);
 
   const seen = new Set<string>();
   const emit = (result: MatchingResult) => {

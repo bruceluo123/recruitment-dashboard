@@ -361,7 +361,8 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   const organization = cols.orgCol ? String(row[cols.orgCol] || '').trim() : '';
   const serviceUnit = cols.serviceCol ? String(row[cols.serviceCol] || '').trim() : '';
   const headcount = cols.hcCol ? String(row[cols.hcCol] || '').trim() : '';
-  const gap = cols.vacancyCol ? String(row[cols.vacancyCol] || '').trim() : '';
+  // 缺口为空一律填 0（无缺口 = 不需要再招，匹配时会跳过）
+  const gap = (cols.vacancyCol ? String(row[cols.vacancyCol] || '').trim() : '') || '0';
   const priority = cols.priorityCol ? parsePriority(String(row[cols.priorityCol] || '').trim()) : undefined;
   const odc = cols.odcCol ? String(row[cols.odcCol] || '').trim() : '';
 
