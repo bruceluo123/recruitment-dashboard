@@ -1,7 +1,8 @@
 'use client';
+import { useState } from 'react';
 import { cn, formatSalary } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority, type JD } from '@/types/jd';
-import { ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronRight, Trash2, Copy, Check } from 'lucide-react';
 
 interface JDTableProps {
   jds: JD[];
@@ -15,6 +16,17 @@ interface JDTableProps {
 }
 
 export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll }: JDTableProps) {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const copyText = async (key: string, text: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+    } catch { /* clipboard 不可用时忽略 */ }
+  };
+
   if (jds.length === 0) return <div className="text-center py-12 text-gray-400"><p>暂无匹配的岗位</p></div>;
 
   const selectedSet = new Set(selectedIds);
@@ -42,6 +54,7 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
             <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider w-14">缺口</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">编制组织</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">服务单位</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">对接ODC</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">薪资</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">状态</th>
             <th className="w-10" />
@@ -81,12 +94,39 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
               <td className={cn('py-3 px-2 text-center w-14', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <span className={cn('text-sm font-medium', jd.gap && jd.gap !== '0' ? 'text-red-500' : 'text-gray-400')}>{jd.gap || '-'}</span>
               </td>
-              <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <p className="text-sm text-gray-500 truncate max-w-[140px]">{jd.organization || '-'}</p>
-              </td>
-              <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <p className="text-sm text-gray-500 truncate max-w-[140px]">{jd.serviceUnit || jd.department || '-'}</p>
-              </td>
+              {(() => {
+                const orgServiceText = [jd.organization, jd.serviceUnit].filter(Boolean).join(' ');
+                const orgKey = `${jd.id}-org`;
+                const renderOrgService = (label: string) => orgServiceText ? (
+                  <button onClick={(e) => { e.stopPropagation(); copyText(orgKey, orgServiceText); }}
+                    title={`点击复制：${orgServiceText}`}
+                    className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-[150px]">
+                    <span className="truncate">{label}</span>
+                    {copiedKey === orgKey
+                      ? <Check className="w-3 h-3 text-green-600 shrink-0" />
+                      : <Copy className="w-3 h-3 shrink-0 opacity-0 group-hover/cp:opacity-100 transition-opacity" />}
+                  </button>
+                ) : <span className="text-sm text-gray-400">-</span>;
+                const odcKey = `${jd.id}-odc`;
+                return (
+                  <>
+                    <td className="py-3 px-4">{renderOrgService(jd.organization || '-')}</td>
+                    <td className="py-3 px-4">{renderOrgService(jd.serviceUnit || jd.department || '-')}</td>
+                    <td className="py-3 px-4">
+                      {jd.odc ? (
+                        <button onClick={(e) => { e.stopPropagation(); copyText(odcKey, jd.odc!); }}
+                          title={`点击复制：${jd.odc}`}
+                          className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-[150px]">
+                          <span className="truncate">{jd.odc}</span>
+                          {copiedKey === odcKey
+                            ? <Check className="w-3 h-3 text-green-600 shrink-0" />
+                            : <Copy className="w-3 h-3 shrink-0 opacity-0 group-hover/cp:opacity-100 transition-opacity" />}
+                        </button>
+                      ) : <span className="text-sm text-gray-400">-</span>}
+                    </td>
+                  </>
+                );
+              })()}
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <span className="text-sm text-green-600 font-medium">{jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')}</span>
               </td>
