@@ -69,7 +69,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
                 <span className="text-xs text-gray-400">{jd.department}</span>
-                <span className="text-xs text-green-600">{formatSalary(jd.salaryRange)}</span>
+                <span className="text-xs text-green-600">{formatSalary(jd.salaryRange, jd.salaryText)}</span>
                 <button onClick={(e) => { e.stopPropagation(); handleCopyJd(); }}
                   className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
                     jdCopied ? 'bg-green-50 text-green-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100')}>
@@ -170,7 +170,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                   <div className="flex items-center gap-4 text-xs text-gray-400">
                     <span>部门: {jd.department || '-'}</span>
                     <span>地点: {jd.location || 'remote'}</span>
-                    <span>薪资: {formatSalary(jd.salaryRange)}</span>
+                    <span>薪资: {formatSalary(jd.salaryRange, jd.salaryText)}</span>
                   </div>
                 </div>
               )}
