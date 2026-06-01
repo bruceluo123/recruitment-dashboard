@@ -16,7 +16,7 @@ async function callAI(
   const response = await fetch('/api/match', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MATCH_MODEL, messages, temperature: 0.3, max_tokens: maxTokens }),
+    body: JSON.stringify({ model: MATCH_MODEL, messages, temperature: 0, max_tokens: maxTokens }),
     signal,
   });
 
@@ -146,7 +146,7 @@ export async function matchResumeToJDsStream(
       body: JSON.stringify({
         model: MATCH_MODEL, stream: true,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3, max_tokens: 4500,
+        temperature: 0, max_tokens: 4500,
       }),
       signal,
     });
