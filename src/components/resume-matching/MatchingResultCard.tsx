@@ -15,6 +15,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'ai' | 'jd' | 'odc'>('ai');
   const [odcCopied, setOdcCopied] = useState(false);
+  const [jdCopied, setJdCopied] = useState(false);
   const { jd, score, breakdown, reasoning, highlights, concerns } = result;
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
   const router = useRouter();
@@ -23,6 +24,15 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   const handleViewDetail = () => {
     selectJD(jd.id);
     router.push('/jd-library');
+  };
+
+  const handleCopyJd = async () => {
+    const text = `${jd.title}\n\n岗位职责：\n${jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\n岗位需求：\n${jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setJdCopied(true);
+      setTimeout(() => setJdCopied(false), 1500);
+    } catch { /* clipboard 不可用时忽略 */ }
   };
 
   const handleCopyOdc = async () => {
@@ -56,10 +66,15 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                   <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold', PRIORITY_COLORS[jd.priority!])}>急招 {jd.priority}</span>
                 )}
               </div>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
                 <span className="text-xs text-gray-400">{jd.department}</span>
                 <span className="text-xs text-green-600">{formatSalary(jd.salaryRange)}</span>
+                <button onClick={(e) => { e.stopPropagation(); handleCopyJd(); }}
+                  className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
+                    jdCopied ? 'bg-green-50 text-green-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100')}>
+                  {jdCopied ? <><Check className="w-3 h-3" />已复制</> : <><Copy className="w-3 h-3" />复制 JD</>}
+                </button>
               </div>
             </div>
             <ChevronRight className={cn('w-5 h-5 text-gray-300 shrink-0 transition-all', expanded && 'rotate-90')} />
