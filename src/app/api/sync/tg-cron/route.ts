@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 function errBody(error: string): TgSyncSummary {
-  return { ok: false, matched: 0, cleared: 0, p0: 0, p1: 0, tgEntries: 0, messages: 0, total: 0, error };
+  return { ok: false, updated: 0, tgEntries: 0, messages: 0, total: 0, error };
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse<TgSyncSummary>> {

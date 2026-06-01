@@ -72,9 +72,12 @@ export function normalizeTitle(title: string): string {
 }
 
 export interface TgPriorityResult {
-  /** 归一化标题 → 优先级（P0..P3），仅含「最新一条为在招」的岗位。 */
+  /** 归一化标题 → 优先级（P0..P3），仅含「最新一条为在招」的岗位。
+   * 注意：优先级现以源表为准，TG 同步不再写回 priority，此字段仅保留供调试。 */
   priorityMap: Map<string, string>;
-  /** 归一化标题集合：最新一条显示已关闭 / 缺口为 0，应清除其优先级。 */
+  /** 归一化标题 → 最新缺口数。TG 同步用它实时更新各岗位的 gap。 */
+  gapMap: Map<string, number>;
+  /** 归一化标题集合：最新一条显示已关闭 / 缺口为 0。 */
   closedTitles: Set<string>;
   totalEntries: number;
   messageCount: number;
@@ -117,6 +120,7 @@ export async function fetchTgPriority(): Promise<TgPriorityResult> {
     const messages = await client.getMessages(entity, { limit });
 
     const priorityMap = new Map<string, string>();
+    const gapMap = new Map<string, number>();
     const closedTitles = new Set<string>();
     const seen = new Set<string>();
     let totalEntries = 0;
@@ -130,15 +134,18 @@ export async function fetchTgPriority(): Promise<TgPriorityResult> {
         const key = normalizeTitle(e.title);
         if (!key || seen.has(key)) continue;
         seen.add(key);
+        // 缺口：消息里带「缺口：x → y」时记下最新值（含 0）。
+        if (e.gap !== undefined) gapMap.set(key, e.gap);
         if (isClosedEntry(e)) {
           closedTitles.add(key);
+          if (e.gap === undefined) gapMap.set(key, 0); // 已关闭但没显式写缺口 → 视作 0
         } else {
           priorityMap.set(key, e.priority);
         }
       }
     }
 
-    return { priorityMap, closedTitles, totalEntries, messageCount: messages.length };
+    return { priorityMap, gapMap, closedTitles, totalEntries, messageCount: messages.length };
   } finally {
     await client.disconnect();
   }
