@@ -2,7 +2,7 @@
 import { cn, formatSalary } from '@/lib/utils';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { ScoreRadarChart } from './ScoreRadarChart';
-import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
@@ -40,7 +40,12 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <h4 className="text-base font-semibold text-gray-800">{jd.title}</h4>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-base font-semibold text-gray-800">{jd.title}</h4>
+                {isUrgentPriority(jd.priority) && (
+                  <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold', PRIORITY_COLORS[jd.priority!])}>急招 {jd.priority}</span>
+                )}
+              </div>
               <div className="flex items-center gap-2 mt-1">
                 <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
                 <span className="text-xs text-gray-400">{jd.department}</span>
