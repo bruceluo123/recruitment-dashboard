@@ -1,0 +1,17 @@
+name: Sync JD Library hourly
+
+# 每小时同步一次 Google Sheet → KV（岗位关得快，需要高频刷新缺口/状态）
+on:
+  schedule:
+    - cron: '0 * * * *' # 每小时整点（UTC，GitHub Actions 时区固定 UTC）
+  workflow_dispatch: {} # 支持手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Google sync
+        run: |
+          curl -fsS -X POST https://qieqiuzhidao.vercel.app/api/sync/google-run \
+            -H 'Content-Type: application/json' \
+            --max-time 90 | tee /dev/stderr
