@@ -67,7 +67,6 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">岗位名称</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">简历链接</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">TG 号</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">备注</th>
             <th className="w-20" />
           </tr>
         </thead>
@@ -125,7 +124,6 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
                   </div>
                 )}
               </td>
-              <td className="py-3 px-4"><p className="text-sm text-gray-500 truncate max-w-[160px]">{t.notes || '-'}</p></td>
               <td className="py-3 px-4">
                 {!batchMode && (
                   <div className="flex items-center gap-1 justify-end">
