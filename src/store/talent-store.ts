@@ -122,49 +122,65 @@ export const useTalentStore = create<TalentStore>()(
         const signal = scanAbort.signal;
         set({ isScanning: true, scanCancelled: false, scanProgress: { current: 0, total: pending.length, succeeded: 0, failed: 0, status: 'scanning' } });
 
-        const CONCURRENCY = 6;
-        const REQUEST_TIMEOUT = 75000; // 单份超时兜底（计为失败但不影响其他份）
+        const CONCURRENCY = 4;
+        const REQUEST_TIMEOUT = 45000; // 单份超时兜底（计为失败但不影响其他份）
         let cursor = 0;
         let done = 0;
 
+        // 单份请求：用「全局停止」+「本份超时」两个 controller，超时只影响这一份。
+        // 不用 AbortSignal.any/timeout（部分浏览器不支持，曾导致 worker 同步抛错卡死）。
+        const scanOne = async (t: Talent): Promise<void> => {
+          const timer = new AbortController();
+          const timeout = setTimeout(() => timer.abort(), REQUEST_TIMEOUT);
+          const onStop = () => timer.abort();
+          signal.addEventListener('abort', onStop);
+          try {
+            const res = await fetch('/api/talent/scan', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: t.id, url: t.resumeUrl, fileName: t.resumeFileName }),
+              signal: timer.signal,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && typeof data.chars === 'number') {
+              get().updateTalent(t.id, { hasResumeText: true, resumeChars: data.chars });
+              result.scanned++;
+            } else {
+              result.failed++;
+              result.errors.push(`${t.name}: ${data.error || `HTTP ${res.status}`}`);
+            }
+          } catch (err) {
+            if (signal.aborted) throw err; // 用户停止：上抛由 worker 退出，不计为失败
+            // 本份超时或网络错误：计为失败，继续下一份
+            result.failed++;
+            result.errors.push(`${t.name}: ${(err as Error).name === 'AbortError' ? '处理超时（45秒）' : (err as Error).message}`);
+          } finally {
+            clearTimeout(timeout);
+            signal.removeEventListener('abort', onStop);
+          }
+        };
+
         const worker = async () => {
-          while (true) {
-            if (signal.aborted) return; // 用户已停止：退出 worker
+          while (!signal.aborted) {
             const idx = cursor++;
             if (idx >= pending.length) return;
-            const t = pending[idx];
-            // 合并「全局停止」与「单份超时」两个信号：超时只影响这一份，停止才终止全部
-            const reqSignal = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT)]);
             try {
-              const res = await fetch('/api/talent/scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: t.id, url: t.resumeUrl, fileName: t.resumeFileName }),
-                signal: reqSignal,
-              });
-              const data = await res.json();
-              if (res.ok && typeof data.chars === 'number') {
-                get().updateTalent(t.id, { hasResumeText: true, resumeChars: data.chars });
-                result.scanned++;
-              } else {
-                result.failed++;
-                result.errors.push(`${t.name}: ${data.error || `HTTP ${res.status}`}`);
-              }
-            } catch (err) {
-              if (signal.aborted) return; // 用户停止：立即退出，不计为失败
-              // 单份超时或网络错误：计为失败，继续下一份
-              result.failed++;
-              result.errors.push(`${t.name}: ${(err as Error).name === 'TimeoutError' ? '处理超时' : (err as Error).message}`);
+              await scanOne(pending[idx]);
+            } catch {
+              return; // 用户停止：退出 worker
             }
             done++;
             set({ scanProgress: { current: done, total: pending.length, succeeded: result.scanned, failed: result.failed, status: 'scanning' } });
           }
         };
 
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
-
-        scanAbort = null;
-        set({ isScanning: false, scanCancelled: false, scanProgress: { current: done, total: pending.length, succeeded: result.scanned, failed: result.failed, status: 'done' } });
+        try {
+          await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
+        } finally {
+          // 无论成功/异常/停止都复位，避免按钮永久卡在「扫描中」
+          scanAbort = null;
+          set({ isScanning: false, scanCancelled: false, scanProgress: { current: done, total: pending.length, succeeded: result.scanned, failed: result.failed, status: 'done' } });
+        }
         return result;
       },
 

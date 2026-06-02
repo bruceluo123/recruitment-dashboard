@@ -18,6 +18,8 @@ export function TalentPoolPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [scanErrors, setScanErrors] = useState<string[]>([]);
+  const [scanSummary, setScanSummary] = useState<{ scanned: number; failed: number } | null>(null);
 
   const talents = useTalentStore((s) => s.talents);
   const filter = useTalentStore((s) => s.filter);
@@ -111,7 +113,7 @@ export function TalentPoolPage() {
         <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
           <Sparkles className="w-4 h-4" />JD 匹配人选
         </button>
-        <button onClick={() => { void scanResumes(); }} disabled={isScanning || unscannedCount === 0}
+        <button onClick={async () => { setScanErrors([]); setScanSummary(null); const r = await scanResumes(); setScanSummary({ scanned: r.scanned, failed: r.failed }); setScanErrors(r.errors); }} disabled={isScanning || unscannedCount === 0}
           className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50"
           title={unscannedCount === 0 ? '所有简历已扫描' : `${unscannedCount} 份待扫描`}>
           {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
@@ -138,6 +140,23 @@ export function TalentPoolPage() {
             </div>
           </div>
           <button onClick={cancelScan} className="h-9 px-3 rounded-lg border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all whitespace-nowrap">停止</button>
+        </div>
+      )}
+
+      {!isScanning && scanSummary && (
+        <div className={`rounded-xl border px-4 py-3 ${scanSummary.failed > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+          <div className="flex items-center justify-between gap-3">
+            <span className={`text-sm font-medium ${scanSummary.failed > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+              扫描完成：成功 {scanSummary.scanned} 份{scanSummary.failed > 0 ? ` · 失败 ${scanSummary.failed} 份` : ''}
+            </span>
+            <button onClick={() => { setScanSummary(null); setScanErrors([]); }} className="text-xs text-gray-500 hover:text-gray-700">关闭</button>
+          </div>
+          {scanErrors.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs text-amber-700/90 max-h-40 overflow-y-auto">
+              {scanErrors.slice(0, 10).map((e, i) => <li key={i} className="truncate">· {e}</li>)}
+              {scanErrors.length > 10 && <li className="text-amber-600">…还有 {scanErrors.length - 10} 条</li>}
+            </ul>
+          )}
         </div>
       )}
 
