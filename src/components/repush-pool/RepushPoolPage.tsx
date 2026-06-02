@@ -4,7 +4,7 @@ import { RepushColumn } from './RepushColumn';
 import { useRepushStore, type RepushColumnId } from '@/store/repush-store';
 import { useJDStore } from '@/store/jd-store';
 
-const MAX_FILE_BYTES = 8 * 1024 * 1024; // 单份简历上限 8MB（base64 存 localStorage）
+const MAX_FILE_BYTES = 30 * 1024 * 1024; // 单份简历上限 30MB（base64 存 localStorage）
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -49,7 +49,7 @@ export function RepushPoolPage() {
 
   const handleAddFile = async (column: RepushColumnId, file: File) => {
     if (file.size > MAX_FILE_BYTES) {
-      setError(`「${file.name}」超过 8MB，无法保存`);
+      setError(`「${file.name}」超过 30MB，无法保存`);
       return;
     }
     try {
