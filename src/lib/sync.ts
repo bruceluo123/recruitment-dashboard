@@ -3,13 +3,14 @@
 const KV_URL = 'https://positive-mongrel-70521.upstash.io';
 const KV_TOKEN = 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
 
-type DataType = 'jds' | 'candidates' | 'talents';
+type DataType = 'jds' | 'candidates' | 'talents' | 'repush';
 type ChangeHandler = (type: DataType, data: unknown, version: number) => void;
 
 const KV_KEYS: Record<DataType, string> = {
   jds: 'recruit:jds',
   candidates: 'recruit:candidates',
   talents: 'recruit:talents',
+  repush: 'recruit:repush',
 };
 
 let remoteVersion = 0;
@@ -35,19 +36,21 @@ async function kvCmd(cmd: string, key: string, body?: string): Promise<string | 
   } catch { return null; }
 }
 
-async function fetchRemote(): Promise<{ jds: unknown[]; candidates: unknown[]; talents: unknown[]; version: number } | null> {
+async function fetchRemote(): Promise<{ jds: unknown[]; candidates: unknown[]; talents: unknown[]; repush: unknown[]; version: number } | null> {
   try {
-    const [rawJd, rawCand, rawTalent, rawVer] = await Promise.all([
+    const [rawJd, rawCand, rawTalent, rawRepush, rawVer] = await Promise.all([
       kvCmd('get', 'recruit:jds'),
       kvCmd('get', 'recruit:candidates'),
       kvCmd('get', 'recruit:talents'),
+      kvCmd('get', 'recruit:repush'),
       kvCmd('get', 'recruit:version'),
     ]);
-    if (!rawJd && !rawCand && !rawTalent) return null;
+    if (!rawJd && !rawCand && !rawTalent && !rawRepush) return null;
     return {
       jds: (safeParse(rawJd) as unknown[]) || [],
       candidates: (safeParse(rawCand) as unknown[]) || [],
       talents: (safeParse(rawTalent) as unknown[]) || [],
+      repush: (safeParse(rawRepush) as unknown[]) || [],
       version: parseInt(rawVer || '0') || 0,
     };
   } catch { return null; }
@@ -72,6 +75,8 @@ async function poll() {
       if (remote.jds.length) onChange('jds', remote.jds, remote.version);
       if (remote.candidates.length) onChange('candidates', remote.candidates, remote.version);
       if (remote.talents.length) onChange('talents', remote.talents, remote.version);
+      // 复推池可为空（清空也要同步），故不判断 length
+      onChange('repush', remote.repush, remote.version);
     }
   }
 }
@@ -93,6 +98,7 @@ export function startSync(handler: ChangeHandler) {
       if (remote.jds.length) onChange('jds', remote.jds, remote.version);
       if (remote.candidates.length) onChange('candidates', remote.candidates, remote.version);
       if (remote.talents.length) onChange('talents', remote.talents, remote.version);
+      onChange('repush', remote.repush, remote.version);
     }
   });
   timer = setInterval(poll, 10000);
