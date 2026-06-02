@@ -55,6 +55,9 @@ interface TalentStore {
   importFromFiles: (files: File[]) => Promise<TalentImportResult>;
 }
 
+// 扫描中断器：点击「停止」时 abort 在途请求，让卡住的 fetch 立即返回。
+let scanAbort: AbortController | null = null;
+
 async function uploadResume(file: File): Promise<{ url: string; downloadUrl: string; fileName: string } | null> {
   try {
     const fd = new FormData();
@@ -81,7 +84,7 @@ export const useTalentStore = create<TalentStore>()(
       scanProgress: { current: 0, total: 0, succeeded: 0, failed: 0, status: 'idle' },
       lastDeletedTalent: null,
       cancelImport: () => set({ importCancelled: true }),
-      cancelScan: () => set({ scanCancelled: true }),
+      cancelScan: () => { scanAbort?.abort(); set({ scanCancelled: true }); },
 
       selectTalent: (id) => set({ selectedTalentId: id }),
       setFilter: (partial) => set((s) => ({ filter: { ...s.filter, ...partial } })),
@@ -115,23 +118,29 @@ export const useTalentStore = create<TalentStore>()(
           return result;
         }
 
+        scanAbort = new AbortController();
+        const signal = scanAbort.signal;
         set({ isScanning: true, scanCancelled: false, scanProgress: { current: 0, total: pending.length, succeeded: 0, failed: 0, status: 'scanning' } });
 
         const CONCURRENCY = 6;
+        const REQUEST_TIMEOUT = 75000; // 单份超时兜底（计为失败但不影响其他份）
         let cursor = 0;
         let done = 0;
 
         const worker = async () => {
           while (true) {
-            if (get().scanCancelled) return;
+            if (signal.aborted) return; // 用户已停止：退出 worker
             const idx = cursor++;
             if (idx >= pending.length) return;
             const t = pending[idx];
+            // 合并「全局停止」与「单份超时」两个信号：超时只影响这一份，停止才终止全部
+            const reqSignal = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT)]);
             try {
               const res = await fetch('/api/talent/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: t.id, url: t.resumeUrl, fileName: t.resumeFileName }),
+                signal: reqSignal,
               });
               const data = await res.json();
               if (res.ok && typeof data.chars === 'number') {
@@ -142,8 +151,10 @@ export const useTalentStore = create<TalentStore>()(
                 result.errors.push(`${t.name}: ${data.error || `HTTP ${res.status}`}`);
               }
             } catch (err) {
+              if (signal.aborted) return; // 用户停止：立即退出，不计为失败
+              // 单份超时或网络错误：计为失败，继续下一份
               result.failed++;
-              result.errors.push(`${t.name}: ${(err as Error).message}`);
+              result.errors.push(`${t.name}: ${(err as Error).name === 'TimeoutError' ? '处理超时' : (err as Error).message}`);
             }
             done++;
             set({ scanProgress: { current: done, total: pending.length, succeeded: result.scanned, failed: result.failed, status: 'scanning' } });
@@ -152,6 +163,7 @@ export const useTalentStore = create<TalentStore>()(
 
         await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
 
+        scanAbort = null;
         set({ isScanning: false, scanCancelled: false, scanProgress: { current: done, total: pending.length, succeeded: result.scanned, failed: result.failed, status: 'done' } });
         return result;
       },
