@@ -59,7 +59,7 @@ export function TalentImportDialog({ isOpen, onClose }: TalentImportDialogProps)
                 <Upload className="w-8 h-8 text-gray-400" />
                 <div className="text-center">
                   <p className="text-sm text-gray-600">点击选择多个简历文件批量上传</p>
-                  <p className="text-xs text-gray-400 mt-1">支持 PDF / DOCX，可一次选 300+ 份，自动识别姓名与最近岗位</p>
+                  <p className="text-xs text-gray-400 mt-1">支持 PDF / DOCX，单次最多 2000 份，自动识别姓名与最近岗位</p>
                 </div>
                 <input type="file" accept=".pdf,.docx" multiple className="hidden"
                   onChange={(e) => setFiles(Array.from(e.target.files || []))} />

@@ -5,14 +5,16 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { JDCategoryTabs } from '@/components/jd-library/JDCategoryTabs';
 import { TalentTable } from './TalentTable';
 import { TalentImportDialog } from './TalentImportDialog';
+import { TalentMatchDialog } from './TalentMatchDialog';
 import { TalentEditPanel } from './TalentEditPanel';
 import { useTalentStore, useFilteredTalents, useTalentCategoryCounts } from '@/store/talent-store';
 import { generateId } from '@/lib/utils';
-import { Users, Search, Upload, Plus, Trash2 } from 'lucide-react';
+import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2 } from 'lucide-react';
 
 export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [matchOpen, setMatchOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -25,8 +27,14 @@ export function TalentPoolPage() {
   const deleteTalentBatch = useTalentStore((s) => s.deleteTalentBatch);
   const undoDeleteTalent = useTalentStore((s) => s.undoDeleteTalent);
   const lastDeletedTalent = useTalentStore((s) => s.lastDeletedTalent);
+  const isScanning = useTalentStore((s) => s.isScanning);
+  const scanProgress = useTalentStore((s) => s.scanProgress);
+  const scanResumes = useTalentStore((s) => s.scanResumes);
+  const cancelScan = useTalentStore((s) => s.cancelScan);
   const filteredTalents = useFilteredTalents();
   const categories = useTalentCategoryCounts();
+
+  const unscannedCount = talents.filter((t) => t.resumeUrl && !t.hasResumeText).length;
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -93,6 +101,15 @@ export function TalentPoolPage() {
             placeholder="搜索姓名 / 岗位 / TG / 备注..."
             className="w-full h-10 pl-9 pr-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 transition-all" />
         </div>
+        <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
+          <Sparkles className="w-4 h-4" />JD 匹配人选
+        </button>
+        <button onClick={() => { void scanResumes(); }} disabled={isScanning || unscannedCount === 0}
+          className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50"
+          title={unscannedCount === 0 ? '所有简历已扫描' : `${unscannedCount} 份待扫描`}>
+          {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
+          扫描识别简历{unscannedCount > 0 ? ` (${unscannedCount})` : ''}
+        </button>
         <button onClick={() => setImportOpen(true)} className="h-10 px-4 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2">
           <Upload className="w-4 h-4" />批量导入
         </button>
@@ -100,6 +117,22 @@ export function TalentPoolPage() {
           <Plus className="w-4 h-4" />添加人选
         </button>
       </div>
+
+      {isScanning && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between text-sm mb-1.5">
+              <span className="text-indigo-700 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />识别简历文字中... 成功 {scanProgress.succeeded} · 失败 {scanProgress.failed}</span>
+              <span className="text-indigo-400">{scanProgress.current}/{scanProgress.total}</span>
+            </div>
+            <div className="w-full h-2 bg-white rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-500 rounded-full transition-all duration-150"
+                style={{ width: `${scanProgress.total ? Math.round((scanProgress.current / scanProgress.total) * 100) : 0}%` }} />
+            </div>
+          </div>
+          <button onClick={cancelScan} className="h-9 px-3 rounded-lg border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all whitespace-nowrap">停止</button>
+        </div>
+      )}
 
       {batchMode && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
@@ -134,6 +167,7 @@ export function TalentPoolPage() {
 
       <TalentEditPanel talent={editTarget} isOpen={!!editId} onClose={() => setEditId(null)} />
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
+      <TalentMatchDialog isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
 
       {lastDeletedTalent && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">

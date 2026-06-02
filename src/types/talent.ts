@@ -9,6 +9,8 @@ export interface Talent {
   resumeFileName?: string;  // 简历文件名（用于点击下载显示）
   tg?: string;              // TG 号（点击复制到剪贴板）
   notes?: string;           // 备注
+  hasResumeText?: boolean;  // 是否已扫描提取简历文字（文字本体存 KV recruit:talent-text:<id>）
+  resumeChars?: number;     // 提取到的有效正文字数
   createdAt: string;
   updatedAt: string;
 }

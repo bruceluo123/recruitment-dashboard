@@ -11,6 +11,13 @@ export interface TalentImportProgress {
   status: 'idle' | 'uploading' | 'parsing' | 'done';
 }
 
+export interface TalentScanProgress {
+  current: number; total: number; succeeded: number; failed: number;
+  status: 'idle' | 'scanning' | 'done';
+}
+
+export interface TalentScanResult { scanned: number; failed: number; errors: string[]; }
+
 /** 从文件名解析姓名与岗位，格式约定为「姓名-岗位.ext」，分隔符支持 - _ －。 */
 function parseFileName(fileName: string): { name: string; jobTitle: string } {
   const base = fileName.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, '').trim();
@@ -29,8 +36,13 @@ interface TalentStore {
   isImporting: boolean;
   importCancelled: boolean;
   importProgress: TalentImportProgress;
+  isScanning: boolean;
+  scanCancelled: boolean;
+  scanProgress: TalentScanProgress;
   lastDeletedTalent: Talent | null;
   cancelImport: () => void;
+  cancelScan: () => void;
+  scanResumes: () => Promise<TalentScanResult>;
   selectTalent: (id: string | null) => void;
   setFilter: (partial: Partial<TalentFilter>) => void;
   resetFilter: () => void;
@@ -64,8 +76,12 @@ export const useTalentStore = create<TalentStore>()(
       isImporting: false,
       importCancelled: false,
       importProgress: { current: 0, total: 0, percent: 0, status: 'idle' },
+      isScanning: false,
+      scanCancelled: false,
+      scanProgress: { current: 0, total: 0, succeeded: 0, failed: 0, status: 'idle' },
       lastDeletedTalent: null,
       cancelImport: () => set({ importCancelled: true }),
+      cancelScan: () => set({ scanCancelled: true }),
 
       selectTalent: (id) => set({ selectedTalentId: id }),
       setFilter: (partial) => set((s) => ({ filter: { ...s.filter, ...partial } })),
@@ -88,6 +104,57 @@ export const useTalentStore = create<TalentStore>()(
         return { talents: [s.lastDeletedTalent, ...s.talents], lastDeletedTalent: null };
       }),
       clearAllTalents: () => set({ talents: [], lastDeletedTalent: null }),
+
+      // 批量扫描未识别的简历：拉取 Blob → 提取文字 → 存入 KV，并在本地记录 hasResumeText/resumeChars。
+      // 跳过无简历链接或已扫描过的人选。并发 3，可中途取消。
+      scanResumes: async () => {
+        const result: TalentScanResult = { scanned: 0, failed: 0, errors: [] };
+        const pending = get().talents.filter((t) => t.resumeUrl && !t.hasResumeText);
+        if (!pending.length) {
+          set({ scanProgress: { current: 0, total: 0, succeeded: 0, failed: 0, status: 'done' } });
+          return result;
+        }
+
+        set({ isScanning: true, scanCancelled: false, scanProgress: { current: 0, total: pending.length, succeeded: 0, failed: 0, status: 'scanning' } });
+
+        const CONCURRENCY = 3;
+        let cursor = 0;
+        let done = 0;
+
+        const worker = async () => {
+          while (true) {
+            if (get().scanCancelled) return;
+            const idx = cursor++;
+            if (idx >= pending.length) return;
+            const t = pending[idx];
+            try {
+              const res = await fetch('/api/talent/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: t.id, url: t.resumeUrl, fileName: t.resumeFileName }),
+              });
+              const data = await res.json();
+              if (res.ok && typeof data.chars === 'number') {
+                get().updateTalent(t.id, { hasResumeText: true, resumeChars: data.chars });
+                result.scanned++;
+              } else {
+                result.failed++;
+                result.errors.push(`${t.name}: ${data.error || `HTTP ${res.status}`}`);
+              }
+            } catch (err) {
+              result.failed++;
+              result.errors.push(`${t.name}: ${(err as Error).message}`);
+            }
+            done++;
+            set({ scanProgress: { current: done, total: pending.length, succeeded: result.scanned, failed: result.failed, status: 'scanning' } });
+          }
+        };
+
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
+
+        set({ isScanning: false, scanCancelled: false, scanProgress: { current: done, total: pending.length, succeeded: result.scanned, failed: result.failed, status: 'done' } });
+        return result;
+      },
 
       importFromFiles: async (files: File[]) => {
         const result: TalentImportResult = { success: 0, failed: 0, errors: [] };
@@ -156,8 +223,10 @@ export const useTalentStore = create<TalentStore>()(
       name: 'recruitai-talent-store',
       version: 1,
       partialize: (state) => {
-        const { isImporting, importCancelled, importProgress, cancelImport, ...rest } = state;
+        const { isImporting, importCancelled, importProgress, cancelImport,
+          isScanning, scanCancelled, scanProgress, cancelScan, scanResumes, ...rest } = state;
         void isImporting; void importCancelled; void importProgress; void cancelImport;
+        void isScanning; void scanCancelled; void scanProgress; void cancelScan; void scanResumes;
         return rest;
       },
     },
