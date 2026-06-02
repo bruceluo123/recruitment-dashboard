@@ -1,0 +1,136 @@
+'use client';
+import { Upload, FileText, Trash2, Check, X, Pencil } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { cn, formatDate } from '@/lib/utils';
+import type { RepushColumnId, RepushItem } from '@/store/repush-store';
+
+interface RepushColumnProps {
+  columnId: RepushColumnId;
+  name: string;
+  items: RepushItem[];
+  onAddFile: (column: RepushColumnId, file: File) => void;
+  onRemove: (id: string) => void;
+  onSetFeedback: (id: string, feedback: 'done' | 'pending') => void;
+  onRename: (column: RepushColumnId, name: string) => void;
+}
+
+const ACCEPTED_EXT = /\.(pdf|docx?)$/i;
+
+export function RepushColumn({ columnId, name, items, onAddFile, onRemove, onSetFeedback, onRename }: RepushColumnProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(name);
+
+  const pickFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    Array.from(files)
+      .filter((f) => ACCEPTED_EXT.test(f.name))
+      .forEach((f) => onAddFile(columnId, f));
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    pickFiles(e.dataTransfer.files);
+  };
+
+  const doneCount = items.filter((it) => it.feedback === 'done').length;
+
+  return (
+    <div className="flex flex-col h-full bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* 标题栏 */}
+      <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-gray-100">
+        {editingName ? (
+          <input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => { onRename(columnId, nameDraft); setEditingName(false); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { onRename(columnId, nameDraft); setEditingName(false); } }}
+            className="flex-1 min-w-0 text-sm font-semibold text-gray-800 border-b border-indigo-300 outline-none px-1 py-0.5"
+          />
+        ) : (
+          <button
+            onClick={() => { setNameDraft(name); setEditingName(true); }}
+            className="group flex items-center gap-1.5 text-sm font-semibold text-gray-800 min-w-0"
+            title="点击重命名"
+          >
+            <span className="truncate">{name}</span>
+            <Pencil className="w-3.5 h-3.5 text-gray-300 group-hover:text-indigo-400 shrink-0" />
+          </button>
+        )}
+        <span className="text-xs text-gray-400 shrink-0">已反馈 {doneCount}/{items.length}</span>
+      </div>
+
+      {/* 上传区 */}
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }}
+        onDrop={handleDrop}
+        className={cn(
+          'm-4 flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all group',
+          isDragging ? 'border-indigo-400 bg-indigo-50/70' : 'border-gray-200 bg-gray-50 hover:border-indigo-300',
+        )}
+      >
+        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center transition-all', isDragging ? 'bg-indigo-200' : 'bg-indigo-100 group-hover:bg-indigo-200')}>
+          <Upload className="w-5 h-5 text-indigo-500" />
+        </div>
+        <p className="text-sm text-gray-600">{isDragging ? '松开即可添加' : '拖拽简历到此处，或点击上传'}</p>
+        <p className="text-xs text-gray-400">支持 PDF / DOCX，可多选</p>
+        <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.doc" className="hidden"
+          onChange={(e) => { pickFiles(e.target.files); e.target.value = ''; }} />
+      </div>
+
+      {/* 简历清单 */}
+      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+        {items.length === 0 ? (
+          <p className="text-center text-xs text-gray-300 py-8">今日还没有简历</p>
+        ) : (
+          items.map((it) => (
+            <div key={it.id} className="group flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-white hover:bg-gray-50 transition-all">
+              <FileText className="w-5 h-5 text-gray-400 shrink-0" />
+              <a
+                href={it.dataUrl}
+                download={it.fileName}
+                className="flex-1 min-w-0"
+                title="点击下载简历"
+              >
+                <p className="text-sm text-gray-700 truncate hover:text-indigo-600">{it.fileName}</p>
+                <p className="text-xs text-gray-400">{formatDate(it.uploadedAt)}</p>
+              </a>
+
+              {/* 反馈状态：勾=已反馈，叉=未反馈 */}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => onSetFeedback(it.id, 'done')}
+                  className={cn('p-1.5 rounded-lg transition-all', it.feedback === 'done' ? 'bg-green-100 text-green-600' : 'text-gray-300 hover:text-green-500 hover:bg-green-50')}
+                  title="已反馈"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onSetFeedback(it.id, 'pending')}
+                  className={cn('p-1.5 rounded-lg transition-all', it.feedback === 'pending' ? 'bg-red-100 text-red-500' : 'text-gray-300 hover:text-red-500 hover:bg-red-50')}
+                  title="未反馈"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onRemove(it.id)}
+                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                  title="删除简历"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
