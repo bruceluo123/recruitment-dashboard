@@ -106,7 +106,7 @@ export const useTalentStore = create<TalentStore>()(
       clearAllTalents: () => set({ talents: [], lastDeletedTalent: null }),
 
       // 批量扫描未识别的简历：拉取 Blob → 提取文字 → 存入 KV，并在本地记录 hasResumeText/resumeChars。
-      // 跳过无简历链接或已扫描过的人选。并发 3，可中途取消。
+      // 跳过无简历链接或已扫描过的人选。并发 6（文字型走快路径），可中途取消。
       scanResumes: async () => {
         const result: TalentScanResult = { scanned: 0, failed: 0, errors: [] };
         const pending = get().talents.filter((t) => t.resumeUrl && !t.hasResumeText);
@@ -117,7 +117,7 @@ export const useTalentStore = create<TalentStore>()(
 
         set({ isScanning: true, scanCancelled: false, scanProgress: { current: 0, total: pending.length, succeeded: 0, failed: 0, status: 'scanning' } });
 
-        const CONCURRENCY = 3;
+        const CONCURRENCY = 6;
         let cursor = 0;
         let done = 0;
 

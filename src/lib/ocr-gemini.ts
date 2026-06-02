@@ -5,11 +5,15 @@
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
+// 用于匹配的「大概」提取：只要关键信息要点，不逐字照抄全文 → 输出更短、生成更快。
 const EXTRACT_PROMPT = [
-  '你是简历文本提取助手。请把这份 PDF 简历里的所有文字内容完整、按阅读顺序提取出来，',
-  '包括姓名、联系方式、个人简介、工作经历、项目经历、技能、教育背景等所有段落。',
-  '保留原始语言（中英文混排照原样）。只输出提取到的纯文本，不要添加任何解释、标题或总结。',
+  '你是简历信息提取助手。请快速提取这份简历的关键信息，用简洁要点输出（不要逐字照抄全文）：',
+  '姓名、联系方式、求职意向/最近岗位、工作与项目经历要点（公司/角色/核心职责，每条一句话）、核心技能、教育背景。',
+  '中英文照原样保留。只输出提取到的要点，不要任何解释或标题。',
 ].join('');
+
+// 「大概」即可：输出上限收紧，缩短生成时间（OCR 是扫描的主要耗时来源）
+const OCR_MAX_OUTPUT_TOKENS = 2048;
 
 interface GeminiPart {
   text?: string;
@@ -41,7 +45,7 @@ export async function extractPdfTextViaGemini(buffer: Buffer, apiKey: string): P
           ],
         },
       ],
-      generationConfig: { temperature: 0, maxOutputTokens: 8192 },
+      generationConfig: { temperature: 0, maxOutputTokens: OCR_MAX_OUTPUT_TOKENS },
     }),
   });
 

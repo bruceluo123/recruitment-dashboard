@@ -9,6 +9,13 @@ export function isExtractErr(r: ExtractResult): r is ExtractErr {
   return (r as ExtractErr).error !== undefined;
 }
 
+// 存储上限：匹配只需「大概」内容（实际喂 AI 时还会裁到 ~1200 字），
+// 超长正文截断以控制 KV 体积、支撑 2000 份规模。
+const MAX_STORED_CHARS = 8000;
+function clipForStorage(text: string): string {
+  return text.length > MAX_STORED_CHARS ? text.slice(0, MAX_STORED_CHARS) : text;
+}
+
 /** 折叠空白后估算有效正文字数 */
 export function meaningfulLength(text: string): number {
   return text.replace(/\s+/g, '').length;
@@ -33,18 +40,20 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
   }
 
   const geminiKey = process.env.GEMINI_API_KEY;
+  // 文字型简历（文字层充足）直接用 pdf-parse 结果，跳过 OCR —— 这是绝大多数、且最快的路径。
+  // 仅图片型/扫描型（文字层稀疏）才调用 Gemini 视觉识别。
   if (isTextLayerSparse(pdfText, numPages) && geminiKey) {
     try {
       const ocrText = await extractPdfTextViaGemini(buffer, geminiKey);
       if (meaningfulLength(ocrText) > meaningfulLength(pdfText)) {
-        return { text: ocrText, source: 'gemini-ocr' };
+        return { text: clipForStorage(ocrText), source: 'gemini-ocr' };
       }
     } catch {
       // OCR 失败 → 回退到 pdf-parse 结果
     }
   }
 
-  if (meaningfulLength(pdfText) > 0) return { text: pdfText, source: 'pdf-text' };
+  if (meaningfulLength(pdfText) > 0) return { text: clipForStorage(pdfText), source: 'pdf-text' };
 
   return {
     error: geminiKey
@@ -61,7 +70,7 @@ export async function extractResumeText(buffer: Buffer, fileName: string): Promi
     try {
       const mammoth = await import('mammoth');
       const result = await mammoth.extractRawText({ buffer });
-      return { text: result.value, source: 'docx' };
+      return { text: clipForStorage(result.value), source: 'docx' };
     } catch {
       return { error: 'DOCX 解析失败，请尝试复制粘贴简历文本' };
     }
