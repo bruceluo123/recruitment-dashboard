@@ -34,7 +34,10 @@ export function TalentPoolPage() {
   const filteredTalents = useFilteredTalents();
   const categories = useTalentCategoryCounts();
 
-  const unscannedCount = talents.filter((t) => t.resumeUrl && !t.hasResumeText).length;
+  const withResumeCount = talents.filter((t) => t.resumeUrl).length;
+  const scannedCount = talents.filter((t) => t.resumeUrl && t.hasResumeText).length;
+  const unscannedCount = withResumeCount - scannedCount;
+  const noResumeCount = talents.length - withResumeCount;
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -87,7 +90,11 @@ export function TalentPoolPage() {
       <div>
         <h2 className="text-2xl font-bold text-gray-800">人才库</h2>
         <p className="text-sm text-gray-500 mt-1">
-          共 {talents.length} 位人选 ·{' '}
+          共 {talents.length} 位人选
+          <span className="text-gray-400"> · 已扫描 {scannedCount}</span>
+          {unscannedCount > 0 && <span className="text-amber-600"> · 待扫描 {unscannedCount}</span>}
+          {noResumeCount > 0 && <span className="text-gray-400"> · 无简历 {noResumeCount}</span>}
+          {' · '}
           <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button>
         </p>
       </div>
