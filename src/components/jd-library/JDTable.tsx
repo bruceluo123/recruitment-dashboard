@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { cn, formatSalary } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority, type JD } from '@/types/jd';
 import { ChevronRight, Trash2, Copy, Check } from 'lucide-react';
+import { ColumnFilter } from '@/components/ui/ColumnFilter';
 
 interface JDTableProps {
   jds: JD[];
@@ -13,9 +14,18 @@ interface JDTableProps {
   selectedIds?: string[];
   onToggleSelect?: (id: string) => void;
   onToggleSelectAll?: () => void;
+  orgOptions?: string[];
+  serviceOptions?: string[];
+  orgFilter?: Set<string>;
+  serviceFilter?: Set<string>;
+  onOrgFilterChange?: (next: Set<string>) => void;
+  onServiceFilterChange?: (next: Set<string>) => void;
 }
 
-export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll }: JDTableProps) {
+export function JDTable({
+  jds, onSelect, selectedId, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll,
+  orgOptions = [], serviceOptions = [], orgFilter, serviceFilter, onOrgFilterChange, onServiceFilterChange,
+}: JDTableProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const copyText = async (key: string, text: string) => {
@@ -65,8 +75,16 @@ export function JDTable({ jds, onSelect, selectedId, onDelete, batchMode = false
             <th className="text-left py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">分类</th>
             <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">HC</th>
             <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">缺口</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">编制组织</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">服务单位</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">
+              {onOrgFilterChange
+                ? <ColumnFilter label="编制组织" options={orgOptions} selected={orgFilter ?? new Set()} onChange={onOrgFilterChange} />
+                : '编制组织'}
+            </th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">
+              {onServiceFilterChange
+                ? <ColumnFilter label="服务单位" options={serviceOptions} selected={serviceFilter ?? new Set()} onChange={onServiceFilterChange} />
+                : '服务单位'}
+            </th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">对接ODC</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">薪资</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">状态</th>

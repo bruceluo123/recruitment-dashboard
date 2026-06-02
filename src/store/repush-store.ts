@@ -15,6 +15,7 @@ export interface RepushItem {
   fileType: string;       // MIME 类型，下载时复用
   dataUrl: string;        // base64 data URL，持久化保存文件本体
   feedback: FeedbackStatus;
+  organization?: string;  // 该简历推荐到的编制组织（来源于 JD 库的编制组织列表）
   uploadedAt: string;
 }
 
@@ -24,6 +25,7 @@ interface RepushStore {
   addItem: (column: RepushColumnId, file: { fileName: string; fileType: string; dataUrl: string }) => void;
   removeItem: (id: string) => void;
   setFeedback: (id: string, feedback: FeedbackStatus) => void;
+  setOrganization: (id: string, organization: string) => void;
   renameColumn: (column: RepushColumnId, name: string) => void;
 }
 
@@ -51,6 +53,9 @@ export const useRepushStore = create<RepushStore>()(
       removeItem: (id) => set((s) => ({ items: s.items.filter((it) => it.id !== id) })),
       setFeedback: (id, feedback) => set((s) => ({
         items: s.items.map((it) => (it.id === id ? { ...it, feedback } : it)),
+      })),
+      setOrganization: (id, organization) => set((s) => ({
+        items: s.items.map((it) => (it.id === id ? { ...it, organization: organization || undefined } : it)),
       })),
       renameColumn: (column, name) => set((s) => ({
         columnNames: { ...s.columnNames, [column]: name.trim() || DEFAULT_NAMES[column] },

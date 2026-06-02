@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { JDCategoryTabs } from './JDCategoryTabs';
 import { JDSearchBar } from './JDSearchBar';
@@ -20,6 +20,9 @@ export function JDLibraryPage() {
   const [activeOnly, setActiveOnly] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Excel 式列筛选：空集合 = 不筛选
+  const [orgFilter, setOrgFilter] = useState<Set<string>>(new Set());
+  const [serviceFilter, setServiceFilter] = useState<Set<string>>(new Set());
   const [rawJDText, setRawJDText] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
@@ -42,6 +45,16 @@ export function JDLibraryPage() {
   const filteredJDs = useFilteredJDs();
   const categories = useCategoryCounts();
 
+  // 列筛选选项：基于全部岗位去重，保证选项不随筛选缩水
+  const orgOptions = useMemo(
+    () => Array.from(new Set(jds.map((j) => (j.organization || '').trim()))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [jds],
+  );
+  const serviceOptions = useMemo(
+    () => Array.from(new Set(jds.map((j) => (j.serviceUnit || j.department || '').trim()))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [jds],
+  );
+
   useEffect(() => setMounted(true), []);
   useEffect(() => {
     if (!lastDeletedJD) return;
@@ -50,7 +63,15 @@ export function JDLibraryPage() {
   }, [lastDeletedJD]);
   if (!mounted) return null;
 
-  const finalFiltered = activeOnly ? filteredJDs.filter((j) => j.status !== 'paused') : filteredJDs;
+  // 编制组织 / 服务单位 的取值（与表格展示口径一致）
+  const orgOf = (j: typeof jds[number]) => (j.organization || '').trim();
+  const svcOf = (j: typeof jds[number]) => (j.serviceUnit || j.department || '').trim();
+
+  const statusFiltered = activeOnly ? filteredJDs.filter((j) => j.status !== 'paused') : filteredJDs;
+  const finalFiltered = statusFiltered.filter((j) =>
+    (orgFilter.size === 0 || orgFilter.has(orgOf(j))) &&
+    (serviceFilter.size === 0 || serviceFilter.has(svcOf(j))),
+  );
   const selectedJd = jds.find((j) => j.id === selectedJdId) || null;
   const visibleIds = finalFiltered.map((j) => j.id);
   const visibleSelectedCount = selectedIds.filter((id) => visibleIds.includes(id)).length;
@@ -213,6 +234,12 @@ export function JDLibraryPage() {
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
+            orgOptions={orgOptions}
+            serviceOptions={serviceOptions}
+            orgFilter={orgFilter}
+            serviceFilter={serviceFilter}
+            onOrgFilterChange={setOrgFilter}
+            onServiceFilterChange={setServiceFilter}
           />
         ) : (
           <EmptyState icon={Briefcase} title={jds.length === 0 ? '暂无岗位数据' : '无匹配结果'} description={jds.length === 0 ? '点击"添加岗位"或"批量导入"添加数据' : '尝试调整筛选条件'} />
