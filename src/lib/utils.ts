@@ -54,12 +54,16 @@ export function formatInterviewDate(dateStr: string): string {
   const mm = String(date.getMinutes()).padStart(2, '0');
   const timeStr = `${hh}:${mm}`;
 
+  // 今天/明天标记：仅当面试日期为今天或明天时附加
+  const diffDays = Math.round((dateStart.getTime() - todayStart.getTime()) / 86400000);
+  const relTag = diffDays === 0 ? ' 今天' : diffDays === 1 ? ' 明天' : '';
+
   if (dateStart >= thisMonday && dateStart < nextMonday) {
-    return `本周${dayName} ${month}月${day}号 ${timeStr}`;
+    return `本周${dayName}${relTag} ${month}月${day}号 ${timeStr}`;
   } else if (dateStart >= nextMonday && dateStart < weekAfterNext) {
-    return `下周${dayName} ${month}月${day}号 ${timeStr}`;
+    return `下周${dayName}${relTag} ${month}月${day}号 ${timeStr}`;
   } else {
-    return `${month}月${day}号(周${dayName}) ${timeStr}`;
+    return `${month}月${day}号(周${dayName})${relTag} ${timeStr}`;
   }
 }
 
