@@ -72,6 +72,9 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                 <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
                 <span className="text-xs text-gray-400">{[jd.organization, jd.serviceUnit || jd.department].filter(Boolean).join(' ') || '—'}</span>
                 <span className="text-xs text-green-600">{formatSalary(jd.salaryRange, jd.salaryText)}</span>
+                {jd.gap && /\d/.test(jd.gap) && parseInt(jd.gap.match(/\d+/)![0], 10) > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600">缺口 {jd.gap.match(/\d+/)![0]}</span>
+                )}
                 <button onClick={(e) => { e.stopPropagation(); handleCopyJd(); }}
                   className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
                     jdCopied ? 'bg-green-50 text-green-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100')}>
