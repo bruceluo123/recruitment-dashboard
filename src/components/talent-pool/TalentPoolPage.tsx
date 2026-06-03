@@ -131,7 +131,7 @@ export function TalentPoolPage() {
         <div className="flex items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between text-sm mb-1.5">
-              <span className="text-indigo-700 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />识别简历文字中... 成功 {scanProgress.succeeded} · 失败 {scanProgress.failed}</span>
+              <span className="text-indigo-700 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />识别简历文字 + AI 分类中... 成功 {scanProgress.succeeded} · 失败 {scanProgress.failed}</span>
               <span className="text-indigo-400">{scanProgress.current}/{scanProgress.total}</span>
             </div>
             <div className="w-full h-2 bg-white rounded-full overflow-hidden">

@@ -24,7 +24,7 @@ export function TalentImportDialog({ isOpen, onClose }: TalentImportDialogProps)
     setFiles([]);
   };
 
-  const statusLabel = progress.status === 'uploading' ? '上传简历中...' : 'AI 分析岗位分类中...';
+  const statusLabel = '上传简历中...';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -59,7 +59,7 @@ export function TalentImportDialog({ isOpen, onClose }: TalentImportDialogProps)
                 <Upload className="w-8 h-8 text-gray-400" />
                 <div className="text-center">
                   <p className="text-sm text-gray-600">点击选择多个简历文件批量上传</p>
-                  <p className="text-xs text-gray-400 mt-1">支持 PDF / DOCX，单次最多 2000 份，自动识别姓名与最近岗位</p>
+                  <p className="text-xs text-gray-400 mt-1">支持 PDF / DOCX，单次最多 2000 份，先快速上传，AI 精准分类在「扫描识别简历」时进行</p>
                 </div>
                 <input type="file" accept=".pdf,.docx" multiple className="hidden"
                   onChange={(e) => setFiles(Array.from(e.target.files || []))} />

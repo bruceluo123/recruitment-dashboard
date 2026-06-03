@@ -5,6 +5,7 @@ import type { JDCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
 import { generateId } from '@/lib/utils';
 import { classifyTitleCategories } from '@/lib/talent-extract';
+import { detectCategories } from '@/lib/jd-parse-core';
 
 export interface TalentImportProgress {
   current: number; total: number; percent: number;
@@ -188,6 +189,19 @@ export const useTalentStore = create<TalentStore>()(
 
         try {
           await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
+
+          // 文字提取完成后，用 AI 按岗位名称精修分类（参照 JD 库分类体系）。
+          // 失败/超时由 classifyTitleCategories 内部回退关键词分类，不影响扫描结果计数。
+          if (!signal.aborted) {
+            const BATCH = 30;
+            for (let b = 0; b < pending.length && !signal.aborted; b += BATCH) {
+              const slice = pending.slice(b, b + BATCH);
+              const cats = await classifyTitleCategories(slice.map((t) => t.jobTitle), signal);
+              cats.forEach((c, k) => {
+                if (c.length) get().updateTalent(slice[k].id, { categories: c });
+              });
+            }
+          }
         } finally {
           // 无论成功/异常/停止都复位，避免按钮永久卡在「扫描中」
           scanAbort = null;
@@ -204,7 +218,8 @@ export const useTalentStore = create<TalentStore>()(
         const signal = importAbort.signal;
         set({ isImporting: true, importCancelled: false, importProgress: { current: 0, total: files.length, percent: 0, status: 'uploading' } });
 
-        // 1) 并发上传文件 + 从文件名解析「姓名-岗位」（0-60%），可中途取消。
+        // 并发上传文件 + 从文件名解析「姓名-岗位」+ 关键词即时分类（0-100%），可中途取消。
+        // AI 精准分类延后到「扫描识别简历」步骤，让上传本身保持快速。
         type Parsed = { name: string; jobTitle: string; up: Awaited<ReturnType<typeof uploadResume>>; fileName: string };
         const parsed: Parsed[] = new Array(files.length);
         const UPLOAD_CONCURRENCY = 4;
@@ -221,7 +236,7 @@ export const useTalentStore = create<TalentStore>()(
             const { name, jobTitle } = parseFileName(file.name);
             parsed[i] = { name: name || file.name.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, ''), jobTitle, up, fileName: file.name };
             uploaded++;
-            set({ importProgress: { current: uploaded, total: files.length, percent: Math.round((uploaded / files.length) * 60), status: 'uploading' } });
+            set({ importProgress: { current: uploaded, total: files.length, percent: Math.round((uploaded / files.length) * 100), status: 'uploading' } });
           }
         };
         await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, () => uploadWorker()));
@@ -231,38 +246,22 @@ export const useTalentStore = create<TalentStore>()(
           return { success: 0, failed: 0, errors: ['已取消导入'] };
         }
 
-        // 2) 用 AI 按岗位名称批量分类（参照 JD 库分类体系，60-100%）
-        set({ importProgress: { current: 0, total: files.length, percent: 60, status: 'parsing' } });
-        const titles = parsed.map((p) => p.jobTitle);
-        const categories: JDCategory[][] = new Array(parsed.length);
-        const BATCH = 30;
-        for (let b = 0; b < titles.length; b += BATCH) {
-          if (signal.aborted) {
-            importAbort = null;
-            set({ isImporting: false, importCancelled: false, importProgress: { current: 0, total: 0, percent: 0, status: 'idle' } });
-            return { success: 0, failed: 0, errors: ['已取消导入'] };
-          }
-          const slice = titles.slice(b, b + BATCH);
-          const cats = await classifyTitleCategories(slice, signal);
-          cats.forEach((c, k) => { categories[b + k] = c.length ? c : ['operations']; });
-          const done = Math.min(b + BATCH, titles.length);
-          const pct = 60 + Math.round((done / titles.length) * 40);
-          set({ importProgress: { current: done, total: titles.length, percent: Math.min(100, pct), status: 'parsing' } });
-        }
-
-        // 3) 组装人选记录
-        const batch: Talent[] = parsed.map((p, i) => ({
-          id: generateId(),
-          name: p.name,
-          jobTitle: p.jobTitle,
-          categories: categories[i]?.length ? categories[i] : ['operations'],
-          resumeUrl: p.up?.downloadUrl || undefined,
-          resumeFileName: p.up?.fileName || p.fileName,
-          tg: '',
-          notes: '',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }));
+        // 组装人选记录（关键词分类，待「扫描识别」时再用 AI 精修）
+        const batch: Talent[] = parsed.map((p) => {
+          const kw = detectCategories(p.jobTitle);
+          return {
+            id: generateId(),
+            name: p.name,
+            jobTitle: p.jobTitle,
+            categories: kw.length ? kw : ['operations'],
+            resumeUrl: p.up?.downloadUrl || undefined,
+            resumeFileName: p.up?.fileName || p.fileName,
+            tg: '',
+            notes: '',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        });
         result.success = batch.length;
 
         importAbort = null;
