@@ -25,15 +25,24 @@ export function RepushPoolPage() {
   const removeItem = useRepushStore((s) => s.removeItem);
   const setFeedback = useRepushStore((s) => s.setFeedback);
   const setOrganization = useRepushStore((s) => s.setOrganization);
+  const setDepartment = useRepushStore((s) => s.setDepartment);
   const renameColumn = useRepushStore((s) => s.renameColumn);
 
-  // 编制组织下拉选项：取 JD 库中所有去重、非空的编制组织
+  // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段
   const jds = useJDStore((s) => s.jds);
   const orgOptions = useMemo(() => {
     const set = new Set<string>();
     for (const jd of jds) {
       const org = jd.organization?.trim();
       if (org) set.add(org);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }, [jds]);
+  const deptOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const jd of jds) {
+      const dept = jd.department?.trim();
+      if (dept) set.add(dept);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   }, [jds]);
@@ -80,10 +89,12 @@ export function RepushPoolPage() {
           name={columnNames.a}
           items={itemsA}
           orgOptions={orgOptions}
+          deptOptions={deptOptions}
           onAddFile={handleAddFile}
           onRemove={removeItem}
           onSetFeedback={setFeedback}
           onSetOrganization={setOrganization}
+          onSetDepartment={setDepartment}
           onRename={renameColumn}
         />
         <RepushColumn
@@ -91,10 +102,12 @@ export function RepushPoolPage() {
           name={columnNames.b}
           items={itemsB}
           orgOptions={orgOptions}
+          deptOptions={deptOptions}
           onAddFile={handleAddFile}
           onRemove={removeItem}
           onSetFeedback={setFeedback}
           onSetOrganization={setOrganization}
+          onSetDepartment={setDepartment}
           onRename={renameColumn}
         />
       </div>

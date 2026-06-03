@@ -9,16 +9,18 @@ interface RepushColumnProps {
   name: string;
   items: RepushItem[];
   orgOptions: string[];
+  deptOptions: string[];
   onAddFile: (column: RepushColumnId, file: File) => void;
   onRemove: (id: string) => void;
   onSetFeedback: (id: string, feedback: 'done' | 'pending') => void;
   onSetOrganization: (id: string, organization: string) => void;
+  onSetDepartment: (id: string, department: string) => void;
   onRename: (column: RepushColumnId, name: string) => void;
 }
 
 const ACCEPTED_EXT = /\.(pdf|docx?)$/i;
 
-export function RepushColumn({ columnId, name, items, orgOptions, onAddFile, onRemove, onSetFeedback, onSetOrganization, onRename }: RepushColumnProps) {
+export function RepushColumn({ columnId, name, items, orgOptions, deptOptions, onAddFile, onRemove, onSetFeedback, onSetOrganization, onSetDepartment, onRename }: RepushColumnProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -42,13 +44,14 @@ export function RepushColumn({ columnId, name, items, orgOptions, onAddFile, onR
   const doneCount = items.filter((it) => it.feedback === 'done').length;
   const pendingItems = items.filter((it) => it.feedback === 'pending');
 
-  // 一键复制未反馈人选，每行格式：名字-岗位-中心-推送日期（文件名本身即「名字-岗位」）
+  // 一键复制未反馈人选，每行格式：名字-岗位-编制-部门-推送日期（文件名本身即「名字-岗位」）
   const handleCopyPending = async () => {
     if (!pendingItems.length) return;
     const lines = pendingItems.map((it) => {
       const base = it.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
       const org = it.organization || '未选编制';
-      return `${base}-${org}-${formatDate(it.uploadedAt)}`;
+      const dept = it.department || '未选部门';
+      return `${base}-${org}-${dept}-${formatDate(it.uploadedAt)}`;
     });
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
@@ -147,17 +150,36 @@ export function RepushColumn({ columnId, name, items, orgOptions, onAddFile, onR
                 value={it.organization || ''}
                 onChange={(e) => onSetOrganization(it.id, e.target.value)}
                 className={cn(
-                  'shrink-0 w-32 h-8 px-2 rounded-lg border text-xs outline-none transition-colors cursor-pointer',
+                  'shrink-0 w-28 h-8 px-2 rounded-lg border text-xs outline-none transition-colors cursor-pointer',
                   it.organization ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-400',
                 )}
                 title="选择编制组织"
               >
-                <option value="">选择编制组织</option>
+                <option value="">选择编制</option>
                 {orgOptions.map((org) => (
                   <option key={org} value={org}>{org}</option>
                 ))}
                 {it.organization && !orgOptions.includes(it.organization) && (
                   <option value={it.organization}>{it.organization}</option>
+                )}
+              </select>
+
+              {/* 部门下拉：选项来自 JD 库的部门 */}
+              <select
+                value={it.department || ''}
+                onChange={(e) => onSetDepartment(it.id, e.target.value)}
+                className={cn(
+                  'shrink-0 w-28 h-8 px-2 rounded-lg border text-xs outline-none transition-colors cursor-pointer',
+                  it.department ? 'border-cyan-200 bg-cyan-50 text-cyan-700' : 'border-gray-200 bg-white text-gray-400',
+                )}
+                title="选择部门"
+              >
+                <option value="">选择部门</option>
+                {deptOptions.map((dept) => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+                {it.department && !deptOptions.includes(it.department) && (
+                  <option value={it.department}>{it.department}</option>
                 )}
               </select>
 
