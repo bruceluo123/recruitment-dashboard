@@ -30,8 +30,10 @@ function sanitizeCategories(raw: unknown, fallbackTitle: string): JDCategory[] {
   return fallback.length ? fallback : ['operations'];
 }
 
+const CLASSIFY_TIMEOUT = 45000; // 单批分类超时兜底，超时回退关键词分类
+
 /** 用 AI 把一批岗位名称分类到 JD 库的分类体系（每个岗位 1-3 个分类）。 */
-export async function classifyTitleCategories(titles: string[]): Promise<JDCategory[][]> {
+export async function classifyTitleCategories(titles: string[], signal?: AbortSignal): Promise<JDCategory[][]> {
   const list = titles.map((t) => (t || '').trim());
   if (list.length === 0) return [];
 
@@ -54,17 +56,27 @@ ${list.map((t, i) => `${i + 1}. ${t || '(空)'}`).join('\n')}
 ## 输出严格JSON数组（顺序与列表一致，不要markdown代码块）：
 [["id1","id2"], ["id1"], ...]`;
 
-    const res = await fetch('/api/match', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1500 }),
-    });
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) return list.map((t) => sanitizeCategories(null, t));
-    const parsed = JSON.parse(cleanJson(content));
-    if (!Array.isArray(parsed)) return list.map((t) => sanitizeCategories(null, t));
-    return list.map((t, i) => sanitizeCategories(parsed[i], t));
+    const timer = new AbortController();
+    const timeout = setTimeout(() => timer.abort(), CLASSIFY_TIMEOUT);
+    const onStop = () => timer.abort();
+    signal?.addEventListener('abort', onStop);
+    try {
+      const res = await fetch('/api/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1500 }),
+        signal: timer.signal,
+      });
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) return list.map((t) => sanitizeCategories(null, t));
+      const parsed = JSON.parse(cleanJson(content));
+      if (!Array.isArray(parsed)) return list.map((t) => sanitizeCategories(null, t));
+      return list.map((t, i) => sanitizeCategories(parsed[i], t));
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onStop);
+    }
   } catch {
     return list.map((t) => sanitizeCategories(null, t));
   }

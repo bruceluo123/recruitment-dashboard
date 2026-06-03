@@ -1,5 +1,5 @@
 'use client';
-import { Upload, FileText, Trash2, Check, X, Pencil } from 'lucide-react';
+import { Upload, FileText, Trash2, Check, X, Pencil, Copy } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { cn, formatDate } from '@/lib/utils';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
@@ -23,6 +23,7 @@ export function RepushColumn({ columnId, name, items, orgOptions, onAddFile, onR
   const [isDragging, setIsDragging] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(name);
+  const [copied, setCopied] = useState(false);
 
   const pickFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -39,6 +40,24 @@ export function RepushColumn({ columnId, name, items, orgOptions, onAddFile, onR
   };
 
   const doneCount = items.filter((it) => it.feedback === 'done').length;
+  const pendingItems = items.filter((it) => it.feedback === 'pending');
+
+  // 一键复制未反馈人选，每行格式：名字-岗位-中心-推送日期（文件名本身即「名字-岗位」）
+  const handleCopyPending = async () => {
+    if (!pendingItems.length) return;
+    const lines = pendingItems.map((it) => {
+      const base = it.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+      const org = it.organization || '未选编制';
+      return `${base}-${org}-${formatDate(it.uploadedAt)}`;
+    });
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // 剪贴板不可用时静默忽略
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -63,7 +82,25 @@ export function RepushColumn({ columnId, name, items, orgOptions, onAddFile, onR
             <Pencil className="w-3.5 h-3.5 text-gray-300 group-hover:text-indigo-400 shrink-0" />
           </button>
         )}
-        <span className="text-xs text-gray-400 shrink-0">已反馈 {doneCount}/{items.length}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleCopyPending}
+            disabled={pendingItems.length === 0}
+            className={cn(
+              'flex items-center gap-1 px-2 h-7 rounded-lg text-xs font-medium border transition-all',
+              copied
+                ? 'border-green-200 bg-green-50 text-green-600'
+                : pendingItems.length === 0
+                  ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                  : 'border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100',
+            )}
+            title="复制未反馈人选（名字-岗位-中心-推送日期）"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? '已复制' : `复制未反馈 ${pendingItems.length}`}
+          </button>
+          <span className="text-xs text-gray-400">已反馈 {doneCount}/{items.length}</span>
+        </div>
       </div>
 
       {/* 上传区 */}

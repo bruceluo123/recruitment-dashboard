@@ -55,19 +55,31 @@ interface TalentStore {
   importFromFiles: (files: File[]) => Promise<TalentImportResult>;
 }
 
-// 扫描中断器：点击「停止」时 abort 在途请求，让卡住的 fetch 立即返回。
+// 中断器：点击「停止/取消」时 abort 在途请求，让卡住的 fetch 立即返回。
 let scanAbort: AbortController | null = null;
+let importAbort: AbortController | null = null;
 
-async function uploadResume(file: File): Promise<{ url: string; downloadUrl: string; fileName: string } | null> {
+const UPLOAD_TIMEOUT = 60000; // 单份上传超时兜底（计为失败但不影响其他份）
+
+// 上传单份简历：用「全局取消」+「本份超时」两个 controller，超时只影响这一份。
+async function uploadResume(
+  file: File,
+  signal: AbortSignal,
+): Promise<{ url: string; downloadUrl: string; fileName: string } | null> {
+  const timer = new AbortController();
+  const timeout = setTimeout(() => timer.abort(), UPLOAD_TIMEOUT);
+  const onStop = () => timer.abort();
+  signal.addEventListener('abort', onStop);
   try {
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch('/api/talent/upload', { method: 'POST', body: fd });
+    const res = await fetch('/api/talent/upload', { method: 'POST', body: fd, signal: timer.signal });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data?.url) return null;
     return { url: data.url, downloadUrl: data.downloadUrl || data.url, fileName: data.fileName || file.name };
   } catch { return null; }
+  finally { clearTimeout(timeout); signal.removeEventListener('abort', onStop); }
 }
 
 export const useTalentStore = create<TalentStore>()(
@@ -83,7 +95,7 @@ export const useTalentStore = create<TalentStore>()(
       scanCancelled: false,
       scanProgress: { current: 0, total: 0, succeeded: 0, failed: 0, status: 'idle' },
       lastDeletedTalent: null,
-      cancelImport: () => set({ importCancelled: true }),
+      cancelImport: () => { importAbort?.abort(); set({ importCancelled: true }); },
       cancelScan: () => { scanAbort?.abort(); set({ scanCancelled: true }); },
 
       selectTalent: (id) => set({ selectedTalentId: id }),
@@ -188,22 +200,35 @@ export const useTalentStore = create<TalentStore>()(
         const result: TalentImportResult = { success: 0, failed: 0, errors: [] };
         if (!files.length) return result;
 
+        importAbort = new AbortController();
+        const signal = importAbort.signal;
         set({ isImporting: true, importCancelled: false, importProgress: { current: 0, total: files.length, percent: 0, status: 'uploading' } });
 
-        // 1) 上传文件 + 从文件名解析「姓名-岗位」（0-60%）
-        const parsed: { name: string; jobTitle: string; up: Awaited<ReturnType<typeof uploadResume>>; fileName: string }[] = [];
-        for (let i = 0; i < files.length; i++) {
-          if (get().importCancelled) {
-            set({ isImporting: false, importCancelled: false });
-            return { success: 0, failed: 0, errors: ['已取消导入'] };
+        // 1) 并发上传文件 + 从文件名解析「姓名-岗位」（0-60%），可中途取消。
+        type Parsed = { name: string; jobTitle: string; up: Awaited<ReturnType<typeof uploadResume>>; fileName: string };
+        const parsed: Parsed[] = new Array(files.length);
+        const UPLOAD_CONCURRENCY = 4;
+        let cursor = 0;
+        let uploaded = 0;
+        const uploadWorker = async () => {
+          while (!signal.aborted) {
+            const i = cursor++;
+            if (i >= files.length) return;
+            const file = files[i];
+            const up = await uploadResume(file, signal);
+            if (signal.aborted) return;
+            if (!up) result.errors.push(`${file.name}: 文件上传失败`);
+            const { name, jobTitle } = parseFileName(file.name);
+            parsed[i] = { name: name || file.name.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, ''), jobTitle, up, fileName: file.name };
+            uploaded++;
+            set({ importProgress: { current: uploaded, total: files.length, percent: Math.round((uploaded / files.length) * 60), status: 'uploading' } });
           }
-          const file = files[i];
-          const up = await uploadResume(file);
-          if (!up) { result.errors.push(`${file.name}: 文件上传失败`); }
-          const { name, jobTitle } = parseFileName(file.name);
-          parsed.push({ name: name || file.name.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, ''), jobTitle, up, fileName: file.name });
-          const pct = Math.round(((i + 1) / files.length) * 60);
-          set({ importProgress: { current: i + 1, total: files.length, percent: pct, status: 'uploading' } });
+        };
+        await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, () => uploadWorker()));
+        if (signal.aborted) {
+          importAbort = null;
+          set({ isImporting: false, importCancelled: false, importProgress: { current: 0, total: 0, percent: 0, status: 'idle' } });
+          return { success: 0, failed: 0, errors: ['已取消导入'] };
         }
 
         // 2) 用 AI 按岗位名称批量分类（参照 JD 库分类体系，60-100%）
@@ -212,12 +237,13 @@ export const useTalentStore = create<TalentStore>()(
         const categories: JDCategory[][] = new Array(parsed.length);
         const BATCH = 30;
         for (let b = 0; b < titles.length; b += BATCH) {
-          if (get().importCancelled) {
-            set({ isImporting: false, importCancelled: false });
+          if (signal.aborted) {
+            importAbort = null;
+            set({ isImporting: false, importCancelled: false, importProgress: { current: 0, total: 0, percent: 0, status: 'idle' } });
             return { success: 0, failed: 0, errors: ['已取消导入'] };
           }
           const slice = titles.slice(b, b + BATCH);
-          const cats = await classifyTitleCategories(slice);
+          const cats = await classifyTitleCategories(slice, signal);
           cats.forEach((c, k) => { categories[b + k] = c.length ? c : ['operations']; });
           const done = Math.min(b + BATCH, titles.length);
           const pct = 60 + Math.round((done / titles.length) * 40);
@@ -239,6 +265,7 @@ export const useTalentStore = create<TalentStore>()(
         }));
         result.success = batch.length;
 
+        importAbort = null;
         set((s) => ({
           talents: [...batch, ...s.talents],
           isImporting: false,
