@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { generateId } from '@/lib/utils';
 
 // 今日复推池：两个人各自一列，每列是当天要复推的简历清单。
-// 简历以 base64 data URL 形式存入 localStorage，刷新不丢；每份带「已反馈/未反馈」状态。
+// 只记录文件名与编制/部门/反馈状态（不存文件本体，避免 localStorage 配额溢出导致丢失）。
 
 export type RepushColumnId = 'a' | 'b';
 export type FeedbackStatus = 'done' | 'pending';
@@ -12,8 +12,7 @@ export interface RepushItem {
   id: string;
   column: RepushColumnId;
   fileName: string;
-  fileType: string;       // MIME 类型，下载时复用
-  dataUrl: string;        // base64 data URL，持久化保存文件本体
+  dataUrl?: string;       // 旧版 base64，仅兼容历史数据（新增项不再写入）
   feedback: FeedbackStatus;
   organization?: string;  // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
   department?: string;    // 该简历推荐到的部门（来源于 JD 库的部门列表）
@@ -23,7 +22,7 @@ export interface RepushItem {
 interface RepushStore {
   items: RepushItem[];
   columnNames: Record<RepushColumnId, string>;
-  addItem: (column: RepushColumnId, file: { fileName: string; fileType: string; dataUrl: string }) => void;
+  addItem: (column: RepushColumnId, fileName: string) => void;
   removeItem: (id: string) => void;
   setFeedback: (id: string, feedback: FeedbackStatus) => void;
   setOrganization: (id: string, organization: string) => void;
@@ -38,15 +37,13 @@ export const useRepushStore = create<RepushStore>()(
     (set) => ({
       items: [],
       columnNames: DEFAULT_NAMES,
-      addItem: (column, file) => set((s) => ({
+      addItem: (column, fileName) => set((s) => ({
         items: [
           ...s.items,
           {
             id: generateId(),
             column,
-            fileName: file.fileName,
-            fileType: file.fileType,
-            dataUrl: file.dataUrl,
+            fileName,
             feedback: 'pending' as const,
             uploadedAt: new Date().toISOString(),
           },

@@ -132,83 +132,82 @@ export function RepushColumn({ columnId, name, items, orgOptions, deptOptions, o
         {items.length === 0 ? (
           <p className="text-center text-xs text-gray-300 py-8">今日还没有简历</p>
         ) : (
-          items.map((it) => (
-            <div key={it.id} className="group flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-white hover:bg-gray-50 transition-all">
-              <FileText className="w-5 h-5 text-gray-400 shrink-0" />
-              <a
-                href={it.dataUrl}
-                download={it.fileName}
-                className="flex-1 min-w-0"
-                title="点击下载简历"
-              >
-                <p className="text-sm text-gray-700 truncate hover:text-indigo-600">{it.fileName}</p>
-                <p className="text-xs text-gray-400">{formatDate(it.uploadedAt)}</p>
-              </a>
+          items.map((it) => {
+            const base = it.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+            return (
+              <div key={it.id} className="group p-3 rounded-xl border border-gray-100 bg-white hover:bg-gray-50 transition-all space-y-2.5">
+                {/* 第一行：文件名（独占整行，完整可见）+ 反馈/删除 */}
+                <div className="flex items-start gap-2.5">
+                  <FileText className="w-5 h-5 text-gray-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-700 break-words leading-snug" title={it.fileName}>{base}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{formatDate(it.uploadedAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => onSetFeedback(it.id, 'done')}
+                      className={cn('p-1.5 rounded-lg transition-all', it.feedback === 'done' ? 'bg-green-100 text-green-600' : 'text-gray-300 hover:text-green-500 hover:bg-green-50')}
+                      title="已反馈"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => onSetFeedback(it.id, 'pending')}
+                      className={cn('p-1.5 rounded-lg transition-all', it.feedback === 'pending' ? 'bg-red-100 text-red-500' : 'text-gray-300 hover:text-red-500 hover:bg-red-50')}
+                      title="未反馈"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => onRemove(it.id)}
+                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                      title="删除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
 
-              {/* 编制组织下拉：选项来自 JD 库的编制组织 */}
-              <select
-                value={it.organization || ''}
-                onChange={(e) => onSetOrganization(it.id, e.target.value)}
-                className={cn(
-                  'shrink-0 w-28 h-8 px-2 rounded-lg border text-xs outline-none transition-colors cursor-pointer',
-                  it.organization ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-400',
-                )}
-                title="选择编制组织"
-              >
-                <option value="">选择编制</option>
-                {orgOptions.map((org) => (
-                  <option key={org} value={org}>{org}</option>
-                ))}
-                {it.organization && !orgOptions.includes(it.organization) && (
-                  <option value={it.organization}>{it.organization}</option>
-                )}
-              </select>
-
-              {/* 部门下拉：选项来自 JD 库的部门 */}
-              <select
-                value={it.department || ''}
-                onChange={(e) => onSetDepartment(it.id, e.target.value)}
-                className={cn(
-                  'shrink-0 w-28 h-8 px-2 rounded-lg border text-xs outline-none transition-colors cursor-pointer',
-                  it.department ? 'border-cyan-200 bg-cyan-50 text-cyan-700' : 'border-gray-200 bg-white text-gray-400',
-                )}
-                title="选择部门"
-              >
-                <option value="">选择部门</option>
-                {deptOptions.map((dept) => (
-                  <option key={dept} value={dept}>{dept}</option>
-                ))}
-                {it.department && !deptOptions.includes(it.department) && (
-                  <option value={it.department}>{it.department}</option>
-                )}
-              </select>
-
-              {/* 反馈状态：勾=已反馈，叉=未反馈 */}
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  onClick={() => onSetFeedback(it.id, 'done')}
-                  className={cn('p-1.5 rounded-lg transition-all', it.feedback === 'done' ? 'bg-green-100 text-green-600' : 'text-gray-300 hover:text-green-500 hover:bg-green-50')}
-                  title="已反馈"
-                >
-                  <Check className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => onSetFeedback(it.id, 'pending')}
-                  className={cn('p-1.5 rounded-lg transition-all', it.feedback === 'pending' ? 'bg-red-100 text-red-500' : 'text-gray-300 hover:text-red-500 hover:bg-red-50')}
-                  title="未反馈"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => onRemove(it.id)}
-                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
-                  title="删除简历"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {/* 第二行：编制 + 部门，各占一半宽度 */}
+                <div className="flex items-center gap-2 pl-7">
+                  <select
+                    value={it.organization || ''}
+                    onChange={(e) => onSetOrganization(it.id, e.target.value)}
+                    className={cn(
+                      'flex-1 min-w-0 h-8 px-2 rounded-lg border text-xs outline-none transition-colors cursor-pointer',
+                      it.organization ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-400',
+                    )}
+                    title="选择编制组织"
+                  >
+                    <option value="">选择编制</option>
+                    {orgOptions.map((org) => (
+                      <option key={org} value={org}>{org}</option>
+                    ))}
+                    {it.organization && !orgOptions.includes(it.organization) && (
+                      <option value={it.organization}>{it.organization}</option>
+                    )}
+                  </select>
+                  <select
+                    value={it.department || ''}
+                    onChange={(e) => onSetDepartment(it.id, e.target.value)}
+                    className={cn(
+                      'flex-1 min-w-0 h-8 px-2 rounded-lg border text-xs outline-none transition-colors cursor-pointer',
+                      it.department ? 'border-cyan-200 bg-cyan-50 text-cyan-700' : 'border-gray-200 bg-white text-gray-400',
+                    )}
+                    title="选择部门"
+                  >
+                    <option value="">选择部门</option>
+                    {deptOptions.map((dept) => (
+                      <option key={dept} value={dept}>{dept}</option>
+                    ))}
+                    {it.department && !deptOptions.includes(it.department) && (
+                      <option value={it.department}>{it.department}</option>
+                    )}
+                  </select>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
