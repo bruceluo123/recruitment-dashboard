@@ -70,7 +70,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
-                <span className="text-xs text-gray-400">{jd.department}</span>
+                <span className="text-xs text-gray-400">{[jd.organization, jd.serviceUnit || jd.department].filter(Boolean).join(' ') || '—'}</span>
                 <span className="text-xs text-green-600">{formatSalary(jd.salaryRange, jd.salaryText)}</span>
                 <button onClick={(e) => { e.stopPropagation(); handleCopyJd(); }}
                   className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
@@ -170,7 +170,8 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                     </ul>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-gray-400">
-                    <span>部门: {jd.department || '-'}</span>
+                    <span>编制: {jd.organization || '-'}</span>
+                    <span>部门: {jd.serviceUnit || jd.department || '-'}</span>
                     <span>地点: {jd.location || 'remote'}</span>
                     <span>薪资: {formatSalary(jd.salaryRange, jd.salaryText)}</span>
                   </div>
