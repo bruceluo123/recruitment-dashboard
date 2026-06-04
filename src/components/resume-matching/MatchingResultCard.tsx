@@ -87,6 +87,11 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                 {jd.gap && /\d/.test(jd.gap) && parseInt(jd.gap.match(/\d+/)![0], 10) > 0 && (
                   <span className="px-1.5 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600">缺口 {jd.gap.match(/\d+/)![0]}</span>
                 )}
+                <button onClick={(e) => { e.stopPropagation(); handleCopyJd(); }}
+                  className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
+                    jdCopied ? 'bg-green-50 text-green-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100')}>
+                  {jdCopied ? <><Check className="w-3 h-3" />已复制</> : <><Copy className="w-3 h-3" />复制 JD</>}
+                </button>
                 {orgDeptText && (
                   <button onClick={(e) => { e.stopPropagation(); handleCopyOrgDept(); }}
                     className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
@@ -94,11 +99,6 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                     {orgCopied ? <><Check className="w-3 h-3" />已复制</> : <><Copy className="w-3 h-3" />复制编制部门</>}
                   </button>
                 )}
-                <button onClick={(e) => { e.stopPropagation(); handleCopyJd(); }}
-                  className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
-                    jdCopied ? 'bg-green-50 text-green-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100')}>
-                  {jdCopied ? <><Check className="w-3 h-3" />已复制</> : <><Copy className="w-3 h-3" />复制 JD</>}
-                </button>
               </div>
             </div>
             <ChevronRight className={cn('w-5 h-5 text-gray-300 shrink-0 transition-all', expanded && 'rotate-90')} />
