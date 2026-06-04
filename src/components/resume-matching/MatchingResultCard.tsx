@@ -16,6 +16,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   const [viewMode, setViewMode] = useState<'ai' | 'jd' | 'odc'>('ai');
   const [odcCopied, setOdcCopied] = useState(false);
   const [jdCopied, setJdCopied] = useState(false);
+  const [orgCopied, setOrgCopied] = useState(false);
   const { jd, score, breakdown, reasoning, highlights, concerns } = result;
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
   const router = useRouter();
@@ -34,6 +35,17 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
       await navigator.clipboard.writeText(text);
       setJdCopied(true);
       setTimeout(() => setJdCopied(false), 1500);
+    } catch { /* clipboard 不可用时忽略 */ }
+  };
+
+  const orgDeptText = [jd.organization, jd.serviceUnit || jd.department].filter(Boolean).join(' ');
+
+  const handleCopyOrgDept = async () => {
+    if (!orgDeptText) return;
+    try {
+      await navigator.clipboard.writeText(orgDeptText);
+      setOrgCopied(true);
+      setTimeout(() => setOrgCopied(false), 1500);
     } catch { /* clipboard 不可用时忽略 */ }
   };
 
@@ -70,10 +82,17 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
-                <span className="text-xs text-gray-400">{[jd.organization, jd.serviceUnit || jd.department].filter(Boolean).join(' ') || '—'}</span>
+                <span className="text-xs text-gray-400">{orgDeptText || '—'}</span>
                 <span className="text-xs text-green-600">{formatSalary(jd.salaryRange, jd.salaryText)}</span>
                 {jd.gap && /\d/.test(jd.gap) && parseInt(jd.gap.match(/\d+/)![0], 10) > 0 && (
                   <span className="px-1.5 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600">缺口 {jd.gap.match(/\d+/)![0]}</span>
+                )}
+                {orgDeptText && (
+                  <button onClick={(e) => { e.stopPropagation(); handleCopyOrgDept(); }}
+                    className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
+                      orgCopied ? 'bg-green-50 text-green-600' : 'bg-cyan-50 text-cyan-600 hover:bg-cyan-100')}>
+                    {orgCopied ? <><Check className="w-3 h-3" />已复制</> : <><Copy className="w-3 h-3" />复制编制部门</>}
+                  </button>
                 )}
                 <button onClick={(e) => { e.stopPropagation(); handleCopyJd(); }}
                   className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
