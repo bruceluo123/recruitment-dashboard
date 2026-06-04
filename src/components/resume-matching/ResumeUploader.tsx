@@ -50,7 +50,7 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
         </div>
         <div className="text-center">
           <p className="text-sm text-gray-600">{isDragging ? '松开鼠标即可上传' : '拖拽简历到此处，或点击上传'}</p>
-          <p className="text-xs text-gray-400 mt-1">支持 PDF / DOCX 格式</p>
+          <p className="text-xs text-gray-400 mt-1">支持 PDF / DOC / DOCX 格式</p>
         </div>
         <input ref={inputRef} type="file" accept=".pdf,.docx,.doc" className="hidden" disabled={isUploading}
           onChange={(e) => { pickFile(e.target.files); e.target.value = ''; }} />

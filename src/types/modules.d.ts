@@ -10,3 +10,16 @@ declare module 'mammoth' {
   }
   export function extractRawText(options: { buffer: Buffer }): Promise<ExtractResult>;
 }
+
+declare module 'word-extractor' {
+  interface WordDocument {
+    getBody(): string;
+    getHeaders(): string;
+    getFooters(): string;
+    getFootnotes(): string;
+  }
+  class WordExtractor {
+    extract(source: string | Buffer): Promise<WordDocument>;
+  }
+  export default WordExtractor;
+}

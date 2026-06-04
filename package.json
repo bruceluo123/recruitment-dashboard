@@ -29,6 +29,7 @@
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.6.0",
     "telegram": "^2.26.22",
+    "word-extractor": "^1.0.4",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"

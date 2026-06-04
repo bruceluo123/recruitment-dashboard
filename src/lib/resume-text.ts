@@ -1,4 +1,4 @@
-// 简历文字提取（PDF / DOCX）共享实现：被 /api/resume/parse 与 /api/talent/scan 复用。
+// 简历文字提取（PDF / DOC / DOCX）共享实现：被 /api/resume/parse 与 /api/talent/scan 复用。
 import { extractPdfTextViaGemini } from '@/lib/ocr-gemini';
 
 export interface ExtractOk { text: string; source: string; }
@@ -62,7 +62,7 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
   };
 }
 
-/** 从文件 buffer 提取简历正文。仅支持 PDF / DOCX。 */
+/** 从文件 buffer 提取简历正文。支持 PDF / DOC / DOCX。 */
 export async function extractResumeText(buffer: Buffer, fileName: string): Promise<ExtractResult> {
   const lower = (fileName || '').toLowerCase();
   if (lower.endsWith('.pdf')) return extractPdf(buffer);
@@ -75,6 +75,17 @@ export async function extractResumeText(buffer: Buffer, fileName: string): Promi
       return { error: 'DOCX 解析失败，请尝试复制粘贴简历文本' };
     }
   }
-  if (lower.endsWith('.doc')) return { error: '.doc 旧格式暂不支持，请转为 PDF / DOCX' };
-  return { error: '仅支持 PDF / DOCX 格式' };
+  if (lower.endsWith('.doc')) {
+    try {
+      const WordExtractor = (await import('word-extractor')).default;
+      const extractor = new WordExtractor();
+      const doc = await extractor.extract(buffer);
+      const text = doc.getBody() || '';
+      if (meaningfulLength(text) > 0) return { text: clipForStorage(text), source: 'doc' };
+      return { error: '.doc 解析为空，请尝试转为 PDF / DOCX 或复制粘贴简历文本' };
+    } catch {
+      return { error: '.doc 解析失败，请尝试转为 PDF / DOCX 或复制粘贴简历文本' };
+    }
+  }
+  return { error: '仅支持 PDF / DOC / DOCX 格式' };
 }
