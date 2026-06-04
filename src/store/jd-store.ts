@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { JD, JDFilter, JDCategory, JDImportResult, JDStatus } from '@/types/jd';
 import { hasCategory, parsePriority } from '@/types/jd';
-import { JD_CATEGORY_LABELS } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_STATUS_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
@@ -337,54 +337,65 @@ function formatExportList(items: string[]): string {
   return items.map((item, index) => `${index + 1}. ${item}`).join('\n');
 }
 
+// 导出列：与 JD 库表格列保持一致，并附带完整文本字段（职责/要求/加分项）
+const EXPORT_COLUMNS: Array<{ header: string; key: string; width: number; wrap?: boolean }> = [
+  { header: '岗位名称', key: 'title', width: 26 },
+  { header: '优先级', key: 'priority', width: 10 },
+  { header: '分类', key: 'categories', width: 14 },
+  { header: 'HC', key: 'headcount', width: 8 },
+  { header: '缺口', key: 'gap', width: 8 },
+  { header: '编制组织', key: 'organization', width: 16 },
+  { header: '服务单位', key: 'serviceUnit', width: 16 },
+  { header: '对接ODC', key: 'odc', width: 18 },
+  { header: '薪资', key: 'salary', width: 18 },
+  { header: '状态', key: 'status', width: 10 },
+  { header: '地点', key: 'location', width: 12 },
+  { header: '部门', key: 'department', width: 16 },
+  { header: '职责', key: 'responsibilities', width: 70, wrap: true },
+  { header: '要求', key: 'requirements', width: 70, wrap: true },
+  { header: '加分项', key: 'preferred', width: 50, wrap: true },
+];
+
+function jdToExportRow(jd: JD): Record<string, string> {
+  return {
+    title: jd.title || '',
+    priority: jd.priority || '',
+    categories: jd.categories.map((c) => JD_CATEGORY_LABELS[c]).join(' / '),
+    headcount: jd.headcount || '',
+    gap: jd.gap || '',
+    organization: jd.organization || '',
+    serviceUnit: jd.serviceUnit || jd.department || '',
+    odc: jd.odc || '',
+    salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min} - ${jd.salaryRange.max}${jd.salaryRange.currency}` : ''),
+    status: JD_STATUS_LABELS[jd.status],
+    location: jd.location || 'remote',
+    department: jd.department || '',
+    responsibilities: formatExportList(jd.responsibilities),
+    requirements: formatExportList(jd.requirements),
+    preferred: formatExportList(jd.preferredQualifications || []),
+  };
+}
+
 async function exportJDsWithTemplate(jds: JD[]): Promise<void> {
   const ExcelJS = await import('exceljs');
-  const res = await fetch('/templates/jd-export-template.xlsx');
-  if (!res.ok) {
-    alert('导出模板加载失败，请稍后重试。');
-    return;
-  }
-
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(await res.arrayBuffer());
-  const worksheet = workbook.getWorksheet('Sheet1') || workbook.worksheets[0];
-  const templateRow = worksheet.getRow(2);
-  const templateHeight = templateRow.height;
-  const templateStyles = [1, 2, 3, 4, 5].map((col) => ({
-    style: { ...templateRow.getCell(col).style },
-    alignment: { ...templateRow.getCell(col).alignment, wrapText: true, vertical: 'top' as const },
-  }));
+  const worksheet = workbook.addWorksheet('岗位库');
 
-  if (worksheet.rowCount > 1) {
-    worksheet.spliceRows(2, worksheet.rowCount - 1);
-  }
+  worksheet.columns = EXPORT_COLUMNS.map((c) => ({ header: c.header, key: c.key, width: c.width }));
 
-  jds.forEach((jd, index) => {
-    const row = worksheet.getRow(index + 2);
-    row.values = [
-      undefined,
-      jd.location || 'remote',
-      jd.title,
-      formatExportList(jd.responsibilities),
-      formatExportList(jd.requirements),
-      jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min} - ${jd.salaryRange.max}${jd.salaryRange.currency}` : ''),
-    ];
-    row.height = templateHeight || 120;
-    templateStyles.forEach((item, colIndex) => {
-      const cell = row.getCell(colIndex + 1);
-      cell.style = item.style;
-      cell.alignment = item.alignment;
-    });
-    row.commit();
+  // 表头样式
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  jds.forEach((jd) => {
+    const row = worksheet.addRow(jdToExportRow(jd));
+    row.alignment = { vertical: 'top', wrapText: true };
   });
 
-  worksheet.columns = [
-    { key: 'location', width: 12 },
-    { key: 'title', width: 24 },
-    { key: 'responsibilities', width: 70 },
-    { key: 'requirements', width: 70 },
-    { key: 'salary', width: 18 },
-  ];
+  worksheet.views = [{ state: 'frozen', ySplit: 1 }];
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
