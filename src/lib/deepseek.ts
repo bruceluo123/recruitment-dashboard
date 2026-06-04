@@ -2,9 +2,11 @@ import type { JD } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { buildBatchMatchingPrompt, buildMatchingPrompt, buildStreamMatchingPrompt } from './matching-prompt';
 import { prefilterJDs } from './jd-prefilter';
+import { detectCategories } from './jd-parse-core';
 
-// 一次 AI 调用最多精排的 JD 数（超出则本地预筛取 Top N）
-const MAX_AI_CANDIDATES = 15;
+// 一次 AI 调用最多精排的 JD 数（超出则本地预筛取 Top N）。
+// 调高到 36：JD 库可达 200+，候选集太小会让"全部"模式漏掉真正合适的岗位。
+const MAX_AI_CANDIDATES = 36;
 
 // 仅匹配仍有缺口的岗位：缺口为 0（或非正数）= 不需要再招，跳过匹配
 function hasOpenGap(jd: JD): boolean {
@@ -85,7 +87,8 @@ export async function matchResumeToJDs(
   if (openJds.length === 0) return [];
 
   // 本地预筛：岗位过多时只把最相关的 Top N 交给 AI，避免超大 prompt + 输出截断
-  const candidates = prefilterJDs(resumeText, openJds, MAX_AI_CANDIDATES);
+  // 传入候选人主职能分类：同类岗位获得大额加权，即使词面零重叠也保证进入 AI 候选集
+  const candidates = prefilterJDs(resumeText, openJds, MAX_AI_CANDIDATES, detectCategories(resumeText));
 
   // Single batch call for speed
   try {
@@ -143,7 +146,7 @@ export async function matchResumeToJDsStream(
   const openJds = jds.filter(hasOpenGap);
   if (openJds.length === 0) return;
 
-  const candidates = prefilterJDs(resumeText, openJds, MAX_AI_CANDIDATES);
+  const candidates = prefilterJDs(resumeText, openJds, MAX_AI_CANDIDATES, detectCategories(resumeText));
 
   const seen = new Set<string>();
   const emit = (result: MatchingResult) => {
