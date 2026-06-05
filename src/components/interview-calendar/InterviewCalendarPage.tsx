@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { StageKanbanBoard } from './StageKanbanBoard';
 import { useInterviewStore } from '@/store/interview-store';
+import { useJDStore } from '@/store/jd-store';
 import type { CandidateStatus } from '@/types/interview';
 import { ListFilter, X, Bell, Check, Pencil } from 'lucide-react';
 import { formatInterviewDate } from '@/lib/utils';
@@ -12,11 +13,11 @@ export function InterviewCalendarPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addStage, setAddStage] = useState<string>('');
-  const [form, setForm] = useState({ name: '', jdTitle: '', interviewDate: '', salary: '' });
+  const [form, setForm] = useState({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
   const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
-    name: '', jdTitle: '', score: '', interviewDate: '',
+    name: '', jdTitle: '', organization: '', department: '', score: '', interviewDate: '',
     interviewer: '', contactEmail: '', notes: '', salary: '', onboardDate: '',
   });
   const remindedRef = useRef<Set<string>>(new Set());
@@ -28,6 +29,19 @@ export function InterviewCalendarPage() {
   const removeCandidate = useInterviewStore((s) => s.removeCandidate);
   const undoDeleteCandidate = useInterviewStore((s) => s.undoDeleteCandidate);
   const lastDeletedCandidate = useInterviewStore((s) => s.lastDeletedCandidate);
+
+  // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段（与人才复推池一致）
+  const jds = useJDStore((s) => s.jds);
+  const orgOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const jd of jds) { const v = jd.organization?.trim(); if (v) set.add(v); }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }, [jds]);
+  const deptOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const jd of jds) { const v = jd.department?.trim(); if (v) set.add(v); }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }, [jds]);
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -62,7 +76,8 @@ export function InterviewCalendarPage() {
   const startEdit = (c: typeof candidates[0]) => {
     setEditingId(c.id);
     setEditForm({
-      name: c.name, jdTitle: c.jdTitle, score: String(c.score ?? ''),
+      name: c.name, jdTitle: c.jdTitle, organization: c.organization || '', department: c.department || '',
+      score: String(c.score ?? ''),
       interviewDate: c.interviewDate ? toLocalDatetime(c.interviewDate) : '',
       interviewer: c.interviewer || '', contactEmail: c.contactEmail || '', notes: c.notes || '',
       salary: c.salary || '', onboardDate: c.onboardDate ? toLocalDatetime(c.onboardDate).slice(0, 10) : '',
@@ -74,6 +89,8 @@ export function InterviewCalendarPage() {
     updateCandidate(editingId, {
       name: editForm.name,
       jdTitle: editForm.jdTitle,
+      organization: editForm.organization || undefined,
+      department: editForm.department || undefined,
       score: editForm.score.trim() === '' ? 0 : Number(editForm.score),
       interviewDate: editForm.interviewDate ? new Date(editForm.interviewDate).toISOString() : undefined,
       interviewer: editForm.interviewer || undefined,
@@ -89,13 +106,15 @@ export function InterviewCalendarPage() {
     if (!form.name || !form.jdTitle) return;
     addCandidate({
       name: form.name, jdTitle: form.jdTitle, score: 0,
+      organization: form.organization || undefined,
+      department: form.department || undefined,
       contactEmail: '', notes: '', resumeId: '', jdId: '',
       stage: addStage as CandidateStatus,
       interviewDate: form.interviewDate ? new Date(form.interviewDate).toISOString() : undefined,
       interviewer: undefined,
       salary: form.salary || undefined,
     });
-    setForm({ name: '', jdTitle: '', interviewDate: '', salary: '' });
+    setForm({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
     setShowAddForm(false);
   };
 
@@ -157,6 +176,22 @@ export function InterviewCalendarPage() {
             <div className="space-y-3">
               <div><label className="block text-xs text-gray-500 mb-1">姓名 *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="候选人姓名" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">岗位 *</label><input value={form.jdTitle} onChange={(e) => setForm({ ...form, jdTitle: e.target.value })} placeholder="应聘岗位" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">编制</label>
+                  <select value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300">
+                    <option value="">未选编制</option>
+                    {orgOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">部门</label>
+                  <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300">
+                    <option value="">未选部门</option>
+                    {deptOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </div>
               <div><label className="block text-xs text-gray-500 mb-1">面试时间</label><input type="datetime-local" value={form.interviewDate} onChange={(e) => setForm({ ...form, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <button onClick={handleAdd} className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all">确认添加</button>
@@ -189,6 +224,8 @@ export function InterviewCalendarPage() {
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs text-gray-500 mb-1">姓名</label><input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">岗位</label><input value={editForm.jdTitle} onChange={(e) => setEditForm({ ...editForm, jdTitle: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">编制</label><select value={editForm.organization} onChange={(e) => setEditForm({ ...editForm, organization: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300"><option value="">未选编制</option>{orgOptions.map((o) => <option key={o} value={o}>{o}</option>)}</select></div>
+              <div><label className="block text-xs text-gray-500 mb-1">部门</label><select value={editForm.department} onChange={(e) => setEditForm({ ...editForm, department: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300"><option value="">未选部门</option>{deptOptions.map((d) => <option key={d} value={d}>{d}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">分数</label><input type="text" inputMode="decimal" value={editForm.score} onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) setEditForm({ ...editForm, score: v }); }} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={editForm.salary || ''} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">面试时间</label><input type="datetime-local" value={editForm.interviewDate} onChange={(e) => setEditForm({ ...editForm, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
@@ -199,6 +236,8 @@ export function InterviewCalendarPage() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Stat label="岗位" value={selected.jdTitle} />
+              <Stat label="编制" value={selected.organization || '-'} />
+              <Stat label="部门" value={selected.department || '-'} />
               <Stat label="薪资" value={selected.salary || '-'} />
               <Stat label="分数" value={`${selected.score} 分`} />
               <div className="p-3 rounded-lg bg-gray-50"><p className="text-xs text-gray-400 mb-0.5">面试时间</p><p className="text-base font-bold text-gray-800">{selected.interviewDate ? formatInterviewDate(selected.interviewDate) : '未安排'}</p></div>

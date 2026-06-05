@@ -8,6 +8,8 @@ export interface Candidate {
   resumeId: string;
   jdId: string;
   jdTitle: string;
+  organization?: string;   // 编制组织（取自 JD 库）
+  department?: string;     // 部门（取自 JD 库）
   stage: CandidateStatus;
   score: number;
   interviewDate?: string;
