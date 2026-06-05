@@ -47,9 +47,27 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
     set((s) => ({ resumes: [...s.resumes, resume], activeResumeId: id }));
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
+      // 大文件（>4MB）经 Vercel Blob 客户端直传后再让服务端拉取解析，
+      // 绕过 Serverless 4.5MB 请求体上限；小文件走更快的 FormData 直传路径。
+      const LARGE_FILE_BYTES = 4 * 1024 * 1024;
+      let res: Response;
+      if (file.size > LARGE_FILE_BYTES) {
+        const { upload } = await import('@vercel/blob/client');
+        const blob = await upload(file.name, file, {
+          access: 'public',
+          handleUploadUrl: '/api/resume/blob-upload',
+          contentType: file.type || 'application/octet-stream',
+        });
+        res = await fetch('/api/resume/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: blob.url, fileName: file.name }),
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('file', file);
+        res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
+      }
       const data = await res.json();
       // 解析失败（如图片型 PDF 无法识别）或正文为空 → 标记失败，保留错误信息
       if (!res.ok || data.error || !data.text) {
@@ -65,10 +83,11 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
         resumes: s.resumes.map((r) =>
           r.id === id ? { ...r, rawText: data.text, parsingStatus: 'completed' as const } : r),
       }));
-    } catch {
+    } catch (err) {
+      const errMsg = `上传失败：${(err as Error).message || '网络异常，请重试'}`;
       set((s) => ({
         isUploading: false,
-        resumes: s.resumes.map((r) => r.id === id ? { ...r, parsingStatus: 'failed' as const } : r),
+        resumes: s.resumes.map((r) => r.id === id ? { ...r, parsingStatus: 'failed' as const, parseError: errMsg } : r),
       }));
     }
     return id;
