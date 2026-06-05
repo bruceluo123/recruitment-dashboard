@@ -13,7 +13,7 @@ import {
   JD_STATUS_LABELS,
 } from '@/types/jd';
 import type { JD } from '@/types/jd';
-import { buildAdCopy, type AdSegment } from '@/lib/ad-copy';
+import { buildAdCopy, adVariantLabel, type AdSegment, type AdVariant } from '@/lib/ad-copy';
 import { cn } from '@/lib/utils';
 
 /** 把缺口文本（"3"、"5人"、"急招2"）解析为数字，无法解析时为 0。 */
@@ -30,7 +30,7 @@ interface HotRow {
 
 export function HotHiringPage() {
   const [mounted, setMounted] = useState(false);
-  const [adOpen, setAdOpen] = useState(false);
+  const [adVariant, setAdVariant] = useState<AdVariant | null>(null);
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
   const selectJD = useJDStore((s) => s.selectJD);
@@ -71,14 +71,22 @@ export function HotHiringPage() {
             <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-red-500" />急招 · P0 / P1
             </h3>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {urgent.length > 0 && (
-                <button
-                  onClick={() => setAdOpen(true)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors"
-                >
-                  <Megaphone className="w-3.5 h-3.5" />生成招聘文案
-                </button>
+                <>
+                  <button
+                    onClick={() => setAdVariant('maimanfen')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors"
+                  >
+                    <Megaphone className="w-3.5 h-3.5" />麦满分文案
+                  </button>
+                  <button
+                    onClick={() => setAdVariant('tieniu')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 text-xs font-medium transition-colors"
+                  >
+                    <Megaphone className="w-3.5 h-3.5" />铁牛文案
+                  </button>
+                </>
               )}
               <span className="text-xs text-gray-400">共 {urgent.length} 个</span>
             </div>
@@ -114,8 +122,8 @@ export function HotHiringPage() {
         </GlassPanel>
       </div>
 
-      {adOpen && (
-        <AdCopyDialog jds={urgent.map((r) => r.jd)} onClose={() => setAdOpen(false)} />
+      {adVariant && (
+        <AdCopyDialog jds={urgent.map((r) => r.jd)} variant={adVariant} onClose={() => setAdVariant(null)} />
       )}
     </div>
   );
@@ -123,12 +131,13 @@ export function HotHiringPage() {
 
 interface AdCopyDialogProps {
   jds: JD[];
+  variant: AdVariant;
   onClose: () => void;
 }
 
-function AdCopyDialog({ jds, onClose }: AdCopyDialogProps) {
-  const p0Segments = buildAdCopy(jds.filter((jd) => jd.priority === 'P0'), 'P0');
-  const p1Segments = buildAdCopy(jds.filter((jd) => jd.priority === 'P1'), 'P1');
+function AdCopyDialog({ jds, variant, onClose }: AdCopyDialogProps) {
+  const p0Segments = buildAdCopy(jds.filter((jd) => jd.priority === 'P0'), 'P0', variant);
+  const p1Segments = buildAdCopy(jds.filter((jd) => jd.priority === 'P1'), 'P1', variant);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
@@ -138,7 +147,7 @@ function AdCopyDialog({ jds, onClose }: AdCopyDialogProps) {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-            <Megaphone className="w-4 h-4 text-red-500" />急招招聘文案
+            <Megaphone className="w-4 h-4 text-red-500" />急招招聘文案 · {adVariantLabel(variant)}版
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />

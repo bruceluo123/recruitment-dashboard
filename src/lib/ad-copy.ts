@@ -15,8 +15,35 @@ const CATEGORY_EMOJI: Record<JDCategory, string> = {
   content: '✍️',
 };
 
-const SIGNATURE = '欢迎自荐或转推荐，投递联系麦满分同学🍔 @bruceluo123';
-const HEADER_PREFIX = '全远程居家工作';
+/** 文案风格：麦满分（@bruceluo123）/ 铁牛（@Tie_Niu66）。两者头部与署名不同。 */
+export type AdVariant = 'maimanfen' | 'tieniu';
+
+interface VariantConfig {
+  /** 风格中文名，用于按钮与标题 */
+  label: string;
+  /** 头部行：priorityLabel 为 P0/P1，seq 为日期/分段序号 */
+  buildHeader: (priorityLabel: string, seq: string) => string;
+  /** 署名行 */
+  signature: string;
+}
+
+const VARIANTS: Record<AdVariant, VariantConfig> = {
+  maimanfen: {
+    label: '麦满分',
+    buildHeader: (priorityLabel, seq) => `全远程居家工作—今日 ${priorityLabel} 急招岗位🍔🍔（${seq}）`,
+    signature: '欢迎自荐或转推荐，投递联系麦满分同学🍔 @bruceluo123',
+  },
+  tieniu: {
+    label: '铁牛',
+    buildHeader: () => '全远程居家工作—今日急招',
+    signature: '欢迎自荐或转推荐，投递联系 @Tie_Niu66',
+  },
+};
+
+/** 供 UI 读取风格中文名 */
+export function adVariantLabel(variant: AdVariant): string {
+  return VARIANTS[variant].label;
+}
 
 /** 远程/居家类地点不在文案中展示。 */
 function isRemoteLocation(loc?: string): boolean {
@@ -93,9 +120,11 @@ function groupByCategory(jds: JD[]): CategoryGroup[] {
  * 为某一优先级（P0/P1）的岗位生成广告文案，按需分段。
  * @param jds 该优先级下的岗位（已过滤）
  * @param priorityLabel 如 "P0" / "P1"
+ * @param variant 文案风格：麦满分 / 铁牛（头部与署名不同）
  * @param perSegment 每段岗位数上限（参考模板约 20~25）
  */
-export function buildAdCopy(jds: JD[], priorityLabel: string, perSegment = 22): AdSegment[] {
+export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22): AdSegment[] {
+  const cfg = VARIANTS[variant];
   if (jds.length === 0) return [];
   const groups = groupByCategory(jds);
 
@@ -134,8 +163,8 @@ export function buildAdCopy(jds: JD[], priorityLabel: string, perSegment = 22): 
   return segments.map((seg, i) => {
     const seq = total > 1 ? `${dateLabel} · ${i + 1}/${total}` : dateLabel;
     const title = `${priorityLabel} 急招${total > 1 ? `（${i + 1}/${total}）` : ''}`;
-    const header = `${HEADER_PREFIX}—今日 ${priorityLabel} 急招岗位🍔🍔（${seq}）`;
-    const text = [header, '', ...seg.lines, '', SIGNATURE].join('\n');
+    const header = cfg.buildHeader(priorityLabel, seq);
+    const text = [header, '', ...seg.lines, '', cfg.signature].join('\n');
     return { title, text, count: seg.count };
   });
 }
