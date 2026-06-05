@@ -6,6 +6,14 @@ import { Mail, Trash2 } from 'lucide-react';
 
 interface StageKanbanCardProps { candidate: Candidate; onClick: () => void; onDelete: (id: string) => void; }
 
+/** 入职时间为「日期」字段（无具体时刻），按「X月X号(周X)」展示，不显示时间。 */
+function formatOnboardDate(isoStr: string): string {
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return isoStr;
+  const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+  return `${d.getMonth() + 1}月${d.getDate()}号(周${week})`;
+}
+
 export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCardProps) {
   const scoreColor = candidate.score >= 80 ? 'text-green-600' : candidate.score >= 60 ? 'text-amber-600' : 'text-red-600';
   const dotColor = STAGE_COLORS[candidate.stage] || 'bg-gray-400';
@@ -22,12 +30,19 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
         {candidate.salary && (
           <p className="text-xs text-green-600 font-medium">{candidate.salary}</p>
         )}
-        {candidate.interviewDate && (
+        {/* 优先展示入职时间；无入职时间时回退到面试时间，避免面试阶段卡片无日期 */}
+        {candidate.onboardDate ? (
+          <div className="flex items-center gap-1.5">
+            <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotColor)} />
+            <span className="text-xs text-gray-400 shrink-0">入职</span>
+            <span className="text-sm font-bold text-gray-800">{formatOnboardDate(candidate.onboardDate)}</span>
+          </div>
+        ) : candidate.interviewDate ? (
           <div className="flex items-center gap-1.5">
             <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotColor)} />
             <span className="text-sm font-bold text-gray-800">{formatInterviewDate(candidate.interviewDate)}</span>
           </div>
-        )}
+        ) : null}
         {candidate.interviewer && <p className="text-xs text-gray-500">面试官: {candidate.interviewer}</p>}
         {candidate.contactEmail && <p className="text-xs text-gray-400 flex items-center gap-1"><Mail className="w-3 h-3" /><span className="truncate">{candidate.contactEmail}</span></p>}
       </div>
