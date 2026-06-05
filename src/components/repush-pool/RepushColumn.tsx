@@ -44,17 +44,21 @@ export function RepushColumn({ columnId, name, items, orgOptions, deptOptions, o
   const doneCount = items.filter((it) => it.feedback === 'done').length;
   const pendingItems = items.filter((it) => it.feedback === 'pending');
 
-  // 一键复制未反馈人选，每行格式：名字-岗位-编制-部门-推送日期（文件名本身即「名字-岗位」）
+  // 一键复制未反馈人选，格式：
+  // 未反馈清单：
+  // 1、名字-岗位——编制-部门
+  // （文件名本身即「名字-岗位」；编制/部门未选则留空）
   const handleCopyPending = async () => {
     if (!pendingItems.length) return;
-    const lines = pendingItems.map((it) => {
+    const lines = pendingItems.map((it, i) => {
       const base = it.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
-      const org = it.organization || '未选编制';
-      const dept = it.department || '未选部门';
-      return `${base}-${org}-${dept}-${formatDate(it.uploadedAt)}`;
+      const org = it.organization || '';
+      const dept = it.department || '';
+      return `${i + 1}、${base}——${org}-${dept}`;
     });
+    const text = ['未反馈清单：', ...lines].join('\n');
     try {
-      await navigator.clipboard.writeText(lines.join('\n'));
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -97,7 +101,7 @@ export function RepushColumn({ columnId, name, items, orgOptions, deptOptions, o
                   ? 'border-gray-100 text-gray-300 cursor-not-allowed'
                   : 'border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100',
             )}
-            title="复制未反馈人选（名字-岗位-中心-推送日期）"
+            title="复制未反馈人选（未反馈清单：序号、名字-岗位——编制-部门）"
           >
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             {copied ? '已复制' : `复制未反馈 ${pendingItems.length}`}
