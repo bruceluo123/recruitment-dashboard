@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GlassPanel } from '@/components/ui/GlassPanel';
 import { StageKanbanBoard } from './StageKanbanBoard';
 import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
@@ -248,7 +247,9 @@ export function InterviewCalendarPage() {
       )}
 
       {selected && (
-        <GlassPanel>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30" onClick={() => { setSelectedId(null); setEditingId(null); }} />
+          <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold text-gray-800">
               {isEditing ? '编辑候选人' : `${selected.name} - 详情`}
@@ -263,7 +264,7 @@ export function InterviewCalendarPage() {
                   <Pencil className="w-3.5 h-3.5" />编辑
                 </button>
               )}
-              <button onClick={() => { setSelectedId(null); setEditingId(null); }} className="text-xs text-gray-400 hover:text-gray-600">关闭</button>
+              <button onClick={() => { setSelectedId(null); setEditingId(null); }} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
           </div>
 
@@ -294,7 +295,8 @@ export function InterviewCalendarPage() {
               <Stat label="备注" value={selected.notes || '-'} />
             </div>
           )}
-        </GlassPanel>
+          </div>
+        </div>
       )}
     </div>
   );
