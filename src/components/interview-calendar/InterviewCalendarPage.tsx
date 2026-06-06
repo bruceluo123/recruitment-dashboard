@@ -5,7 +5,7 @@ import { StageKanbanBoard } from './StageKanbanBoard';
 import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import type { CandidateStatus } from '@/types/interview';
-import { ListFilter, X, Bell, Check, Pencil } from 'lucide-react';
+import { ListFilter, X, Bell, Check, Pencil, Copy } from 'lucide-react';
 import { formatInterviewDate } from '@/lib/utils';
 
 export function InterviewCalendarPage() {
@@ -15,6 +15,7 @@ export function InterviewCalendarPage() {
   const [addStage, setAddStage] = useState<string>('');
   const [form, setForm] = useState({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
   const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', jdTitle: '', organization: '', department: '', score: '', interviewDate: '',
@@ -73,6 +74,10 @@ export function InterviewCalendarPage() {
     if (notification) { const t = setTimeout(() => setNotification(null), 8000); return () => clearTimeout(t); }
   }, [notification]);
 
+  useEffect(() => {
+    if (copyMsg) { const t = setTimeout(() => setCopyMsg(null), 3000); return () => clearTimeout(t); }
+  }, [copyMsg]);
+
   const startEdit = (c: typeof candidates[0]) => {
     setEditingId(c.id);
     setEditForm({
@@ -100,6 +105,34 @@ export function InterviewCalendarPage() {
       onboardDate: editForm.onboardDate ? new Date(editForm.onboardDate).toISOString() : undefined,
     });
     setEditingId(null);
+  };
+
+  const handleCopyToday = async () => {
+    const now = new Date();
+    const isToday = (iso: string) => {
+      const d = new Date(iso);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    };
+    const todays = candidates
+      .filter((c) => c.interviewDate && isToday(c.interviewDate))
+      .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
+    if (todays.length === 0) { setCopyMsg('今日暂无面试安排'); return; }
+    const header = `${now.getMonth() + 1}.${now.getDate()} 麦满分`;
+    const lines = todays.map((c) => {
+      const d = new Date(c.interviewDate!);
+      const h = d.getHours();
+      const m = d.getMinutes();
+      const time = m === 0 ? `北京时间${h}点` : `北京时间${h}点${m}分`;
+      const parts = [c.name, c.jdTitle, c.organization, c.department].filter(Boolean);
+      return `${parts.join('-')}-${time}`;
+    });
+    const text = [header, ...lines].join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMsg(`已复制今日 ${todays.length} 场面试`);
+    } catch {
+      setCopyMsg('复制失败，请重试');
+    }
   };
 
   const handleAdd = () => {
@@ -144,6 +177,15 @@ export function InterviewCalendarPage() {
         </div>
       )}
 
+      {copyMsg && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div className="bg-gray-800 text-white rounded-xl shadow-lg px-5 py-3 flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-400" />
+            <span className="text-sm">{copyMsg}</span>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">面试日历</h2>
@@ -151,7 +193,12 @@ export function InterviewCalendarPage() {
             共 {candidates.length} 个候选人，一面 {firstInterviewCount} 个，二面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>
-        <span className="text-xs text-gray-400 flex items-center gap-1"><ListFilter className="w-3.5 h-3.5" />拖拽卡片切换阶段</span>
+        <div className="flex items-center gap-3">
+          <button onClick={handleCopyToday} className="px-3.5 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-1.5 shadow-sm">
+            <Copy className="w-4 h-4" />今日面试
+          </button>
+          <span className="text-xs text-gray-400 flex items-center gap-1"><ListFilter className="w-3.5 h-3.5" />拖拽卡片切换阶段</span>
+        </div>
       </div>
 
       <StageKanbanBoard candidates={candidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
