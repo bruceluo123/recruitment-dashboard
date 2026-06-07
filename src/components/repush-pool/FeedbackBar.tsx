@@ -2,7 +2,7 @@
 import { Check, X, CalendarPlus, CalendarCheck, Phone, UserCog } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RepushItem } from '@/store/repush-store';
-import { displayName, formatRecommendTime } from '@/lib/repush-format';
+import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
 interface FeedbackBarProps {
   item: RepushItem;
@@ -12,7 +12,7 @@ interface FeedbackBarProps {
 
 export function FeedbackBar({ item, onSetFeedback, onSchedule }: FeedbackBarProps) {
   const base = displayName(item);
-  const orgDept = [item.organization, item.department].filter(Boolean).join(' · ');
+  const orgDept = formatOrgDept(item.organization, item.department);
 
   return (
     <div className={cn(
