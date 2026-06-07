@@ -66,7 +66,7 @@ interface RepushStore {
   recordUnfeedbackSnapshot: (s: { weekKey: string; column: RepushColumnId; text: string }) => void;
 }
 
-const DEFAULT_NAMES: Record<RepushColumnId, string> = { a: '推荐池 A', b: '推荐池 B' };
+const DEFAULT_NAMES: Record<RepushColumnId, string> = { a: '麦满分', b: '啵啵' };
 
 export const useRepushStore = create<RepushStore>()(
   persist(
@@ -137,6 +137,14 @@ export const useRepushStore = create<RepushStore>()(
         };
       }),
     }),
-    { name: 'recruitai-repush-store' },
+    {
+      name: 'recruitai-repush-store',
+      version: 1,
+      // v1：把推荐人列名统一为 麦满分 / 啵啵（覆盖历史自定义名）
+      migrate: (persisted) => {
+        const s = persisted as Partial<RepushStore> | undefined;
+        return { ...(s as object), columnNames: DEFAULT_NAMES } as RepushStore;
+      },
+    },
   ),
 );
