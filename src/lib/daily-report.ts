@@ -42,7 +42,7 @@ export interface RemoteRecord {
 }
 
 /** 与看板站一致的岗位 key：岗位名||部门 转小写。任意岗位名都可用，无需匹配岗位库。 */
-function makeJobKey(name: string, department = ''): string {
+export function makeJobKey(name: string, department = ''): string {
   return [String(name || '').trim(), String(department || '').trim()].join('||').toLowerCase();
 }
 

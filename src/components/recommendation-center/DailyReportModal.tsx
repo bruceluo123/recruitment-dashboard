@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { X, Send, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { X, Send, Loader2, CheckCircle2, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import type { RepushItem, RepushColumnId } from '@/store/repush-store';
 import type { Candidate } from '@/types/interview';
 import {
@@ -9,6 +9,11 @@ import {
   todaysInterviews,
   findExistingReportId,
   submitRemoteRecord,
+  makeJobKey,
+  type JobLine,
+  type ScheduledLine,
+  type InterviewLine,
+  type RemoteRecord,
 } from '@/lib/daily-report';
 
 interface DailyReportModalProps {
@@ -21,29 +26,60 @@ interface DailyReportModalProps {
 
 type SubmitState = 'idle' | 'submitting' | 'done' | 'error';
 
-/** 把本系统今日数据组装成看板站日报，预览后一键提交到团队数据看板。 */
+const sum = (arr: JobLine[]) => arr.reduce((s, j) => s + (Number(j.qty) || 0), 0);
+
+/** 把本系统今日数据组装成看板站日报，可编辑预览后一键提交到团队数据看板。 */
 export function DailyReportModal({ column, name, items, candidates, onClose }: DailyReportModalProps) {
   const ref = useMemo(() => new Date(), []);
   const today = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}-${String(ref.getDate()).padStart(2, '0')}`;
 
-  const recommendations = useMemo(() => todaysRecommendations(items, ref, column), [items, ref, column]);
-  const interviews = useMemo(() => todaysInterviews(candidates, ref), [candidates, ref]);
+  // 仅用一次自动算出的初稿来初始化可编辑状态；之后全部以编辑态为准。
+  const draft = useMemo(() => {
+    const recommendations = todaysRecommendations(items, ref, column);
+    const interviews = todaysInterviews(candidates, ref);
+    return buildRemoteRecord({ date: today, name, recommendations, interviews });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // rng 固定一次，保证预览与提交是同一份数据（避免再次随机导致总数对不上）
-  const record = useMemo(
-    () => buildRemoteRecord({ date: today, name, recommendations, interviews }),
-    [today, name, recommendations, interviews],
-  );
+  const [recommend, setRecommend] = useState<JobLine[]>(draft.recommendDetail);
+  const [cv, setCv] = useState<JobLine[]>(draft.cvDetail);
+  const [screenNew, setScreenNew] = useState<number>(draft.screenNew);
+  const [scheduled, setScheduled] = useState<ScheduledLine[]>(draft.scheduledDetail);
+  const [interview, setInterview] = useState<InterviewLine[]>(draft.interviewDetail);
+  const [remark, setRemark] = useState<string>(draft.remark);
 
   const [state, setState] = useState<SubmitState>('idle');
   const [errMsg, setErrMsg] = useState('');
 
-  const hasData = record.recommendTotal > 0 || record.scheduledInt > 0;
+  const recommendTotal = sum(recommend);
+  const cvTotal = sum(cv);
+  const hasData = recommendTotal > 0 || scheduled.length > 0 || interview.length > 0;
+
+  const buildFinal = (): RemoteRecord => ({
+    id: draft.id,
+    date: today,
+    name,
+    cvDetail: cv.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+    cvTotal,
+    screenNew: Number(screenNew) || 0,
+    recommendDetail: recommend.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+    recommendTotal,
+    scheduledDetail: scheduled,
+    scheduledInt: scheduled.length,
+    interviewDetail: interview.map((v) => ({ ...v, jobKey: makeJobKey(v.name, v.department) })),
+    interviewTotal: interview.length,
+    offer: 0,
+    offerDetail: [],
+    onboard: 0,
+    onboardDetail: [],
+    remark,
+  });
 
   const handleSubmit = async () => {
     setState('submitting');
     setErrMsg('');
     try {
+      const record = buildFinal();
       const existingId = await findExistingReportId(today, name);
       await submitRemoteRecord(existingId ? { ...record, id: existingId } : record);
       setState('done');
@@ -53,10 +89,19 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     }
   };
 
+  // 通用：更新/删除/新增某个明细数组里的一行
+  const patch = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, i: number, partial: Partial<T>) =>
+    setter((arr) => arr.map((row, idx) => (idx === i ? { ...row, ...partial } : row)));
+  const drop = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, i: number) =>
+    setter((arr) => arr.filter((_, idx) => idx !== i));
+
+  const addJob = (setter: React.Dispatch<React.SetStateAction<JobLine[]>>) =>
+    setter((arr) => [...arr, { name: '', department: '', jobKey: '', qty: 1 }]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[88vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -73,59 +118,70 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           {!hasData && (
             <div className="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
-              今日（{name}）暂无推荐或约面数据，提交将是一条空日报。
+              今日（{name}）暂无推荐或约面数据，可手动添加或直接提交空日报。
             </div>
           )}
 
-          {/* 汇总数字 */}
+          {/* 汇总数字（推荐/收取总数自动跟随明细，沟通人数可改） */}
           <div className="grid grid-cols-3 gap-2">
-            <Stat label="推荐总数" value={record.recommendTotal} />
-            <Stat label="新收简历总数" value={record.cvTotal} />
-            <Stat label="新增沟通(初筛)" value={record.screenNew} />
-            <Stat label="约面" value={record.scheduledInt} />
-            <Stat label="业务面试" value={record.interviewTotal} />
-            <Stat label="Offer" value={record.offer} />
+            <Stat label="推荐总数" value={recommendTotal} />
+            <Stat label="新收简历总数" value={cvTotal} />
+            <NumStat label="新增沟通(初筛)" value={screenNew} onChange={setScreenNew} />
           </div>
 
-          <Section title="各岗位推荐明细">
-            {record.recommendDetail.length === 0 ? (
-              <Empty />
-            ) : (
-              record.recommendDetail.map((j) => (
-                <Row key={j.jobKey} left={`${j.name}${j.department ? ` · ${j.department}` : ''}`} right={`${j.qty}`} />
-              ))
-            )}
-          </Section>
+          <JobSection
+            title="各岗位推荐明细"
+            rows={recommend}
+            onPatch={(i, p) => patch(setRecommend, i, p)}
+            onDrop={(i) => drop(setRecommend, i)}
+            onAdd={() => addJob(setRecommend)}
+          />
 
-          <Section title="各岗位收取明细">
-            {record.cvDetail.length === 0 ? (
-              <Empty />
-            ) : (
-              record.cvDetail.map((j) => (
-                <Row key={j.jobKey} left={`${j.name}${j.department ? ` · ${j.department}` : ''}`} right={`${j.qty}`} />
-              ))
-            )}
-          </Section>
+          <JobSection
+            title="各岗位收取明细"
+            rows={cv}
+            onPatch={(i, p) => patch(setCv, i, p)}
+            onDrop={(i) => drop(setCv, i)}
+            onAdd={() => addJob(setCv)}
+          />
 
-          <Section title="约面明细">
-            {record.scheduledDetail.length === 0 ? (
-              <Empty />
-            ) : (
-              record.scheduledDetail.map((s, i) => (
-                <Row key={i} left={`${s.person} · ${s.job}`} right={`${s.date} ${s.time}`} />
-              ))
-            )}
-          </Section>
+          {/* 约面明细 */}
+          <EditSection title="约面明细" onAdd={() => setScheduled((a) => [...a, { job: '', person: '', date: today, time: '', tz: '北京时间' }])}>
+            {scheduled.map((s, i) => (
+              <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
+                <input className={inputCls} placeholder="人选" value={s.person} onChange={(e) => patch(setScheduled, i, { person: e.target.value })} />
+                <input className={inputCls} placeholder="岗位" value={s.job} onChange={(e) => patch(setScheduled, i, { job: e.target.value })} />
+                <input className="w-24 px-2 h-8 rounded-lg border border-gray-200" placeholder="时间" value={s.time} onChange={(e) => patch(setScheduled, i, { time: e.target.value })} />
+                <DropBtn onClick={() => drop(setScheduled, i)} />
+              </div>
+            ))}
+          </EditSection>
 
-          <Section title="业务面试明细">
-            {record.interviewDetail.length === 0 ? (
-              <Empty />
-            ) : (
-              record.interviewDetail.map((v, i) => (
-                <Row key={i} left={`${v.person} · ${v.name}`} right={v.status} />
-              ))
-            )}
-          </Section>
+          {/* 业务面试明细 */}
+          <EditSection title="业务面试明细" onAdd={() => setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: '待反馈' }])}>
+            {interview.map((v, i) => (
+              <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
+                <input className={inputCls} placeholder="人选" value={v.person} onChange={(e) => patch(setInterview, i, { person: e.target.value })} />
+                <input className={inputCls} placeholder="岗位" value={v.name} onChange={(e) => patch(setInterview, i, { name: e.target.value })} />
+                <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white" value={v.status} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
+                  <option value="待反馈">待反馈</option>
+                  <option value="已通过">已通过</option>
+                </select>
+                <DropBtn onClick={() => drop(setInterview, i)} />
+              </div>
+            ))}
+          </EditSection>
+
+          <div>
+            <div className="text-xs font-medium text-gray-500 mb-1.5">备注</div>
+            <textarea
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 resize-none"
+              rows={2}
+              placeholder="可选"
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
@@ -140,7 +196,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
             <button
               onClick={handleSubmit}
               disabled={state === 'submitting'}
-              className="flex items-center gap-1.5 px-4 h-9 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 disabled:opacity-60"
+              className="flex items-center gap-1.5 px-4 h-9 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 disabled:opacity-60 shrink-0"
             >
               {state === 'submitting' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               {state === 'submitting' ? '提交中…' : '确认提交'}
@@ -148,13 +204,13 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           )}
         </div>
 
-        {state === 'error' && (
-          <div className="px-5 pb-4 -mt-2 text-xs text-red-500">{errMsg}</div>
-        )}
+        {state === 'error' && <div className="px-5 pb-4 -mt-2 text-xs text-red-500">{errMsg}</div>}
       </div>
     </div>
   );
 }
+
+const inputCls = 'flex-1 min-w-0 px-2 h-8 rounded-lg border border-gray-200';
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
@@ -165,24 +221,68 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function NumStat({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+  return (
+    <div className="rounded-xl bg-gray-50 px-3 py-2">
+      <div className="text-xs text-gray-400">{label}</div>
+      <input
+        type="number"
+        min={0}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full bg-transparent text-lg font-semibold text-gray-800 outline-none"
+      />
+    </div>
+  );
+}
+
+interface JobSectionProps {
+  title: string;
+  rows: JobLine[];
+  onPatch: (i: number, partial: Partial<JobLine>) => void;
+  onDrop: (i: number) => void;
+  onAdd: () => void;
+}
+
+function JobSection({ title, rows, onPatch, onDrop, onAdd }: JobSectionProps) {
+  return (
+    <EditSection title={title} onAdd={onAdd}>
+      {rows.map((j, i) => (
+        <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
+          <input className={inputCls} placeholder="岗位名" value={j.name} onChange={(e) => onPatch(i, { name: e.target.value })} />
+          <input className="w-28 px-2 h-8 rounded-lg border border-gray-200" placeholder="部门" value={j.department} onChange={(e) => onPatch(i, { department: e.target.value })} />
+          <input
+            type="number"
+            min={0}
+            className="w-16 px-2 h-8 rounded-lg border border-gray-200 text-center"
+            value={j.qty}
+            onChange={(e) => onPatch(i, { qty: Number(e.target.value) })}
+          />
+          <DropBtn onClick={() => onDrop(i)} />
+        </div>
+      ))}
+    </EditSection>
+  );
+}
+
+function EditSection({ title, onAdd, children }: { title: string; onAdd: () => void; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-xs font-medium text-gray-500 mb-1.5">{title}</div>
-      <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">{children}</div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-medium text-gray-500">{title}</span>
+        <button onClick={onAdd} className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700">
+          <Plus className="w-3.5 h-3.5" />添加
+        </button>
+      </div>
+      <div className="rounded-xl border border-gray-100 divide-y divide-gray-50 min-h-[40px]">{children}</div>
     </div>
   );
 }
 
-function Row({ left, right }: { left: string; right: string }) {
+function DropBtn({ onClick }: { onClick: () => void }) {
   return (
-    <div className="flex items-center justify-between px-3 py-1.5">
-      <span className="text-gray-700">{left}</span>
-      <span className="text-gray-500 tabular-nums">{right}</span>
-    </div>
+    <button onClick={onClick} className="shrink-0 text-gray-300 hover:text-red-500 p-1">
+      <Trash2 className="w-4 h-4" />
+    </button>
   );
-}
-
-function Empty() {
-  return <div className="px-3 py-2 text-gray-300">—</div>;
 }
