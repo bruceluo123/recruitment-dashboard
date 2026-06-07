@@ -59,10 +59,10 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
       setJobTitle(info.jobTitle);
       setContact(info.contact);
       setContactPerson(info.contactPerson);
-      // 按岗位名自动匹配 JD 库，回填编制/部门
+      // 优先用简历中明写的编制/部门；缺失时再按岗位名匹配 JD 库回填
       const jd = info.jobTitle ? matchJDByTitle(info.jobTitle, jds) : null;
-      setOrganization(jd?.organization?.trim() || '');
-      setDepartment(jd?.department?.trim() || '');
+      setOrganization(info.organization || jd?.organization?.trim() || '');
+      setDepartment(info.department || jd?.department?.trim() || '');
       setParsed(true);
     } finally {
       setParsing(false);

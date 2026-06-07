@@ -7,10 +7,52 @@ export interface ExtractedRecommendation {
   jobTitle: string;
   contact: string;
   contactPerson: string;   // 简历对接人
+  organization: string;    // 推荐编制组织/序列/服务单位
+  department: string;      // 推荐部门
 }
 
 function cleanJson(content: string): string {
   return content.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+}
+
+function escapeReg(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 按标签提取「标签[任意非冒号字符]：值」中的值，取整行剩余文本。
+ * 标签按优先级数组给出，命中第一个非空值即返回。
+ * 例：「候选人姓名： 陳曉七」→ 陳曉七；「简历对接BP：陈润」→ 陈润。
+ */
+function labelValue(text: string, labels: string[]): string {
+  for (const label of labels) {
+    const re = new RegExp(`${escapeReg(label)}[^\\n:：]*[:：][ \\t\\u3000]*([^\\n]*)`);
+    const m = text.match(re);
+    if (m && m[1].trim()) return m[1].trim();
+  }
+  return '';
+}
+
+/** 去除「北斗-蝴蝶效应 北斗-蝴蝶效应」这类空格分隔的重复词，取其一。 */
+function dedupeRepeated(v: string): string {
+  const parts = v.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2 && parts.every((p) => p === parts[0])) return parts[0];
+  return v;
+}
+
+/**
+ * 结构化简历解析：针对固定标签格式（候选人姓名/应聘岗位/推荐编制组织/候选人联系方式/简历对接BP 等）
+ * 即时精准提取，无需网络。命中姓名+岗位即可直接采用，避免 AI 的延迟与漏识别。
+ */
+export function parseStructuredResume(text: string): ExtractedRecommendation {
+  return {
+    name: labelValue(text, ['候选人姓名', '候选姓名', '姓名', 'name']),
+    jobTitle: labelValue(text, ['应聘岗位', '应聘职位', '意向岗位', '意向职位', '求职意向', '目标岗位', '推荐岗位', '岗位', '职位']),
+    contact: labelValue(text, ['候选人联系方式', '联系方式', '联系电话', '手机号', '手机', '电话', '微信', 'wechat', 'TG', 'telegram']),
+    contactPerson: labelValue(text, ['简历对接BP', '简历对接人', '对接BP', '对接人', '对接', '推荐人', '联系人']),
+    organization: dedupeRepeated(labelValue(text, ['推荐编制组织/序列/服务单位', '推荐编制组织', '编制组织', '推荐编制', '编制', '服务单位'])),
+    department: labelValue(text, ['推荐部门', '所属部门', '部门']),
+  };
 }
 
 /** 启发式兜底：AI 失败时从前几行猜姓名。 */
@@ -54,10 +96,21 @@ function fallbackContact(text: string): string {
   return '';
 }
 
-/** 从简历文本提取 姓名 / 最近岗位 / 联系方式。AI 优先，失败回退启发式。 */
+/** 从简历文本提取信息。结构化标签优先（即时精准），缺关键字段时再用 AI 兜底。 */
 export async function extractRecommendationInfo(rawText: string): Promise<ExtractedRecommendation> {
   const text = rawText.slice(0, 3000);
-  const fb: ExtractedRecommendation = { name: fallbackName(text), jobTitle: fallbackJobTitle(text), contact: fallbackContact(text), contactPerson: fallbackContactPerson(text) };
+  // 1) 结构化标签解析：拿到姓名+岗位即直接返回，零网络、不漏识别
+  const s = parseStructuredResume(text);
+  if (s.name && s.jobTitle) return s;
+  // 2) 结构化结果作为优先回退，缺的字段再用启发式补
+  const fb: ExtractedRecommendation = {
+    name: s.name || fallbackName(text),
+    jobTitle: s.jobTitle || fallbackJobTitle(text),
+    contact: s.contact || fallbackContact(text),
+    contactPerson: s.contactPerson || fallbackContactPerson(text),
+    organization: s.organization,
+    department: s.department,
+  };
   if (!text.trim()) return fb;
   try {
     const prompt = `从以下简历文本中提取候选人信息。
@@ -88,6 +141,8 @@ ${text}
       jobTitle: String(parsed.jobTitle || '').trim() || fb.jobTitle,
       contact: String(parsed.contact || '').trim() || fb.contact,
       contactPerson: String(parsed.contactPerson || '').trim() || fb.contactPerson,
+      organization: fb.organization,   // 编制/部门只信结构化标签（AI 不提取）
+      department: fb.department,
     };
   } catch {
     return fb;
