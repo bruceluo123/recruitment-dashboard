@@ -38,26 +38,27 @@ export function bucketOf(dueDate: string | undefined, now = new Date()): Timelin
 
 /**
  * 截止日展示：相对今天动态显示，每天自动更新。
- * 逾期 → 「6月8号(周日) · 逾2天」；今天/明天/后天 → 直接显示；
- * 本周内 → 「本周四」；下周内 → 「下周三」；更远 → 「6月20号(周六)」。
+ * 逾期 → 「6月8号(周日) · 逾2天」；今天/明天/后天、本周X、下周X → 相对词 + 日期；
+ * 下下周及更远 → 只显示日期「6月20号(周六)」。
  */
 export function formatDueDate(dueDate: string, now = new Date()): string {
   const d = new Date(dueDate);
   if (Number.isNaN(d.getTime())) return dueDate;
-  const absolute = `${d.getMonth() + 1}月${d.getDate()}号(周${DAY_NAMES[d.getDay()]})`;
+  const compact = `${d.getMonth() + 1}月${d.getDate()}号`;
+  const absolute = `${compact}(周${DAY_NAMES[d.getDay()]})`;
   const due = startOfDay(d).getTime();
   const today = startOfDay(now).getTime();
   const diff = Math.round((due - today) / DAY);
 
   if (diff < 0) return `${absolute} · 逾${-diff}天`;
-  if (diff === 0) return '今天';
-  if (diff === 1) return '明天';
-  if (diff === 2) return '后天';
+  if (diff === 0) return `今天 ${compact}`;
+  if (diff === 1) return `明天 ${compact}`;
+  if (diff === 2) return `后天 ${compact}`;
 
   const thisMonday = mondayOf(now).getTime();
   const weekday = DAY_NAMES[d.getDay()];
-  if (due < thisMonday + 7 * DAY) return `本周${weekday}`;
-  if (due < thisMonday + 14 * DAY) return `下周${weekday}`;
+  if (due < thisMonday + 7 * DAY) return `本周${weekday} ${compact}`;
+  if (due < thisMonday + 14 * DAY) return `下周${weekday} ${compact}`;
   return absolute;
 }
 
