@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Check, Calendar, Trash2, Pencil } from 'lucide-react';
+import { Check, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TodoItem, TodoOwner } from '@/types/todo';
 import { TODO_CATEGORY_LABEL } from '@/types/todo';
@@ -50,24 +50,21 @@ export function TodoRow({ todo, ownerNames, onToggle, onEdit, onRemove }: TodoRo
 
       {/* 主信息 */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          {!todo.done && <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', PRIORITY_DOT[todo.priority])} />}
+        <div className="flex items-baseline gap-2 flex-wrap">
+          {!todo.done && <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 self-center', PRIORITY_DOT[todo.priority])} />}
+          {/* 日期前置、加粗、显眼 */}
+          {todo.dueDate && (
+            <span className={cn('text-base font-bold shrink-0', todo.done ? 'text-gray-400' : overdue ? 'text-red-500' : 'text-indigo-600')}>
+              {formatDueDate(todo.dueDate)}
+            </span>
+          )}
           <span className={cn('text-sm font-medium truncate', todo.done ? 'text-gray-400 line-through' : 'text-gray-800')}>{todo.title}</span>
-          <span className={cn('px-1.5 py-0.5 rounded-md text-[11px] font-medium shrink-0', OWNER_STYLE[todo.owner])}>{ownerLabel}</span>
+          <span className={cn('px-1.5 py-0.5 rounded-md text-[11px] font-medium shrink-0 self-center', OWNER_STYLE[todo.owner])}>{ownerLabel}</span>
           {todo.category !== 'other' && (
-            <span className="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 text-[11px] shrink-0">{TODO_CATEGORY_LABEL[todo.category]}</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 text-[11px] shrink-0 self-center">{TODO_CATEGORY_LABEL[todo.category]}</span>
           )}
         </div>
-        {(todo.dueDate || todo.note) && (
-          <div className="mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-xs">
-            {todo.dueDate && (
-              <span className={cn('flex items-center gap-0.5', overdue ? 'text-red-500 font-medium' : 'text-gray-400')}>
-                <Calendar className="w-3 h-3" />{formatDueDate(todo.dueDate)}
-              </span>
-            )}
-            {todo.note && <span className="text-gray-400 truncate">{todo.note}</span>}
-          </div>
-        )}
+        {todo.note && <p className="mt-1 text-xs text-gray-400 truncate">{todo.note}</p>}
       </div>
 
       {/* 操作 */}
