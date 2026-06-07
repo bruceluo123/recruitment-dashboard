@@ -9,6 +9,35 @@ import { useInterviewStore } from '@/store/interview-store';
 import { matchJDByTitle } from '@/lib/recommendation';
 import { cn } from '@/lib/utils';
 
+type DayFilter = 'today' | 'yesterday' | 'before' | 'week';
+
+const DAY_FILTERS: { id: DayFilter; label: string }[] = [
+  { id: 'today', label: '今天' },
+  { id: 'yesterday', label: '昨天' },
+  { id: 'before', label: '前天' },
+  { id: 'week', label: '本周' },
+];
+
+/** 把日期归零到当天 00:00 的时间戳 */
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** 判断 ISO 时间是否落在所选日期范围内 */
+function inDayRange(iso: string, filter: DayFilter): boolean {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  const today = startOfDay(new Date());
+  const DAY = 24 * 60 * 60 * 1000;
+  if (filter === 'today') return t >= today && t < today + DAY;
+  if (filter === 'yesterday') return t >= today - DAY && t < today;
+  if (filter === 'before') return t >= today - 2 * DAY && t < today - DAY;
+  // 本周：从本周一 00:00 到现在（周一为一周起点）
+  const dow = (new Date().getDay() + 6) % 7; // 周一=0
+  const monday = today - dow * DAY;
+  return t >= monday;
+}
+
 export function RepushPoolPage() {
   const [mounted, setMounted] = useState(false);
 
@@ -29,6 +58,9 @@ export function RepushPoolPage() {
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [interviewAt, setInterviewAt] = useState('');
   const [interviewer, setInterviewer] = useState('');
+
+  // 日期筛选：今天 / 昨天 / 前天 / 本周
+  const [dayFilter, setDayFilter] = useState<DayFilter>('today');
 
   // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段
   const jds = useJDStore((s) => s.jds);
@@ -96,14 +128,31 @@ export function RepushPoolPage() {
     closeSchedule();
   };
 
-  const itemsA = items.filter((it) => it.column === 'a');
-  const itemsB = items.filter((it) => it.column === 'b');
+  const dayItems = items.filter((it) => inDayRange(it.uploadedAt, dayFilter));
+  const itemsA = dayItems.filter((it) => it.column === 'a');
+  const itemsB = dayItems.filter((it) => it.column === 'b');
 
   return (
     <div className="flex flex-col h-full">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">今日复推池</h1>
-        <p className="text-sm text-gray-400 mt-1">粘贴简历一键解析录入推荐人，自动回填编制/部门；两人各自维护清单，可直接约面并同步面试日历。</p>
+      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">推荐中心</h1>
+          <p className="text-sm text-gray-400 mt-1">粘贴简历一键解析录入推荐人，自动回填编制/部门；两人各自维护清单，可直接约面并同步面试日历。</p>
+        </div>
+        <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm shrink-0">
+          {DAY_FILTERS.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setDayFilter(f.id)}
+              className={cn(
+                'px-4 h-9 font-medium transition-colors',
+                dayFilter === f.id ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50',
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mb-6">

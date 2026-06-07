@@ -1,11 +1,13 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StageKanbanBoard } from './StageKanbanBoard';
+import { WeekGridView } from './WeekGridView';
 import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import type { CandidateStatus } from '@/types/interview';
-import { ListFilter, X, Bell, Check, Pencil, Copy } from 'lucide-react';
-import { formatInterviewDate } from '@/lib/utils';
+import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, FileSpreadsheet, ClipboardPaste } from 'lucide-react';
+import { formatInterviewDate, cn } from '@/lib/utils';
+import { buildInterviewReport, parseInterviewReport } from '@/lib/interview-report';
 
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
@@ -15,6 +17,9 @@ export function InterviewCalendarPage() {
   const [form, setForm] = useState({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
   const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [view, setView] = useState<'kanban' | 'week'>('kanban');
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', jdTitle: '', organization: '', department: '', score: '', interviewDate: '',
@@ -134,6 +139,29 @@ export function InterviewCalendarPage() {
     }
   };
 
+  // 导出约面数据为汇报表格（制表符，可直接粘贴 Excel）
+  const handleCopyReport = async () => {
+    const withDate = candidates.filter((c) => c.interviewDate);
+    if (withDate.length === 0) { setCopyMsg('暂无可导出的约面数据'); return; }
+    const text = buildInterviewReport(candidates);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMsg(`已复制约面汇报表格（${withDate.length} 条）`);
+    } catch {
+      setCopyMsg('复制失败，请重试');
+    }
+  };
+
+  // 粘贴导入：把汇报表格反解析为候选人并批量加入
+  const handleImport = () => {
+    const drafts = parseInterviewReport(importText);
+    if (drafts.length === 0) { setCopyMsg('未识别到有效行，请检查格式'); return; }
+    drafts.forEach((d) => addCandidate(d));
+    setShowImport(false);
+    setImportText('');
+    setCopyMsg(`已导入 ${drafts.length} 条约面数据`);
+  };
+
   const handleAdd = () => {
     if (!form.name || !form.jdTitle) return;
     addCandidate({
@@ -192,21 +220,62 @@ export function InterviewCalendarPage() {
             共 {candidates.length} 个候选人，一面 {firstInterviewCount} 个，二面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={handleCopyToday} className="px-3.5 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-1.5 shadow-sm">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 看板/周历切换 */}
+          <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
+            <button onClick={() => setView('kanban')} className={cn('px-3 h-9 font-medium flex items-center gap-1.5 transition-colors', view === 'kanban' ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}>
+              <LayoutGrid className="w-3.5 h-3.5" />看板
+            </button>
+            <button onClick={() => setView('week')} className={cn('px-3 h-9 font-medium flex items-center gap-1.5 transition-colors', view === 'week' ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}>
+              <CalendarRange className="w-3.5 h-3.5" />周历
+            </button>
+          </div>
+          <button onClick={handleCopyToday} className="px-3 h-9 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-1.5 shadow-sm">
             <Copy className="w-4 h-4" />今日面试
           </button>
-          <span className="text-xs text-gray-400 flex items-center gap-1"><ListFilter className="w-3.5 h-3.5" />拖拽卡片切换阶段</span>
+          <button onClick={handleCopyReport} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
+            <FileSpreadsheet className="w-4 h-4" />复制约面表
+          </button>
+          <button onClick={() => setShowImport(true)} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
+            <ClipboardPaste className="w-4 h-4" />导入
+          </button>
         </div>
       </div>
 
-      <StageKanbanBoard candidates={candidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
+      {view === 'kanban' ? (
+        <StageKanbanBoard candidates={candidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
+      ) : (
+        <WeekGridView candidates={candidates} onCandidateClick={setSelectedId} />
+      )}
 
       {lastDeletedCandidate && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
           <div className="bg-gray-800 text-white rounded-xl shadow-lg px-5 py-3 flex items-center gap-4">
             <span className="text-sm">已删除「{lastDeletedCandidate.name}」</span>
             <button onClick={() => undoDeleteCandidate()} className="text-sm font-medium text-indigo-300 hover:text-indigo-200 whitespace-nowrap">撤销</button>
+          </div>
+        </div>
+      )}
+
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/20" onClick={() => setShowImport(false)} />
+          <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><ClipboardPaste className="w-5 h-5 text-indigo-500" />导入约面数据</h3>
+              <button onClick={() => setShowImport(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">粘贴汇报表格（与「复制约面表」同格式，制表符或多空格分隔）。列顺序：日期 时间 姓名 岗位 编制 部门 面试官 阶段。表头行会自动跳过。</p>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder={'6.4\t17:00\tMark\tAI产品经理\t技术中心\t鼎丰\t张三\t一面'}
+              className="w-full h-44 px-3 py-2 rounded-xl bg-white border border-gray-200 text-sm font-mono resize-y focus:outline-none focus:border-indigo-300"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowImport(false)} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
+              <button onClick={handleImport} disabled={!importText.trim()} className={cn('h-10 px-5 rounded-xl text-sm font-medium text-white transition-colors', importText.trim() ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed')}>确认导入</button>
+            </div>
           </div>
         </div>
       )}

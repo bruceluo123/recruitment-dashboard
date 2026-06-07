@@ -1,12 +1,13 @@
 'use client';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Briefcase, FileSearch, CalendarDays, Users, Award, ArrowUpRight, ArrowRight, Flame, Clock } from 'lucide-react';
+import { Briefcase, FileSearch, CalendarDays, Users, Award, ArrowUpRight, ArrowRight, Flame, Clock, UserPlus, CalendarCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useJDStore } from '@/store/jd-store';
 import { useTalentStore } from '@/store/talent-store';
 import { useInterviewStore } from '@/store/interview-store';
+import { useRepushStore } from '@/store/repush-store';
 import { STAGE_COLORS } from '@/types/interview';
 import { JD_STATUS_COLORS, JD_STATUS_LABELS } from '@/types/jd';
 import { cn } from '@/lib/utils';
@@ -28,9 +29,18 @@ export default function DashboardPage() {
   const selectJD = useJDStore((s) => s.selectJD);
   const talents = useTalentStore((s) => s.talents);
   const candidates = useInterviewStore((s) => s.candidates);
+  const repushItems = useRepushStore((s) => s.items);
+  const columnNames = useRepushStore((s) => s.columnNames);
 
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
+
+  // 今日推荐（复推池中当天录入的推荐人）
+  const todayStart = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+  const todayRecs = repushItems
+    .filter((it) => { const t = new Date(it.uploadedAt).getTime(); return !Number.isNaN(t) && t >= todayStart; })
+    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+  const todayScheduled = todayRecs.filter((it) => it.interviewStatus === 'scheduled').length;
 
   const totalJDs = jds.length;
   const urgentJDs = jds.filter((j) => j.status === 'urgent').length;
@@ -73,6 +83,42 @@ export default function DashboardPage() {
         <h2 className="text-2xl font-bold text-gray-800">仪表盘</h2>
         <p className="text-sm text-gray-500 mt-1">招聘数据一览 · {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}</p>
       </div>
+
+      {/* 今日推荐（复推池当天录入） */}
+      <GlassPanel>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-indigo-500" />今日推荐
+            <span className="text-sm font-normal text-gray-400">{todayRecs.length} 人 · {todayScheduled} 已约面</span>
+          </h3>
+          <Link href="/repush-pool" className="text-sm text-indigo-500 hover:text-indigo-600 flex items-center gap-1">推荐中心 <ArrowUpRight className="w-3 h-3" /></Link>
+        </div>
+        {todayRecs.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {todayRecs.slice(0, 9).map((it) => {
+              const base = it.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+              return (
+                <Link key={it.id} href="/repush-pool"
+                  className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate group-hover:text-indigo-600">{base}</p>
+                    <p className="text-xs text-gray-400 truncate">{[it.organization, it.department].filter(Boolean).join(' · ') || columnNames[it.column]}</p>
+                  </div>
+                  {it.interviewStatus === 'scheduled' ? (
+                    <span className="shrink-0 flex items-center gap-1 text-xs text-green-600"><CalendarCheck className="w-3.5 h-3.5" />已约面</span>
+                  ) : (
+                    <span className={cn('shrink-0 px-2 py-0.5 rounded-md text-xs font-medium', it.feedback === 'done' ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600')}>
+                      {it.feedback === 'done' ? '已反馈' : '待反馈'}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState icon={UserPlus} title="今日暂无推荐" description="在推荐中心粘贴简历一键录入推荐人" />
+        )}
+      </GlassPanel>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => (
