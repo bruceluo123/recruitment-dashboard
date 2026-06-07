@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { TopNav } from '@/components/layout/TopNav';
+import { AppShell } from '@/components/layout/AppShell';
 import { SyncProvider } from '@/components/layout/SyncProvider';
 import './globals.css';
 
@@ -20,11 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN">
       <body className={`${geistSans.className} bg-gray-50 text-gray-900 antialiased`}>
         <SyncProvider>
-          <Sidebar />
-          <div className="pl-[64px] lg:pl-[240px]">
-            <TopNav />
-            <main className="p-6 min-h-[calc(100vh-4rem)]">{children}</main>
-          </div>
+          <AppShell>{children}</AppShell>
         </SyncProvider>
       </body>
     </html>

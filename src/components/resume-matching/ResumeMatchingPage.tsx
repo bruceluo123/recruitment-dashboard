@@ -4,34 +4,53 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ResumeUploader } from './ResumeUploader';
 import { MatchingResultsList } from './MatchingResultsList';
-import { useResumeStore } from '@/store/resume-store';
+import { useResumeStore, MATCH_TTL_MS } from '@/store/resume-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JDCategory } from '@/types/jd';
-import { FileSearch, Zap, FileText, AlertCircle, X, Filter } from 'lucide-react';
+import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function ResumeMatchingPage() {
   const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const [matchCategory, setMatchCategory] = useState<JDCategory | 'all'>('all');
   const resumes = useResumeStore((s) => s.resumes);
   const activeResumeId = useResumeStore((s) => s.activeResumeId);
-  const matchingResults = useResumeStore((s) => s.matchingResults);
+  const resultsByResume = useResumeStore((s) => s.resultsByResume);
   const isUploading = useResumeStore((s) => s.isUploading);
   const isMatching = useResumeStore((s) => s.isMatching);
+  const matchingResumeId = useResumeStore((s) => s.matchingResumeId);
   const matchError = useResumeStore((s) => s.matchError);
+  const uploadError = useResumeStore((s) => s.uploadError);
   const uploadResume = useResumeStore((s) => s.uploadResume);
   const setActiveResume = useResumeStore((s) => s.setActiveResume);
   const matchWithJDs = useResumeStore((s) => s.matchWithJDs);
   const cancelMatching = useResumeStore((s) => s.cancelMatching);
-  const clearMatches = useResumeStore((s) => s.clearMatches);
+  const clearMatchesFor = useResumeStore((s) => s.clearMatchesFor);
+  const pruneExpired = useResumeStore((s) => s.pruneExpired);
   const removeResume = useResumeStore((s) => s.removeResume);
 
   const handleRemoveResume = (id: string) => {
-    if (id === activeResumeId) clearMatches();
     removeResume(id);
   };
 
   useEffect(() => setMounted(true), []);
+
+  // 每 10 秒刷新一次时间并清理过期结果，驱动倒计时显示
+  useEffect(() => {
+    const t = setInterval(() => {
+      setNow(Date.now());
+      pruneExpired();
+    }, 10 * 1000);
+    return () => clearInterval(t);
+  }, [pruneExpired]);
+
   const activeResume = resumes.find((r) => r.id === activeResumeId);
+  const activeBatch = activeResumeId ? resultsByResume[activeResumeId] : undefined;
+  const activeResults = activeBatch?.results || [];
+  const activeIsMatching = isMatching && matchingResumeId === activeResumeId;
+  // 当前简历结果剩余存活时间（正在匹配的简历不倒计时）
+  const remainMs = activeBatch && !activeIsMatching ? MATCH_TTL_MS - (now - activeBatch.matchedAt) : 0;
+  const remainMin = Math.max(0, Math.ceil(remainMs / 60000));
 
   const handleMatch = () => {
     if (!activeResumeId || activeResume?.parsingStatus !== 'completed') return;
@@ -79,8 +98,8 @@ export function ResumeMatchingPage() {
         </div>
       </GlassPanel>
 
-      <div className="flex items-center gap-3">
-        {isMatching ? (
+      <div className="flex items-center gap-3 flex-wrap">
+        {activeIsMatching ? (
           <button onClick={cancelMatching} className="h-10 px-5 rounded-xl bg-red-50 text-red-600 border border-red-200 text-sm font-medium hover:bg-red-100 transition-all flex items-center gap-2">
             <X className="w-4 h-4" />取消匹配
           </button>
@@ -92,13 +111,32 @@ export function ResumeMatchingPage() {
             </button>
           )
         )}
+        {activeResults.length > 0 && !activeIsMatching && (
+          <>
+            <button onClick={() => activeResumeId && clearMatchesFor(activeResumeId)} className="h-10 px-4 rounded-xl bg-white text-gray-600 border border-gray-200 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-2">
+              <Trash2 className="w-4 h-4" />清除结果
+            </button>
+            {remainMin > 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-gray-400">
+                <Clock className="w-3.5 h-3.5" />{remainMin} 分钟后自动清除
+              </span>
+            )}
+          </>
+        )}
       </div>
+
+      {uploadError && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+          <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+          <p className="text-sm text-amber-700 flex-1">{uploadError}</p>
+        </div>
+      )}
 
       {matchError && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
           <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
           <p className="text-sm text-red-700 flex-1">{matchError}</p>
-          <button onClick={clearMatches} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>
+          <button onClick={() => activeResumeId && clearMatchesFor(activeResumeId)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>
         </div>
       )}
 
@@ -106,7 +144,7 @@ export function ResumeMatchingPage() {
         <div className="space-y-4">
           <GlassPanel>
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2"><FileSearch className="w-4 h-4 text-indigo-500" />上传简历</h3>
-            <ResumeUploader onFileSelected={(f) => uploadResume(f)} isUploading={isUploading} resumes={resumes} activeResumeId={activeResumeId} onSelectResume={setActiveResume} onRemoveResume={handleRemoveResume} />
+            <ResumeUploader onFileSelected={(f) => uploadResume(f)} isUploading={isUploading} resumes={resumes} activeResumeId={activeResumeId} onSelectResume={setActiveResume} onRemoveResume={handleRemoveResume} resultCounts={Object.fromEntries(Object.entries(resultsByResume).map(([id, b]) => [id, b.results.length]))} />
           </GlassPanel>
           {activeResume && activeResume.rawText && (
             <GlassPanel>
@@ -116,8 +154,8 @@ export function ResumeMatchingPage() {
           )}
         </div>
         <GlassPanel>
-          <MatchingResultsList results={matchingResults} isMatching={isMatching} />
-          {!activeResume && matchingResults.length === 0 && !isMatching && <EmptyState icon={FileSearch} title="上传简历开始匹配" description="支持 PDF 和 DOCX 格式，选择匹配范围后点击开始匹配" />}
+          <MatchingResultsList results={activeResults} isMatching={activeIsMatching} />
+          {!activeResume && activeResults.length === 0 && !activeIsMatching && <EmptyState icon={FileSearch} title="上传简历开始匹配" description="支持 PDF 和 DOCX 格式，选择匹配范围后点击开始匹配" />}
         </GlassPanel>
       </div>
     </div>

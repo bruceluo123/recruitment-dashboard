@@ -7,34 +7,53 @@ import { generateId } from '@/lib/utils';
 import { matchResumeToJDsStream } from '@/lib/deepseek';
 import { useJDStore } from './jd-store';
 
+// 同时最多保留的简历数；匹配结果在完成后保留的时长（10 分钟）
+export const MAX_RESUMES = 5;
+export const MATCH_TTL_MS = 10 * 60 * 1000;
+
+/** 单份简历的一次匹配结果及其时间戳（用于 10 分钟自动清除） */
+export interface MatchBatch {
+  results: MatchingResult[];
+  matchedAt: number;
+}
+
 interface ResumeStore {
   resumes: Resume[];
   activeResumeId: string | null;
-  matchingResults: MatchingResult[];
+  resultsByResume: Record<string, MatchBatch>; // 按简历 id 分别保存匹配结果
   isUploading: boolean;
   isMatching: boolean;
+  matchingResumeId: string | null;             // 正在匹配的简历（其结果不会被 TTL 清除）
   matchError: string | null;
+  uploadError: string | null;
   abortController: AbortController | null;
 
   uploadResume: (file: File) => Promise<string>;
   setActiveResume: (id: string | null) => void;
   matchWithJDs: (resumeId: string, category?: JDCategory | 'all') => Promise<void>;
   cancelMatching: () => void;
-  clearMatches: () => void;
+  clearMatchesFor: (resumeId: string) => void;
+  pruneExpired: () => void;
   removeResume: (id: string) => void;
 }
 
 export const useResumeStore = create<ResumeStore>((set, get) => ({
   resumes: [],
   activeResumeId: null,
-  matchingResults: [],
+  resultsByResume: {},
   isUploading: false,
   isMatching: false,
+  matchingResumeId: null,
   matchError: null,
+  uploadError: null,
   abortController: null,
 
   uploadResume: async (file: File) => {
-    set({ isUploading: true });
+    if (get().resumes.length >= MAX_RESUMES) {
+      set({ uploadError: `最多同时保留 ${MAX_RESUMES} 份简历，请先删除部分简历` });
+      return '';
+    }
+    set({ isUploading: true, uploadError: null });
     const id = generateId();
     const fileType = file.name.endsWith('.pdf') ? 'pdf' : 'docx';
 
@@ -97,11 +116,18 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
 
   matchWithJDs: async (resumeId: string, category: JDCategory | 'all' = 'all') => {
     const ac = new AbortController();
-    set({ isMatching: true, matchingResults: [], matchError: null, abortController: ac });
+    set((s) => ({
+      isMatching: true,
+      matchingResumeId: resumeId,
+      matchError: null,
+      abortController: ac,
+      // 该简历重新匹配前清空它自己的旧结果（不影响其它简历）
+      resultsByResume: { ...s.resultsByResume, [resumeId]: { results: [], matchedAt: Date.now() } },
+    }));
 
     try {
       const resume = get().resumes.find((r) => r.id === resumeId);
-      if (!resume) { set({ isMatching: false }); return; }
+      if (!resume) { set({ isMatching: false, matchingResumeId: null }); return; }
 
       const { jds } = useJDStore.getState();
       let activeJds = jds.filter((j) => j.status !== 'paused');
@@ -109,25 +135,28 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
         activeJds = activeJds.filter((j) => hasCategory(j, category));
       }
       if (activeJds.length === 0) {
-        set({ isMatching: false, matchError: '没有活跃的 JD 可匹配' });
+        set({ isMatching: false, matchingResumeId: null, matchError: '没有活跃的 JD 可匹配' });
         return;
       }
 
-      // 流式：结果逐条到达即追加并按分数排序，体感更快
+      // 流式：结果逐条到达即追加到该简历的批次并按分数排序
       await matchResumeToJDsStream(resume.rawText, activeJds, resumeId, (result) => {
         if (ac.signal.aborted) return;
-        set((s) => ({
-          matchingResults: [...s.matchingResults, result].sort((a, b) => b.score - a.score),
-        }));
+        set((s) => {
+          const prev = s.resultsByResume[resumeId]?.results || [];
+          const next = [...prev, result].sort((a, b) => b.score - a.score).slice(0, 5);
+          return { resultsByResume: { ...s.resultsByResume, [resumeId]: { results: next, matchedAt: Date.now() } } };
+        });
       }, ac.signal);
 
       if (!ac.signal.aborted) {
-        set((s) => ({ matchingResults: s.matchingResults.slice(0, 5), isMatching: false, abortController: null }));
+        set({ isMatching: false, matchingResumeId: null, abortController: null });
       }
     } catch (err) {
       if (!ac.signal.aborted) {
         set({
           isMatching: false,
+          matchingResumeId: null,
           matchError: (err as Error).message || '匹配失败，请重试',
           abortController: null,
         });
@@ -139,15 +168,42 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
     const { abortController } = get();
     if (abortController) {
       abortController.abort();
-      set({ isMatching: false, abortController: null, matchError: '匹配已取消' });
+      set({ isMatching: false, matchingResumeId: null, abortController: null, matchError: '匹配已取消' });
     }
   },
 
-  clearMatches: () => set({ matchingResults: [], matchError: null }),
+  clearMatchesFor: (resumeId) =>
+    set((s) => {
+      if (!s.resultsByResume[resumeId]) return {};
+      const next = { ...s.resultsByResume };
+      delete next[resumeId];
+      return { resultsByResume: next, matchError: null };
+    }),
+
+  // 清除超过 TTL 的匹配结果（正在匹配的简历跳过）
+  pruneExpired: () =>
+    set((s) => {
+      const now = Date.now();
+      const next: Record<string, MatchBatch> = {};
+      let changed = false;
+      for (const [rid, batch] of Object.entries(s.resultsByResume)) {
+        if (rid === s.matchingResumeId || now - batch.matchedAt < MATCH_TTL_MS) {
+          next[rid] = batch;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? { resultsByResume: next } : {};
+    }),
 
   removeResume: (id) =>
-    set((s) => ({
-      resumes: s.resumes.filter((r) => r.id !== id),
-      activeResumeId: s.activeResumeId === id ? null : s.activeResumeId,
-    })),
+    set((s) => {
+      const next = { ...s.resultsByResume };
+      delete next[id];
+      return {
+        resumes: s.resumes.filter((r) => r.id !== id),
+        activeResumeId: s.activeResumeId === id ? null : s.activeResumeId,
+        resultsByResume: next,
+      };
+    }),
 }));

@@ -1,12 +1,19 @@
 'use client';
-import { Bell, Search } from 'lucide-react';
+import { Bell, Search, Menu } from 'lucide-react';
+import { useUIStore } from '@/store/ui-store';
 
 export function TopNav() {
+  const openNav = useUIStore((s) => s.openNav);
   return (
-    <header className="sticky top-0 z-20 h-16 border-b border-gray-200 bg-white/80 backdrop-blur-xl flex items-center justify-between px-6">
-      <div>
-        <h1 className="text-lg font-semibold text-gray-800">企鹅岛</h1>
-        <p className="text-xs text-gray-500">猎头岗位匹配系统</p>
+    <header className="sticky top-0 z-20 h-16 border-b border-gray-200 bg-white/80 backdrop-blur-xl flex items-center justify-between px-4 sm:px-6">
+      <div className="flex items-center gap-3">
+        <button onClick={openNav} className="lg:hidden p-2 -ml-1 rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-all" aria-label="打开菜单">
+          <Menu className="w-5 h-5" />
+        </button>
+        <div>
+          <h1 className="text-lg font-semibold text-gray-800">企鹅岛</h1>
+          <p className="text-xs text-gray-500 hidden sm:block">猎头岗位匹配系统</p>
+        </div>
       </div>
       <div className="flex items-center gap-4">
         <div className="relative hidden md:block">
