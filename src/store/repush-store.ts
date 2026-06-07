@@ -15,7 +15,8 @@ export interface RepushItem {
   fileName: string;            // 显示名（文本录入时为「姓名-岗位」，文件拖入时为文件名）
   candidateName?: string;      // 推荐人姓名（简历提取）
   jdTitle?: string;            // 推荐岗位（简历提取）
-  contact?: string;            // 联系方式（约面用）
+  contact?: string;            // 候选人联系方式（约面用）
+  contactPerson?: string;      // 简历对接人/推荐人（非候选人本人）
   rawText?: string;            // 录入时粘贴的简历原文（截断保存，便于回看）
   dataUrl?: string;            // 旧版 base64，仅兼容历史数据（新增项不再写入）
   feedback: FeedbackStatus;
@@ -33,6 +34,7 @@ export interface NewRecommendation {
   candidateName: string;
   jdTitle?: string;
   contact?: string;
+  contactPerson?: string;
   rawText?: string;
   organization?: string;
   department?: string;
@@ -83,6 +85,7 @@ export const useRepushStore = create<RepushStore>()(
               candidateName: rec.candidateName,
               jdTitle: rec.jdTitle || undefined,
               contact: rec.contact || undefined,
+              contactPerson: rec.contactPerson || undefined,
               rawText: rec.rawText ? rec.rawText.slice(0, 2000) : undefined,
               feedback: 'pending' as const,
               interviewStatus: 'none' as const,

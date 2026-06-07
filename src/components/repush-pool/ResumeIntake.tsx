@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Sparkles, Loader2, Check, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JD } from '@/types/jd';
@@ -22,13 +22,31 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
   const [name, setName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [contact, setContact] = useState('');
+  const [contactPerson, setContactPerson] = useState('');
   const [organization, setOrganization] = useState('');
   const [department, setDepartment] = useState('');
   const [justAdded, setJustAdded] = useState(false);
 
+  // 岗位下拉选项：JD 库中去重、非空的岗位名
+  const jdTitleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const jd of jds) { const t = jd.title?.trim(); if (t) set.add(t); }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }, [jds]);
+
+  // 选/改岗位时按 JD 库自动回填编制/部门
+  const handleJobTitleChange = (title: string) => {
+    setJobTitle(title);
+    const jd = title ? matchJDByTitle(title, jds) : null;
+    if (jd) {
+      setOrganization(jd.organization?.trim() || '');
+      setDepartment(jd.department?.trim() || '');
+    }
+  };
+
   const resetFields = () => {
     setRawText(''); setParsed(false);
-    setName(''); setJobTitle(''); setContact('');
+    setName(''); setJobTitle(''); setContact(''); setContactPerson('');
     setOrganization(''); setDepartment('');
   };
 
@@ -40,6 +58,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
       setName(info.name);
       setJobTitle(info.jobTitle);
       setContact(info.contact);
+      setContactPerson(info.contactPerson);
       // 按岗位名自动匹配 JD 库，回填编制/部门
       const jd = info.jobTitle ? matchJDByTitle(info.jobTitle, jds) : null;
       setOrganization(jd?.organization?.trim() || '');
@@ -57,6 +76,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
       candidateName: name.trim(),
       jdTitle: jobTitle.trim() || undefined,
       contact: contact.trim() || undefined,
+      contactPerson: contactPerson.trim() || undefined,
       rawText: rawText.trim() || undefined,
       organization: organization || undefined,
       department: department || undefined,
@@ -110,12 +130,16 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
       </div>
 
       {parsed && (
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3 items-end animate-fade-in">
+        <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end animate-fade-in">
           <Field label="姓名 *">
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="姓名" className="intake-input" />
           </Field>
           <Field label="岗位">
-            <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="岗位" className="intake-input" />
+            <select value={jobTitle} onChange={(e) => handleJobTitleChange(e.target.value)} className="intake-input cursor-pointer">
+              <option value="">未选岗位</option>
+              {jdTitleOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+              {jobTitle && !jdTitleOptions.includes(jobTitle) && <option value={jobTitle}>{jobTitle}（自定义）</option>}
+            </select>
           </Field>
           <Field label="编制">
             <select value={organization} onChange={(e) => setOrganization(e.target.value)} className="intake-input cursor-pointer">
@@ -134,7 +158,10 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
           <Field label="联系方式">
             <input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="手机/邮箱/微信" className="intake-input" />
           </Field>
-          <div className="col-span-2 md:col-span-5 flex justify-end">
+          <Field label="简历对接人">
+            <input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="对接人" className="intake-input" />
+          </Field>
+          <div className="col-span-2 md:col-span-6 flex justify-end">
             <button
               onClick={handleAdd}
               disabled={!name.trim()}
