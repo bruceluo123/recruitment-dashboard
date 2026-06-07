@@ -1,6 +1,7 @@
 'use client';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { Key, Check } from 'lucide-react';
+import { BackupPanel } from '@/components/settings/BackupPanel';
 
 export default function SettingsPage() {
   return (
@@ -25,6 +26,8 @@ export default function SettingsPage() {
           <span className="text-sm text-green-700">API Key 已配置，匹配服务正常运行</span>
         </div>
       </GlassPanel>
+
+      <BackupPanel />
 
       <GlassPanel>
         <h3 className="text-base font-semibold text-gray-800 mb-4">关于企鹅岛</h3>
