@@ -7,22 +7,43 @@ import { generateId } from '@/lib/utils';
 
 export type RepushColumnId = 'a' | 'b';
 export type FeedbackStatus = 'done' | 'pending';
+export type InterviewStatus = 'none' | 'scheduled';
 
 export interface RepushItem {
   id: string;
-  column: RepushColumnId;
-  fileName: string;
-  dataUrl?: string;       // 旧版 base64，仅兼容历史数据（新增项不再写入）
+  column: RepushColumnId;       // 推荐人（a/b 两列）
+  fileName: string;            // 显示名（文本录入时为「姓名-岗位」，文件拖入时为文件名）
+  candidateName?: string;      // 推荐人姓名（简历提取）
+  jdTitle?: string;            // 推荐岗位（简历提取）
+  contact?: string;            // 联系方式（约面用）
+  rawText?: string;            // 录入时粘贴的简历原文（截断保存，便于回看）
+  dataUrl?: string;            // 旧版 base64，仅兼容历史数据（新增项不再写入）
   feedback: FeedbackStatus;
-  organization?: string;  // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
-  department?: string;    // 该简历推荐到的部门（来源于 JD 库的部门列表）
-  uploadedAt: string;
+  interviewStatus?: InterviewStatus;  // 是否已约面
+  candidateId?: string;        // 约面后关联的面试日历候选人 id
+  interviewAt?: string;        // 约面时间（ISO，约面后写入）
+  organization?: string;       // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
+  department?: string;         // 该简历推荐到的部门（来源于 JD 库的部门列表）
+  uploadedAt: string;          // 推荐时间（按天分组用）
+}
+
+/** 简历入口录入一条推荐记录所需字段 */
+export interface NewRecommendation {
+  column: RepushColumnId;
+  candidateName: string;
+  jdTitle?: string;
+  contact?: string;
+  rawText?: string;
+  organization?: string;
+  department?: string;
 }
 
 interface RepushStore {
   items: RepushItem[];
   columnNames: Record<RepushColumnId, string>;
   addItem: (column: RepushColumnId, fileName: string) => void;
+  addRecommendation: (rec: NewRecommendation) => void;
+  updateItem: (id: string, partial: Partial<RepushItem>) => void;
   removeItem: (id: string) => void;
   setFeedback: (id: string, feedback: FeedbackStatus) => void;
   setOrganization: (id: string, organization: string) => void;
@@ -45,9 +66,35 @@ export const useRepushStore = create<RepushStore>()(
             column,
             fileName,
             feedback: 'pending' as const,
+            interviewStatus: 'none' as const,
             uploadedAt: new Date().toISOString(),
           },
         ],
+      })),
+      addRecommendation: (rec) => set((s) => {
+        const displayName = rec.jdTitle ? `${rec.candidateName}-${rec.jdTitle}` : rec.candidateName;
+        return {
+          items: [
+            ...s.items,
+            {
+              id: generateId(),
+              column: rec.column,
+              fileName: displayName,
+              candidateName: rec.candidateName,
+              jdTitle: rec.jdTitle || undefined,
+              contact: rec.contact || undefined,
+              rawText: rec.rawText ? rec.rawText.slice(0, 2000) : undefined,
+              feedback: 'pending' as const,
+              interviewStatus: 'none' as const,
+              organization: rec.organization || undefined,
+              department: rec.department || undefined,
+              uploadedAt: new Date().toISOString(),
+            },
+          ],
+        };
+      }),
+      updateItem: (id, partial) => set((s) => ({
+        items: s.items.map((it) => (it.id === id ? { ...it, ...partial } : it)),
       })),
       removeItem: (id) => set((s) => ({ items: s.items.filter((it) => it.id !== id) })),
       setFeedback: (id, feedback) => set((s) => ({

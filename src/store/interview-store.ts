@@ -10,7 +10,7 @@ interface InterviewStore {
   candidates: Candidate[];
   customStages: InterviewStage[];
   moveCandidate: (id: string, toStage: CandidateStatus) => void;
-  addCandidate: (c: Omit<Candidate, 'id' | 'appliedAt' | 'updatedAt'>) => void;
+  addCandidate: (c: Omit<Candidate, 'id' | 'appliedAt' | 'updatedAt'>) => string;
   updateCandidate: (id: string, partial: Partial<Candidate>) => void;
   removeCandidate: (id: string) => void;
   undoDeleteCandidate: () => void;
@@ -26,9 +26,12 @@ export const useInterviewStore = create<InterviewStore>()(
         candidates: s.candidates.map((c) =>
           c.id === id ? { ...c, stage: toStage, updatedAt: new Date().toISOString() } : c),
       })),
-      addCandidate: (c) => set((s) => ({
-        candidates: [...s.candidates, { ...c, id: generateId(), appliedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
-      })),
+      addCandidate: (c) => {
+        const id = generateId();
+        const now = new Date().toISOString();
+        set((s) => ({ candidates: [...s.candidates, { ...c, id, appliedAt: now, updatedAt: now }] }));
+        return id;
+      },
       updateCandidate: (id, partial) => set((s) => ({
         candidates: s.candidates.map((c) =>
           c.id === id ? { ...c, ...partial, updatedAt: new Date().toISOString() } : c),

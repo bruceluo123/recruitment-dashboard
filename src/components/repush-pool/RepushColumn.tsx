@@ -1,5 +1,5 @@
 'use client';
-import { Upload, FileText, Trash2, Check, X, Pencil, Copy } from 'lucide-react';
+import { Upload, FileText, Trash2, Check, X, Pencil, Copy, CalendarPlus, CalendarCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { cn, formatDate } from '@/lib/utils';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
@@ -16,11 +16,12 @@ interface RepushColumnProps {
   onSetOrganization: (id: string, organization: string) => void;
   onSetDepartment: (id: string, department: string) => void;
   onRename: (column: RepushColumnId, name: string) => void;
+  onSchedule: (item: RepushItem) => void;
 }
 
 const ACCEPTED_EXT = /\.(pdf|docx?)$/i;
 
-export function RepushColumn({ columnId, name, items, orgOptions, deptOptions, onAddFile, onRemove, onSetFeedback, onSetOrganization, onSetDepartment, onRename }: RepushColumnProps) {
+export function RepushColumn({ columnId, name, items, orgOptions, deptOptions, onAddFile, onRemove, onSetFeedback, onSetOrganization, onSetDepartment, onRename, onSchedule }: RepushColumnProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -208,6 +209,25 @@ export function RepushColumn({ columnId, name, items, orgOptions, deptOptions, o
                       <option value={it.department}>{it.department}</option>
                     )}
                   </select>
+                </div>
+
+                {/* 第三行：约面 */}
+                <div className="flex items-center gap-2 pl-7">
+                  {it.interviewStatus === 'scheduled' ? (
+                    <span className="flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-medium border border-green-200 bg-green-50 text-green-600">
+                      <CalendarCheck className="w-3.5 h-3.5" />
+                      已约面{it.interviewAt ? ` · ${formatDate(it.interviewAt)}` : ''}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => onSchedule(it)}
+                      className="flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-medium border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
+                      title="约面并同步到面试日历"
+                    >
+                      <CalendarPlus className="w-3.5 h-3.5" />
+                      约面
+                    </button>
+                  )}
                 </div>
               </div>
             );
