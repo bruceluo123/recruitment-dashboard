@@ -3,11 +3,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui-store';
-import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings, Users, Flame, Send } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings, Users, Flame, Send, ListTodo } from 'lucide-react';
 
 const menuItems = [
   { href: '/', label: '推荐中心', icon: LayoutDashboard },
   { href: '/repush-pool', label: '本周推荐', icon: Send },
+  { href: '/todos', label: '待办事项', icon: ListTodo },
   { href: '/hot-hiring', label: '热招看板', icon: Flame },
   { href: '/jd-library', label: 'JD 库', icon: Briefcase },
   { href: '/talent-pool', label: '人才库', icon: Users },

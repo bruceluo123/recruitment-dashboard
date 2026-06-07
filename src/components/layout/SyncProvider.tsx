@@ -6,9 +6,11 @@ import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { useTalentStore } from '@/store/talent-store';
 import { useRepushStore, type RepushItem } from '@/store/repush-store';
+import { useTodoStore } from '@/store/todo-store';
 import type { JD } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
+import type { TodoItem } from '@/types/todo';
 
 // Check if JDs are mock data (all IDs start with "jd-00")
 function isMockData(jds: JD[]): boolean {
@@ -21,6 +23,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const candidates = useInterviewStore((s) => s.candidates);
   const talents = useTalentStore((s) => s.talents);
   const repushItems = useRepushStore((s) => s.items);
+  const todos = useTodoStore((s) => s.todos);
   const skipPush = useRef(true);
   const remoteReceived = useRef(false);
 
@@ -52,6 +55,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
       if (type === 'talents') useTalentStore.setState({ talents: data as Talent[] });
       if (type === 'repush') useRepushStore.setState({ items: data as RepushItem[] });
+      if (type === 'todos') useTodoStore.setState({ todos: data as TodoItem[] });
       setTimeout(() => { skipPush.current = false; }, 1000);
     });
   }, []);
@@ -77,6 +81,11 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     if (skipPush.current) return;
     syncPush('repush', repushItems);
   }, [repushItems]);
+
+  useEffect(() => {
+    if (skipPush.current) return;
+    syncPush('todos', todos);
+  }, [todos]);
 
   return <>{children}</>;
 }
