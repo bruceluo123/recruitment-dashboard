@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { cn, formatInterviewDate } from '@/lib/utils';
 import type { Candidate } from '@/types/interview';
 import { STAGE_COLORS } from '@/types/interview';
@@ -15,6 +16,7 @@ function formatOnboardDate(isoStr: string): string {
 }
 
 export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCardProps) {
+  const [confirming, setConfirming] = useState(false);
   const scoreColor = candidate.score >= 80 ? 'text-green-600' : candidate.score >= 60 ? 'text-amber-600' : 'text-red-600';
   const dotColor = STAGE_COLORS[candidate.stage] || 'bg-gray-400';
 
@@ -48,9 +50,16 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
       </div>
       <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
         <span className="text-xs text-gray-400 group-hover:text-gray-500 transition-colors">拖拽移动</span>
-        <button onClick={(e) => { e.stopPropagation(); onDelete(candidate.id); }} className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {confirming ? (
+          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <button onClick={(e) => { e.stopPropagation(); onDelete(candidate.id); setConfirming(false); }} className="px-2 h-6 rounded-md text-[11px] font-medium bg-red-500 text-white hover:bg-red-600">确认删除</button>
+            <button onClick={(e) => { e.stopPropagation(); setConfirming(false); }} className="px-2 h-6 rounded-md text-[11px] text-gray-500 hover:bg-gray-100">取消</button>
+          </div>
+        ) : (
+          <button onClick={(e) => { e.stopPropagation(); setConfirming(true); }} className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );

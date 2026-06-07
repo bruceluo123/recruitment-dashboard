@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
-import { displayName, formatRecommendTime } from '@/lib/repush-format';
+import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
 interface RecommendationBarProps {
   item: RepushItem;
@@ -14,7 +14,7 @@ interface RecommendationBarProps {
 export function RecommendationBar({ item, onSchedule, onEdit, onRemove }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const base = displayName(item);
-  const orgDept = [item.organization, item.department].filter(Boolean).join(' · ');
+  const orgDept = formatOrgDept(item.organization, item.department);
 
   return (
     <div className="group flex items-center gap-4 px-4 py-3 rounded-2xl border border-gray-100 bg-white hover:border-indigo-200 hover:shadow-sm transition-all">

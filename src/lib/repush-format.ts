@@ -79,6 +79,29 @@ export function displayName(it: RepushItem): string {
 }
 
 /**
+ * 编制/部门去重：JD 库里编制常已含部门（如编制「技术中心 天枢」、部门「天枢」），
+ * 直接拼接会出现「技术中心 天枢 · 天枢」的重复。此处去掉冗余的一方。
+ * 规则：任一方为另一方的子串（或完全相等）时，保留更完整的一方；否则视为不重叠返回 null。
+ */
+export function dedupeOrgDept(organization?: string, department?: string): string | null {
+  const o = (organization || '').trim();
+  const d = (department || '').trim();
+  if (!o) return d || '';
+  if (!d) return o;
+  if (o === d) return o;
+  if (o.includes(d)) return o; // 编制已包含部门
+  if (d.includes(o)) return d; // 部门已包含编制
+  return null;                 // 不重叠，交给调用方按分隔符拼接
+}
+
+/** 编制/部门展示：去重后用 sep 拼接（默认「 · 」），重叠时只显示更完整的一方。 */
+export function formatOrgDept(organization?: string, department?: string, sep = ' · '): string {
+  const merged = dedupeOrgDept(organization, department);
+  if (merged !== null) return merged;
+  return `${(organization || '').trim()}${sep}${(department || '').trim()}`;
+}
+
+/**
  * 生成未反馈清单文本。
  * 格式：
  *   未反馈清单（本周）：

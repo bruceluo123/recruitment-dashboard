@@ -6,9 +6,10 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
 import type { CandidateStatus, CandidateOwner } from '@/types/interview';
-import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, FileSpreadsheet, ClipboardPaste } from 'lucide-react';
+import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
-import { buildTodayScheduleTable, parseInterviewReport } from '@/lib/interview-report';
+import { formatOrgDept } from '@/lib/repush-format';
+import { parseInterviewReport } from '@/lib/interview-report';
 
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
@@ -130,8 +131,8 @@ export function InterviewCalendarPage() {
       const h = d.getHours();
       const m = d.getMinutes();
       const time = m === 0 ? `北京时间${h}点` : `北京时间${h}点${m}分`;
-      // 编制与部门之间用 / 间隔（如「万帧公司/智影」），其余字段用 - 间隔
-      const orgDept = [c.organization, c.department].filter(Boolean).join('/');
+      // 编制与部门之间用 / 间隔（如「万帧公司/智影」），重叠时只保留更完整的一方，其余字段用 - 间隔
+      const orgDept = formatOrgDept(c.organization, c.department, '/');
       const parts = [c.name, c.jdTitle, orgDept].filter(Boolean);
       return `${parts.join('-')}-${time}`;
     });
@@ -139,24 +140,6 @@ export function InterviewCalendarPage() {
     try {
       await navigator.clipboard.writeText(text);
       setCopyMsg(`已复制今日 ${todays.length} 场面试`);
-    } catch {
-      setCopyMsg('复制失败，请重试');
-    }
-  };
-
-  // 今日约面：导出今天的面试为进度表（7 列，可直接粘贴 Excel 进度表）
-  const handleCopyTodaySchedule = async () => {
-    const now = new Date();
-    const todays = ownerCandidates.filter((c) => {
-      if (!c.interviewDate) return false;
-      const d = new Date(c.interviewDate);
-      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-    });
-    if (todays.length === 0) { setCopyMsg('今日暂无约面安排'); return; }
-    const text = buildTodayScheduleTable(ownerCandidates, now);
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyMsg(`已复制今日约面进度表（${todays.length} 条）`);
     } catch {
       setCopyMsg('复制失败，请重试');
     }
@@ -257,9 +240,6 @@ export function InterviewCalendarPage() {
           </div>
           <button onClick={handleCopyToday} className="px-3 h-9 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-1.5 shadow-sm">
             <Copy className="w-4 h-4" />今日面试
-          </button>
-          <button onClick={handleCopyTodaySchedule} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
-            <FileSpreadsheet className="w-4 h-4" />今日约面
           </button>
           <button onClick={() => setShowImport(true)} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
             <ClipboardPaste className="w-4 h-4" />导入
