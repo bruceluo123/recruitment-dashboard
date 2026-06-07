@@ -40,6 +40,7 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
     resumeId: '',
     jdId: jd?.id || '',
     jdTitle,
+    owner: item.column,  // 约面来源列（a=麦满分 / b=啵啵）带入候选人
     organization: item.organization || jd?.organization?.trim() || undefined,
     department: item.department || jd?.department?.trim() || undefined,
     stage: ROUND_TO_STAGE[round],

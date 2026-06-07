@@ -1,5 +1,8 @@
 export type CandidateStatus = 'interview-1' | 'interview-2' | 'offer';
 
+/** 候选人归属的推荐人列：a=麦满分，b=啵啵（与复推池列一致）。未设置时按麦满分处理 */
+export type CandidateOwner = 'a' | 'b';
+
 export interface InterviewStage { id: CandidateStatus; name: string; order: number; color: string; }
 
 export interface Candidate {
@@ -8,6 +11,7 @@ export interface Candidate {
   resumeId: string;
   jdId: string;
   jdTitle: string;
+  owner?: CandidateOwner;  // 归属推荐人列：a=麦满分 / b=啵啵（未设置按麦满分）
   organization?: string;   // 编制组织（取自 JD 库）
   department?: string;     // 部门（取自 JD 库）
   stage: CandidateStatus;

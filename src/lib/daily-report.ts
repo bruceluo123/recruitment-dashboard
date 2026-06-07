@@ -21,6 +21,31 @@ export interface JobLine { name: string; department: string; jobKey: string; qty
 export interface ScheduledLine { job: string; person: string; date: string; time: string; tz: string; }
 export interface InterviewLine { name: string; department: string; jobKey: string; person: string; status: string; }
 
+/** 入职人选明细，字段与团队数据看板（remote_records）一致。 */
+export interface OnboardLine {
+  jobName: string;
+  candidateName: string;
+  department: string;
+  probationSalary: string;
+  probationCurrency: string;
+  regularSalary: string;
+  regularCurrency: string;
+  source: string;
+  score: string;
+  onboardDate: string;
+  responsibleHr: string;
+  remark: string;
+}
+
+/** 业务面试状态：与看板站一致，已通过(pass) / 待反馈(pending)。 */
+export const INTERVIEW_PASS = '已通过';
+export const INTERVIEW_PENDING = '待反馈';
+/** 看板站历史数据里 pass 既可能是「已通过」也可能是英文「pass」，统一判定。 */
+export function isInterviewPassed(status: string): boolean {
+  const s = (status || '').trim().toLowerCase();
+  return s === 'pass' || status === INTERVIEW_PASS;
+}
+
 export interface RemoteRecord {
   id: string;
   date: string;
@@ -37,7 +62,7 @@ export interface RemoteRecord {
   offer: number;
   offerDetail: JobLine[];
   onboard: number;
-  onboardDetail: unknown[];
+  onboardDetail: OnboardLine[];
   remark: string;
 }
 

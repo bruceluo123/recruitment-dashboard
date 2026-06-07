@@ -21,9 +21,12 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
   const router = useRouter();
   const selectJD = useJDStore((s) => s.selectJD);
+  const setFilter = useJDStore((s) => s.setFilter);
 
+  // 查看详情：直接在 JD 库按岗位名称搜索出该岗位（而非打开详情侧滑面板）
   const handleViewDetail = () => {
-    selectJD(jd.id);
+    selectJD(null);
+    setFilter({ search: jd.title, category: 'all' });
     router.push('/jd-library');
   };
 

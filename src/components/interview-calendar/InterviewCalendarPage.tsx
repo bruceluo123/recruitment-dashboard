@@ -4,7 +4,8 @@ import { StageKanbanBoard } from './StageKanbanBoard';
 import { WeekGridView } from './WeekGridView';
 import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
-import type { CandidateStatus } from '@/types/interview';
+import { useRepushStore } from '@/store/repush-store';
+import type { CandidateStatus, CandidateOwner } from '@/types/interview';
 import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, FileSpreadsheet, ClipboardPaste } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { buildTodayScheduleTable, parseInterviewReport } from '@/lib/interview-report';
@@ -18,6 +19,7 @@ export function InterviewCalendarPage() {
   const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
+  const [ownerTab, setOwnerTab] = useState<CandidateOwner>('a');
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -34,6 +36,7 @@ export function InterviewCalendarPage() {
   const removeCandidate = useInterviewStore((s) => s.removeCandidate);
   const undoDeleteCandidate = useInterviewStore((s) => s.undoDeleteCandidate);
   const lastDeletedCandidate = useInterviewStore((s) => s.lastDeletedCandidate);
+  const columnNames = useRepushStore((s) => s.columnNames);
 
   // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段（与人才复推池一致）
   const jds = useJDStore((s) => s.jds);
@@ -117,17 +120,19 @@ export function InterviewCalendarPage() {
       const d = new Date(iso);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
     };
-    const todays = candidates
+    const todays = ownerCandidates
       .filter((c) => c.interviewDate && isToday(c.interviewDate))
       .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
     if (todays.length === 0) { setCopyMsg('今日暂无面试安排'); return; }
-    const header = `${now.getMonth() + 1}.${now.getDate()} 麦满分`;
+    const header = `${now.getMonth() + 1}.${now.getDate()} ${columnNames[ownerTab]}`;
     const lines = todays.map((c) => {
       const d = new Date(c.interviewDate!);
       const h = d.getHours();
       const m = d.getMinutes();
       const time = m === 0 ? `北京时间${h}点` : `北京时间${h}点${m}分`;
-      const parts = [c.name, c.jdTitle, c.organization, c.department].filter(Boolean);
+      // 编制与部门之间用 / 间隔（如「万帧公司/智影」），其余字段用 - 间隔
+      const orgDept = [c.organization, c.department].filter(Boolean).join('/');
+      const parts = [c.name, c.jdTitle, orgDept].filter(Boolean);
       return `${parts.join('-')}-${time}`;
     });
     const text = [header, ...lines].join('\n');
@@ -142,13 +147,13 @@ export function InterviewCalendarPage() {
   // 今日约面：导出今天的面试为进度表（7 列，可直接粘贴 Excel 进度表）
   const handleCopyTodaySchedule = async () => {
     const now = new Date();
-    const todays = candidates.filter((c) => {
+    const todays = ownerCandidates.filter((c) => {
       if (!c.interviewDate) return false;
       const d = new Date(c.interviewDate);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
     });
     if (todays.length === 0) { setCopyMsg('今日暂无约面安排'); return; }
-    const text = buildTodayScheduleTable(candidates, now);
+    const text = buildTodayScheduleTable(ownerCandidates, now);
     try {
       await navigator.clipboard.writeText(text);
       setCopyMsg(`已复制今日约面进度表（${todays.length} 条）`);
@@ -161,7 +166,7 @@ export function InterviewCalendarPage() {
   const handleImport = () => {
     const drafts = parseInterviewReport(importText);
     if (drafts.length === 0) { setCopyMsg('未识别到有效行，请检查格式'); return; }
-    drafts.forEach((d) => addCandidate(d));
+    drafts.forEach((d) => addCandidate({ ...d, owner: ownerTab }));
     setShowImport(false);
     setImportText('');
     setCopyMsg(`已导入 ${drafts.length} 条约面数据`);
@@ -174,6 +179,7 @@ export function InterviewCalendarPage() {
       organization: form.organization || undefined,
       department: form.department || undefined,
       contactEmail: '', notes: '', resumeId: '', jdId: '',
+      owner: ownerTab,
       stage: addStage as CandidateStatus,
       interviewDate: form.interviewDate ? new Date(form.interviewDate).toISOString() : undefined,
       interviewer: undefined,
@@ -183,10 +189,16 @@ export function InterviewCalendarPage() {
     setShowAddForm(false);
   };
 
+  // 按推荐人列过滤（未设置 owner 的候选人归入麦满分/a 列）
+  const ownerCandidates = useMemo(
+    () => candidates.filter((c) => (c.owner || 'a') === ownerTab),
+    [candidates, ownerTab],
+  );
+
   const selected = candidates.find((c) => c.id === selectedId);
-  const firstInterviewCount = candidates.filter((c) => c.stage === 'interview-1').length;
-  const secondInterviewCount = candidates.filter((c) => c.stage === 'interview-2').length;
-  const offerCount = candidates.filter((c) => c.stage === 'offer').length;
+  const firstInterviewCount = ownerCandidates.filter((c) => c.stage === 'interview-1').length;
+  const secondInterviewCount = ownerCandidates.filter((c) => c.stage === 'interview-2').length;
+  const offerCount = ownerCandidates.filter((c) => c.stage === 'offer').length;
   const isEditing = editingId === selectedId;
 
   if (!mounted) return null;
@@ -222,10 +234,18 @@ export function InterviewCalendarPage() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">面试日历</h2>
           <p className="text-sm text-gray-500 mt-1">
-            共 {candidates.length} 个候选人，一面 {firstInterviewCount} 个，二面 {secondInterviewCount} 个，Offer {offerCount} 个
+            {columnNames[ownerTab]} 共 {ownerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* 麦满分/啵啵 推荐人切换 */}
+          <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
+            {(['a', 'b'] as CandidateOwner[]).map((o) => (
+              <button key={o} onClick={() => setOwnerTab(o)} className={cn('px-3 h-9 font-medium transition-colors', ownerTab === o ? 'bg-emerald-500 text-white' : 'bg-white text-gray-500 hover:bg-emerald-50')}>
+                {columnNames[o]}
+              </button>
+            ))}
+          </div>
           {/* 看板/周历切换 */}
           <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
             <button onClick={() => setView('kanban')} className={cn('px-3 h-9 font-medium flex items-center gap-1.5 transition-colors', view === 'kanban' ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}>
@@ -248,9 +268,9 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={candidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
+        <StageKanbanBoard candidates={ownerCandidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
       ) : (
-        <WeekGridView candidates={candidates} onCandidateClick={setSelectedId} />
+        <WeekGridView candidates={ownerCandidates} onCandidateClick={setSelectedId} />
       )}
 
       {lastDeletedCandidate && (

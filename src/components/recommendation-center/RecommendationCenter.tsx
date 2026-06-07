@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Users, CalendarCheck, FileUp } from 'lucide-react';
+import { Users, CalendarCheck, FileUp, FileText } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
 import { RecommendationBar } from './RecommendationBar';
 import { EditRecommendationModal } from './EditRecommendationModal';
 import { DailyReportModal } from './DailyReportModal';
+import { TodayReportModal } from './TodayReportModal';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
@@ -50,6 +51,7 @@ export function RecommendationCenter() {
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [editing, setEditing] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
+  const [todayReporting, setTodayReporting] = useState(false);
 
   const orgOptions = useMemo(() => {
     const set = new Set<string>();
@@ -101,12 +103,19 @@ export function RecommendationCenter() {
             </span>
           </h3>
           <div className="flex items-center gap-2 shrink-0">
-            {/* 一键日报：把当前推荐人今日数据提交到团队数据看板 */}
+            {/* 一键看板：把当前推荐人今日数据提交到团队数据看板 */}
             <button
               onClick={() => setReporting(true)}
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 text-sm font-medium hover:bg-indigo-100 transition-colors"
             >
-              <FileUp className="w-4 h-4" />一键日报
+              <FileUp className="w-4 h-4" />一键看板
+            </button>
+            {/* 今日日报：AI 按真人模板生成一份文字日报 */}
+            <button
+              onClick={() => setTodayReporting(true)}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-sm font-medium hover:bg-emerald-100 transition-colors"
+            >
+              <FileText className="w-4 h-4" />今日日报
             </button>
             {/* 两个推荐人切换（非并排） */}
             <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
@@ -175,6 +184,15 @@ export function RecommendationCenter() {
           items={items}
           candidates={candidates}
           onClose={() => setReporting(false)}
+        />
+      )}
+      {todayReporting && (
+        <TodayReportModal
+          column={view}
+          name={columnNames[view]}
+          items={items}
+          candidates={candidates}
+          onClose={() => setTodayReporting(false)}
         />
       )}
     </div>

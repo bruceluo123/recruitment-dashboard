@@ -10,9 +10,13 @@ import {
   findExistingReportId,
   submitRemoteRecord,
   makeJobKey,
+  isInterviewPassed,
+  INTERVIEW_PASS,
+  INTERVIEW_PENDING,
   type JobLine,
   type ScheduledLine,
   type InterviewLine,
+  type OnboardLine,
   type RemoteRecord,
 } from '@/lib/daily-report';
 
@@ -46,6 +50,9 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const [screenNew, setScreenNew] = useState<number>(draft.screenNew);
   const [scheduled, setScheduled] = useState<ScheduledLine[]>(draft.scheduledDetail);
   const [interview, setInterview] = useState<InterviewLine[]>(draft.interviewDetail);
+  // Offer 申请 / 入职：不自动抓取，默认为空，由使用者手动填写后随日报一并提交。
+  const [offer, setOffer] = useState<JobLine[]>([]);
+  const [onboard, setOnboard] = useState<OnboardLine[]>([]);
   const [remark, setRemark] = useState<string>(draft.remark);
 
   const [state, setState] = useState<SubmitState>('idle');
@@ -53,7 +60,11 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 
   const recommendTotal = sum(recommend);
   const cvTotal = sum(cv);
-  const hasData = recommendTotal > 0 || scheduled.length > 0 || interview.length > 0;
+  const offerTotal = sum(offer);
+  // 业务面试 pass / pending 统计
+  const passCount = interview.filter((v) => isInterviewPassed(v.status)).length;
+  const pendingCount = interview.length - passCount;
+  const hasData = recommendTotal > 0 || scheduled.length > 0 || interview.length > 0 || offerTotal > 0 || onboard.length > 0;
 
   const buildFinal = (): RemoteRecord => ({
     id: draft.id,
@@ -68,10 +79,10 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     scheduledInt: scheduled.length,
     interviewDetail: interview.map((v) => ({ ...v, jobKey: makeJobKey(v.name, v.department) })),
     interviewTotal: interview.length,
-    offer: 0,
-    offerDetail: [],
-    onboard: 0,
-    onboardDetail: [],
+    offer: offerTotal,
+    offerDetail: offer.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+    onboard: onboard.length,
+    onboardDetail: onboard.map((o) => ({ ...o, jobKey: makeJobKey(o.jobName, o.department) } as OnboardLine & { jobKey: string })),
     remark,
   });
 
@@ -106,7 +117,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-800">
-            一键日报 · <span className="text-indigo-600">{name}</span>
+            一键看板 · <span className="text-indigo-600">{name}</span>
             <span className="ml-2 text-sm font-normal text-gray-400">{today}</span>
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -157,17 +168,61 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
             ))}
           </EditSection>
 
-          {/* 业务面试明细 */}
-          <EditSection title="业务面试明细" onAdd={() => setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: '待反馈' }])}>
+          {/* 业务面试明细（含 pass/pending 统计） */}
+          <EditSection
+            title={`业务面试明细（通过 ${passCount} · 待反馈 ${pendingCount}）`}
+            onAdd={() => setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: INTERVIEW_PENDING }])}
+          >
             {interview.map((v, i) => (
               <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
                 <input className={inputCls} placeholder="人选" value={v.person} onChange={(e) => patch(setInterview, i, { person: e.target.value })} />
                 <input className={inputCls} placeholder="岗位" value={v.name} onChange={(e) => patch(setInterview, i, { name: e.target.value })} />
-                <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white" value={v.status} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
-                  <option value="待反馈">待反馈</option>
-                  <option value="已通过">已通过</option>
+                <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white" value={isInterviewPassed(v.status) ? INTERVIEW_PASS : INTERVIEW_PENDING} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
+                  <option value={INTERVIEW_PENDING}>待反馈 (pending)</option>
+                  <option value={INTERVIEW_PASS}>已通过 (pass)</option>
                 </select>
                 <DropBtn onClick={() => drop(setInterview, i)} />
+              </div>
+            ))}
+          </EditSection>
+
+          {/* Offer 申请明细（手动填写，默认空） */}
+          <JobSection
+            title={`Offer 申请明细（共 ${offerTotal}）`}
+            rows={offer}
+            onPatch={(i, p) => patch(setOffer, i, p)}
+            onDrop={(i) => drop(setOffer, i)}
+            onAdd={() => addJob(setOffer)}
+          />
+
+          {/* 入职明细（手动填写，默认空；到岗日期默认今天） */}
+          <EditSection
+            title={`入职明细（当天入职 ${onboard.length}）`}
+            onAdd={() => setOnboard((a) => [...a, {
+              jobName: '', candidateName: '', department: '',
+              probationSalary: '', probationCurrency: 'CNY',
+              regularSalary: '', regularCurrency: 'CNY',
+              source: '', score: '', onboardDate: today, responsibleHr: name, remark: '',
+            }])}
+          >
+            {onboard.map((o, i) => (
+              <div key={i} className="px-2 py-2 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <input className={inputCls} placeholder="岗位名称" value={o.jobName} onChange={(e) => patch(setOnboard, i, { jobName: e.target.value })} />
+                  <input className={inputCls} placeholder="姓名/花名" value={o.candidateName} onChange={(e) => patch(setOnboard, i, { candidateName: e.target.value })} />
+                  <input className="w-24 px-2 h-8 rounded-lg border border-gray-200" placeholder="部门" value={o.department} onChange={(e) => patch(setOnboard, i, { department: e.target.value })} />
+                  <DropBtn onClick={() => drop(setOnboard, i)} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input className={inputCls} placeholder="试用期月薪" value={o.probationSalary} onChange={(e) => patch(setOnboard, i, { probationSalary: e.target.value })} />
+                  <input className={inputCls} placeholder="转正后月薪" value={o.regularSalary} onChange={(e) => patch(setOnboard, i, { regularSalary: e.target.value })} />
+                  <input className="w-24 px-2 h-8 rounded-lg border border-gray-200" placeholder="招聘来源" value={o.source} onChange={(e) => patch(setOnboard, i, { source: e.target.value })} />
+                  <input className="w-16 px-2 h-8 rounded-lg border border-gray-200" placeholder="如8.5" value={o.score} onChange={(e) => patch(setOnboard, i, { score: e.target.value })} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs text-gray-400 shrink-0">到岗日期</label>
+                  <input type="date" className="px-2 h-8 rounded-lg border border-gray-200" value={o.onboardDate} onChange={(e) => patch(setOnboard, i, { onboardDate: e.target.value })} />
+                </div>
               </div>
             ))}
           </EditSection>
