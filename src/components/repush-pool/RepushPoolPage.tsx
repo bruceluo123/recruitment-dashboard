@@ -1,41 +1,23 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarPlus, X } from 'lucide-react';
-import { RepushColumn } from './RepushColumn';
-import { ResumeIntake } from './ResumeIntake';
-import { useRepushStore, type RepushColumnId, type RepushItem } from '@/store/repush-store';
+import { useEffect, useState } from 'react';
+import { Copy, Check, History, ClipboardList } from 'lucide-react';
+import { FeedbackBar } from './FeedbackBar';
+import { ScheduleModal } from './ScheduleModal';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
-import { matchJDByTitle } from '@/lib/recommendation';
+import { scheduleRecommendation } from '@/lib/schedule';
+import {
+  buildUnfeedbackList, currentWeekKey, lastWeekKey, isInWeek, weekdayIndex, mondayOf,
+} from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
 
-type DayFilter = 'today' | 'yesterday' | 'before' | 'week';
+const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
-const DAY_FILTERS: { id: DayFilter; label: string }[] = [
-  { id: 'today', label: '今天' },
-  { id: 'yesterday', label: '昨天' },
-  { id: 'before', label: '前天' },
-  { id: 'week', label: '本周' },
-];
-
-/** 把日期归零到当天 00:00 的时间戳 */
-function startOfDay(d: Date): number {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
-/** 判断 ISO 时间是否落在所选日期范围内 */
-function inDayRange(iso: string, filter: DayFilter): boolean {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return false;
-  const today = startOfDay(new Date());
-  const DAY = 24 * 60 * 60 * 1000;
-  if (filter === 'today') return t >= today && t < today + DAY;
-  if (filter === 'yesterday') return t >= today - DAY && t < today;
-  if (filter === 'before') return t >= today - 2 * DAY && t < today - DAY;
-  // 本周：从本周一 00:00 到现在（周一为一周起点）
-  const dow = (new Date().getDay() + 6) % 7; // 周一=0
-  const monday = today - dow * DAY;
-  return t >= monday;
+/** 周一作为起点，取当前是周几（0=周一…6=周日）；周日(getDay=0)归为 6 */
+function todayWeekday(): number {
+  return (new Date().getDay() + 6) % 7;
 }
 
 export function RepushPoolPage() {
@@ -43,213 +25,162 @@ export function RepushPoolPage() {
 
   const items = useRepushStore((s) => s.items);
   const columnNames = useRepushStore((s) => s.columnNames);
-  const addItem = useRepushStore((s) => s.addItem);
-  const addRecommendation = useRepushStore((s) => s.addRecommendation);
   const updateItem = useRepushStore((s) => s.updateItem);
-  const removeItem = useRepushStore((s) => s.removeItem);
   const setFeedback = useRepushStore((s) => s.setFeedback);
-  const setOrganization = useRepushStore((s) => s.setOrganization);
-  const setDepartment = useRepushStore((s) => s.setDepartment);
-  const renameColumn = useRepushStore((s) => s.renameColumn);
+  const recordUnfeedbackSnapshot = useRepushStore((s) => s.recordUnfeedbackSnapshot);
+  const snapshots = useRepushStore((s) => s.unfeedbackSnapshots);
 
+  const jds = useJDStore((s) => s.jds);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
 
-  // 约面弹窗状态
+  const [view, setView] = useState<RepushColumnId>('a');
+  const [day, setDay] = useState<number>(todayWeekday());
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
-  const [interviewAt, setInterviewAt] = useState('');
-  const [interviewer, setInterviewer] = useState('');
-
-  // 日期筛选：今天 / 昨天 / 前天 / 本周
-  const [dayFilter, setDayFilter] = useState<DayFilter>('today');
-
-  // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段
-  const jds = useJDStore((s) => s.jds);
-  const orgOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const jd of jds) {
-      const org = jd.organization?.trim();
-      if (org) set.add(org);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
-  }, [jds]);
-  const deptOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const jd of jds) {
-      const dept = jd.department?.trim();
-      if (dept) set.add(dept);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
-  }, [jds]);
+  const [copied, setCopied] = useState<'' | 'this' | 'last'>('');
 
   useEffect(() => setMounted(true), []);
-
   if (!mounted) return null;
 
-  // 只识别文件名加入清单，不上传文件本体
-  const handleAddFile = (column: RepushColumnId, file: File) => {
-    addItem(column, file.name);
+  const thisWeek = currentWeekKey();
+  // 本周 + 当前推荐人的所有记录
+  const weekItems = items.filter((it) => it.column === view && isInWeek(it.uploadedAt, thisWeek));
+  // 选中某一天
+  const dayItems = weekItems
+    .filter((it) => weekdayIndex(it.uploadedAt) === day)
+    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
+  // 每天的记录数，用于天按钮角标
+  const dayCounts = WEEKDAYS.map((_, i) => weekItems.filter((it) => weekdayIndex(it.uploadedAt) === i).length);
+  const weekPending = weekItems.filter((it) => it.feedback === 'pending').length;
+
+  const flash = (which: 'this' | 'last') => { setCopied(which); setTimeout(() => setCopied(''), 1800); };
+
+  // 复制本周未反馈清单（当前推荐人），并记录快照
+  const copyThisWeek = async () => {
+    const text = buildUnfeedbackList(weekItems, `${columnNames[view]} 本周未反馈清单：`);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      recordUnfeedbackSnapshot({ weekKey: thisWeek, column: view, text });
+      flash('this');
+    } catch { /* 剪贴板不可用时静默忽略 */ }
   };
 
-  // 打开约面弹窗：默认时间取今天 14:00（本地时区）
-  const openSchedule = (item: RepushItem) => {
-    const d = new Date();
-    d.setHours(14, 0, 0, 0);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    setInterviewAt(local);
-    setInterviewer('');
-    setScheduling(item);
+  // 复制上周未反馈清单：优先取已记录快照，否则用上周记录实时生成
+  const copyLastWeek = async () => {
+    const lastKey = lastWeekKey();
+    const snap = snapshots.find((s) => s.weekKey === lastKey && s.column === view);
+    let text = snap?.text || '';
+    if (!text) {
+      const lastItems = items.filter((it) => it.column === view && isInWeek(it.uploadedAt, lastKey));
+      text = buildUnfeedbackList(lastItems, `${columnNames[view]} 上周未反馈清单：`);
+    }
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      flash('last');
+    } catch { /* 静默 */ }
   };
 
-  const closeSchedule = () => { setScheduling(null); setInterviewAt(''); setInterviewer(''); };
-
-  // 确认约面：在面试日历创建候选人，并把关联信息写回推荐记录
-  const confirmSchedule = () => {
-    if (!scheduling || !interviewAt) return;
-    const it = scheduling;
-    const name = it.candidateName || it.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
-    const jdTitle = it.jdTitle || '';
-    const jd = jdTitle ? matchJDByTitle(jdTitle, jds) : null;
-    const isoAt = new Date(interviewAt).toISOString();
-    const candidateId = addCandidate({
-      name,
-      resumeId: '',
-      jdId: jd?.id || '',
-      jdTitle,
-      organization: it.organization || jd?.organization?.trim() || undefined,
-      department: it.department || jd?.department?.trim() || undefined,
-      stage: 'interview-1',
-      score: 0,
-      interviewDate: isoAt,
-      interviewer: interviewer.trim() || undefined,
-      contactPhone: it.contact || undefined,
-    });
-    updateItem(it.id, { interviewStatus: 'scheduled', candidateId, interviewAt: isoAt });
-    closeSchedule();
+  const confirmSchedule = (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => {
+    if (!scheduling) return;
+    scheduleRecommendation(scheduling, args, { jds, addCandidate, updateItem });
+    setScheduling(null);
   };
 
-  const dayItems = items.filter((it) => inDayRange(it.uploadedAt, dayFilter));
-  const itemsA = dayItems.filter((it) => it.column === 'a');
-  const itemsB = dayItems.filter((it) => it.column === 'b');
+  // 本周日期范围标题
+  const mon = mondayOf(new Date());
+  const sun = new Date(mon.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const rangeText = `${mon.getMonth() + 1}.${mon.getDate()} - ${sun.getMonth() + 1}.${sun.getDate()}`;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
+    <div className="flex flex-col h-full max-w-4xl mx-auto w-full">
+      <div className="mb-5 flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">推荐中心</h1>
-          <p className="text-sm text-gray-400 mt-1">粘贴简历一键解析录入推荐人，自动回填编制/部门；两人各自维护清单，可直接约面并同步面试日历。</p>
+          <h1 className="text-2xl font-bold text-gray-800">本周推荐</h1>
+          <p className="text-sm text-gray-400 mt-1">本周（{rangeText}）推荐反馈跟进，与推荐中心数据互通。</p>
         </div>
+        {/* 两个推荐人切换（非并排） */}
         <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm shrink-0">
-          {DAY_FILTERS.map((f) => (
+          {(['a', 'b'] as RepushColumnId[]).map((c) => (
             <button
-              key={f.id}
-              onClick={() => setDayFilter(f.id)}
-              className={cn(
-                'px-4 h-9 font-medium transition-colors',
-                dayFilter === f.id ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50',
-              )}
+              key={c}
+              onClick={() => setView(c)}
+              className={cn('px-4 h-9 font-medium transition-colors', view === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}
             >
-              {f.label}
+              {columnNames[c]}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="mb-6">
-        <ResumeIntake
-          columnNames={columnNames}
-          orgOptions={orgOptions}
-          deptOptions={deptOptions}
-          jds={jds}
-          onAdd={addRecommendation}
-        />
+      {/* 周一到周日切换 */}
+      <div className="grid grid-cols-7 gap-2 mb-5">
+        {WEEKDAYS.map((label, i) => {
+          const active = day === i;
+          const isToday = todayWeekday() === i;
+          return (
+            <button
+              key={label}
+              onClick={() => setDay(i)}
+              className={cn(
+                'relative flex flex-col items-center justify-center gap-0.5 h-16 rounded-xl border text-sm font-medium transition-all',
+                active ? 'border-indigo-500 bg-indigo-500 text-white shadow-sm' : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300',
+              )}
+            >
+              <span>{label}</span>
+              <span className={cn('text-xs', active ? 'text-indigo-100' : 'text-gray-400')}>
+                {dayCounts[i] > 0 ? `${dayCounts[i]} 人` : '—'}
+              </span>
+              {isToday && !active && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-400" />}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
-        <RepushColumn
-          columnId="a"
-          name={columnNames.a}
-          items={itemsA}
-          orgOptions={orgOptions}
-          deptOptions={deptOptions}
-          onAddFile={handleAddFile}
-          onRemove={removeItem}
-          onSetFeedback={setFeedback}
-          onSetOrganization={setOrganization}
-          onSetDepartment={setDepartment}
-          onRename={renameColumn}
-          onSchedule={openSchedule}
-        />
-        <RepushColumn
-          columnId="b"
-          name={columnNames.b}
-          items={itemsB}
-          orgOptions={orgOptions}
-          deptOptions={deptOptions}
-          onAddFile={handleAddFile}
-          onRemove={removeItem}
-          onSetFeedback={setFeedback}
-          onSetOrganization={setOrganization}
-          onSetDepartment={setDepartment}
-          onRename={renameColumn}
-          onSchedule={openSchedule}
-        />
+      {/* 未反馈清单操作 */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <button
+          onClick={copyThisWeek}
+          disabled={weekPending === 0}
+          className={cn(
+            'flex items-center gap-1.5 px-3 h-9 rounded-xl text-sm font-medium border transition-all',
+            copied === 'this' ? 'border-green-200 bg-green-50 text-green-600'
+              : weekPending === 0 ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                : 'border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100',
+          )}
+          title="复制本周全部未反馈推荐（已面试会标注几号）"
+        >
+          {copied === 'this' ? <Check className="w-4 h-4" /> : <ClipboardList className="w-4 h-4" />}
+          {copied === 'this' ? '已复制' : `本周未反馈清单 ${weekPending}`}
+        </button>
+        <button
+          onClick={copyLastWeek}
+          className={cn(
+            'flex items-center gap-1.5 px-3 h-9 rounded-xl text-sm font-medium border transition-all',
+            copied === 'last' ? 'border-green-200 bg-green-50 text-green-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50',
+          )}
+          title="复制上周未反馈清单（自动记录的快照）"
+        >
+          {copied === 'last' ? <Check className="w-4 h-4" /> : <History className="w-4 h-4" />}
+          {copied === 'last' ? '已复制' : '上周未反馈'}
+        </button>
+        <span className="text-xs text-gray-400 ml-auto">{columnNames[view]} · {WEEKDAYS[day]} {dayItems.length} 人</span>
       </div>
 
-      {/* 约面弹窗 */}
+      {/* 当天推荐数据条 */}
+      <div className="flex-1 overflow-y-auto space-y-2">
+        {dayItems.length > 0 ? (
+          dayItems.map((it) => (
+            <FeedbackBar key={it.id} item={it} onSetFeedback={setFeedback} onSchedule={setScheduling} />
+          ))
+        ) : (
+          <EmptyState icon={Copy} title={`${WEEKDAYS[day]} 暂无推荐`} description="切换其它日期，或在推荐中心录入推荐人" />
+        )}
+      </div>
+
       {scheduling && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30" onClick={closeSchedule} />
-          <div className="relative w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center"><CalendarPlus className="w-4 h-4 text-white" /></span>
-                约面
-              </h3>
-              <button onClick={closeSchedule} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100" title="关闭"><X className="w-4 h-4" /></button>
-            </div>
-
-            <p className="text-sm text-gray-500 mb-4">
-              候选人：<span className="font-medium text-gray-800">{scheduling.candidateName || scheduling.fileName.replace(/\.(pdf|docx?)$/i, '')}</span>
-              {scheduling.jdTitle ? <span className="text-gray-400"> · {scheduling.jdTitle}</span> : null}
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">面试时间 *</label>
-                <input
-                  type="datetime-local"
-                  value={interviewAt}
-                  onChange={(e) => setInterviewAt(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm outline-none focus:border-indigo-300"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">面试官</label>
-                <input
-                  value={interviewer}
-                  onChange={(e) => setInterviewer(e.target.value)}
-                  placeholder="选填"
-                  className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm outline-none focus:border-indigo-300"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button onClick={closeSchedule} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
-              <button
-                onClick={confirmSchedule}
-                disabled={!interviewAt}
-                className={cn(
-                  'h-10 px-5 rounded-xl text-sm font-medium text-white transition-colors',
-                  interviewAt ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed',
-                )}
-              >
-                确认约面
-              </button>
-            </div>
-          </div>
-        </div>
+        <ScheduleModal item={scheduling} onClose={() => setScheduling(null)} onConfirm={confirmSchedule} />
       )}
     </div>
   );

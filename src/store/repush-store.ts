@@ -8,6 +8,7 @@ import { generateId } from '@/lib/utils';
 export type RepushColumnId = 'a' | 'b';
 export type FeedbackStatus = 'done' | 'pending';
 export type InterviewStatus = 'none' | 'scheduled';
+export type InterviewRound = '一面' | '二面' | '三面';
 
 export interface RepushItem {
   id: string;
@@ -21,11 +22,21 @@ export interface RepushItem {
   dataUrl?: string;            // 旧版 base64，仅兼容历史数据（新增项不再写入）
   feedback: FeedbackStatus;
   interviewStatus?: InterviewStatus;  // 是否已约面
+  interviewRound?: InterviewRound;    // 约面轮次（一面/二面/三面）
   candidateId?: string;        // 约面后关联的面试日历候选人 id
   interviewAt?: string;        // 约面时间（ISO，约面后写入）
   organization?: string;       // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
   department?: string;         // 该简历推荐到的部门（来源于 JD 库的部门列表）
   uploadedAt: string;          // 推荐时间（按天分组用）
+}
+
+/** 未反馈清单快照：每生成一次自动记录，供「上周未反馈」回看复制 */
+export interface UnfeedbackSnapshot {
+  id: string;
+  weekKey: string;             // 该周周一的日期键 YYYY-MM-DD
+  column: RepushColumnId;      // 归属推荐人
+  text: string;               // 生成时的清单文本
+  generatedAt: string;        // 生成时间 ISO
 }
 
 /** 简历入口录入一条推荐记录所需字段 */
@@ -43,6 +54,7 @@ export interface NewRecommendation {
 interface RepushStore {
   items: RepushItem[];
   columnNames: Record<RepushColumnId, string>;
+  unfeedbackSnapshots: UnfeedbackSnapshot[];
   addItem: (column: RepushColumnId, fileName: string) => void;
   addRecommendation: (rec: NewRecommendation) => void;
   updateItem: (id: string, partial: Partial<RepushItem>) => void;
@@ -51,6 +63,7 @@ interface RepushStore {
   setOrganization: (id: string, organization: string) => void;
   setDepartment: (id: string, department: string) => void;
   renameColumn: (column: RepushColumnId, name: string) => void;
+  recordUnfeedbackSnapshot: (s: { weekKey: string; column: RepushColumnId; text: string }) => void;
 }
 
 const DEFAULT_NAMES: Record<RepushColumnId, string> = { a: '推荐池 A', b: '推荐池 B' };
@@ -60,6 +73,7 @@ export const useRepushStore = create<RepushStore>()(
     (set) => ({
       items: [],
       columnNames: DEFAULT_NAMES,
+      unfeedbackSnapshots: [],
       addItem: (column, fileName) => set((s) => ({
         items: [
           ...s.items,
@@ -112,6 +126,16 @@ export const useRepushStore = create<RepushStore>()(
       renameColumn: (column, name) => set((s) => ({
         columnNames: { ...s.columnNames, [column]: name.trim() || DEFAULT_NAMES[column] },
       })),
+      // 记录一次未反馈清单快照：同一周同一推荐人只保留最新一份
+      recordUnfeedbackSnapshot: ({ weekKey, column, text }) => set((s) => {
+        const rest = s.unfeedbackSnapshots.filter((snap) => !(snap.weekKey === weekKey && snap.column === column));
+        return {
+          unfeedbackSnapshots: [
+            ...rest,
+            { id: generateId(), weekKey, column, text, generatedAt: new Date().toISOString() },
+          ],
+        };
+      }),
     }),
     { name: 'recruitai-repush-store' },
   ),
