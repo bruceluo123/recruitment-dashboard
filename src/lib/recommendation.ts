@@ -40,6 +40,34 @@ function dedupeRepeated(v: string): string {
   return v;
 }
 
+const CONTACT_PERSON_LABELS = ['简历对接BP', '简历对接人', '对接BP', '对接人', '对接', '推荐人', '联系人'];
+
+/**
+ * 提取简历对接人，并把对接人的 TG/微信号一起带上。
+ * 例：「简历对接BP：陈润」+ 下一行「@RyanChen20」→「陈润 @RyanChen20」。
+ */
+function parseContactPerson(text: string): string {
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    for (const label of CONTACT_PERSON_LABELS) {
+      const re = new RegExp(`${escapeReg(label)}[^\\n:：]*[:：][ \\t\\u3000]*(.*)`);
+      const m = lines[i].match(re);
+      if (!m || !m[1].trim()) continue;
+      let val = m[1].trim();
+      // 本行未含句柄时，看下一非空行是否为裸 TG/微信号，合并进来
+      if (!/@/.test(val)) {
+        const next = (lines[i + 1] || '').trim();
+        const bare = next.match(/^@?[A-Za-z0-9_]{4,}$/);
+        const labeled = next.match(/(?:TG|telegram|微信|wechat|vx)[:：]?\s*(@?[A-Za-z0-9_]{4,})/i);
+        const handle = bare ? bare[0] : labeled ? labeled[1] : '';
+        if (handle) val = `${val} ${handle.startsWith('@') ? handle : '@' + handle}`;
+      }
+      return val;
+    }
+  }
+  return '';
+}
+
 /**
  * 结构化简历解析：针对固定标签格式（候选人姓名/应聘岗位/推荐编制组织/候选人联系方式/简历对接BP 等）
  * 即时精准提取，无需网络。命中姓名+岗位即可直接采用，避免 AI 的延迟与漏识别。
@@ -49,7 +77,7 @@ export function parseStructuredResume(text: string): ExtractedRecommendation {
     name: labelValue(text, ['候选人姓名', '候选姓名', '姓名', 'name']),
     jobTitle: labelValue(text, ['应聘岗位', '应聘职位', '意向岗位', '意向职位', '求职意向', '目标岗位', '推荐岗位', '岗位', '职位']),
     contact: labelValue(text, ['候选人联系方式', '联系方式', '联系电话', '手机号', '手机', '电话', '微信', 'wechat', 'TG', 'telegram']),
-    contactPerson: labelValue(text, ['简历对接BP', '简历对接人', '对接BP', '对接人', '对接', '推荐人', '联系人']),
+    contactPerson: parseContactPerson(text),
     organization: dedupeRepeated(labelValue(text, ['推荐编制组织/序列/服务单位', '推荐编制组织', '编制组织', '推荐编制', '编制', '服务单位'])),
     department: labelValue(text, ['推荐部门', '所属部门', '部门']),
   };
