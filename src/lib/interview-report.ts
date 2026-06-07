@@ -37,6 +37,39 @@ export function buildInterviewReport(candidates: Candidate[]): string {
   return [HEADERS.join('\t'), ...rows].join('\n');
 }
 
+// 「今日约面」进度表：模仿用户进度表截图，制表符分隔，可直接粘贴 Excel。
+// 列：人选姓名 岗位 面试进度 面试时间 入职部门 入职地区 招聘渠道
+const SCHEDULE_HEADERS = ['人选姓名', '岗位', '面试进度', '面试时间', '入职部门', '入职地区', '招聘渠道'] as const;
+
+// 面试进度按截图写法：一面→1面、二面→2面、offer→Offer
+const PROGRESS_LABELS: Record<CandidateStatus, string> = {
+  'interview-1': '1面',
+  'interview-2': '2面',
+  offer: 'Offer',
+};
+
+function isSameDay(iso: string, ref: Date): boolean {
+  const d = new Date(iso);
+  return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
+}
+
+/**
+ * 导出「今日约面」进度表（仅今天有面试时间的候选人）。
+ * 入职地区、招聘渠道暂无字段来源，留空由用户在 Excel 中补充。
+ */
+export function buildTodayScheduleTable(candidates: Candidate[], ref: Date = new Date()): string {
+  const rows = candidates
+    .filter((c) => c.interviewDate && isSameDay(c.interviewDate!, ref))
+    .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime())
+    .map((c) => {
+      const d = new Date(c.interviewDate!);
+      const time = `${d.getMonth() + 1}.${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const dept = [c.organization, c.department].filter(Boolean).join(' ');
+      return [c.name, c.jdTitle, PROGRESS_LABELS[c.stage], time, dept, '', ''].join('\t');
+    });
+  return [SCHEDULE_HEADERS.join('\t'), ...rows].join('\n');
+}
+
 /** 导入草稿：可直接喂给 addCandidate（已含必填默认值） */
 export type ImportedCandidate = Omit<Candidate, 'id' | 'appliedAt' | 'updatedAt'>;
 

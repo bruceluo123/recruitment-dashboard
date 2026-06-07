@@ -7,7 +7,7 @@ import { useJDStore } from '@/store/jd-store';
 import type { CandidateStatus } from '@/types/interview';
 import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, FileSpreadsheet, ClipboardPaste } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
-import { buildInterviewReport, parseInterviewReport } from '@/lib/interview-report';
+import { buildTodayScheduleTable, parseInterviewReport } from '@/lib/interview-report';
 
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
@@ -139,14 +139,19 @@ export function InterviewCalendarPage() {
     }
   };
 
-  // 导出约面数据为汇报表格（制表符，可直接粘贴 Excel）
-  const handleCopyReport = async () => {
-    const withDate = candidates.filter((c) => c.interviewDate);
-    if (withDate.length === 0) { setCopyMsg('暂无可导出的约面数据'); return; }
-    const text = buildInterviewReport(candidates);
+  // 今日约面：导出今天的面试为进度表（7 列，可直接粘贴 Excel 进度表）
+  const handleCopyTodaySchedule = async () => {
+    const now = new Date();
+    const todays = candidates.filter((c) => {
+      if (!c.interviewDate) return false;
+      const d = new Date(c.interviewDate);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    });
+    if (todays.length === 0) { setCopyMsg('今日暂无约面安排'); return; }
+    const text = buildTodayScheduleTable(candidates, now);
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMsg(`已复制约面汇报表格（${withDate.length} 条）`);
+      setCopyMsg(`已复制今日约面进度表（${todays.length} 条）`);
     } catch {
       setCopyMsg('复制失败，请重试');
     }
@@ -233,8 +238,8 @@ export function InterviewCalendarPage() {
           <button onClick={handleCopyToday} className="px-3 h-9 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-1.5 shadow-sm">
             <Copy className="w-4 h-4" />今日面试
           </button>
-          <button onClick={handleCopyReport} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
-            <FileSpreadsheet className="w-4 h-4" />复制约面表
+          <button onClick={handleCopyTodaySchedule} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
+            <FileSpreadsheet className="w-4 h-4" />今日约面
           </button>
           <button onClick={() => setShowImport(true)} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
             <ClipboardPaste className="w-4 h-4" />导入
