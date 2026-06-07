@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils';
 import type { NewTodo } from '@/store/todo-store';
 import type { TodoOwner, TodoPriority, TodoCategory } from '@/types/todo';
 import { TODO_PRIORITY_LABEL, TODO_CATEGORY_LABEL } from '@/types/todo';
+import { parseDueDateFromText } from '@/lib/todo-date';
+import { formatDueDate } from '@/lib/todo-format';
 
 interface AddTodoFormProps {
   defaultOwner: TodoOwner;
@@ -24,10 +26,16 @@ export function AddTodoForm({ defaultOwner, ownerNames, onAdd }: AddTodoFormProp
 
   const ownerLabel = (o: TodoOwner) => (o === 'both' ? '共同' : ownerNames[o]);
 
+  // 未手动选日期时，尝试从标题里识别相对日期（今天/下周三/6.10…）
+  const parsed = !dueDate ? parseDueDateFromText(title) : null;
+
   const submit = () => {
     const t = title.trim();
     if (!t) return;
-    onAdd({ owner, title: t, dueDate: dueDate || undefined, priority, category });
+    // 手动选了日期优先；否则用从标题识别到的日期，并把日期短语从标题剥离
+    const finalDue = dueDate || parsed?.date;
+    const finalTitle = dueDate ? t : (parsed?.rest.trim() || t);
+    onAdd({ owner, title: finalTitle, dueDate: finalDue || undefined, priority, category });
     setTitle('');
     setDueDate('');
     setPriority('normal');
@@ -52,6 +60,14 @@ export function AddTodoForm({ defaultOwner, ownerNames, onAdd }: AddTodoFormProp
           <Plus className="w-4 h-4" />添加
         </button>
       </div>
+
+      {/* 识别到日期时的提示 */}
+      {parsed && (
+        <p className="text-xs text-indigo-500">
+          已识别日期 → <span className="font-medium">{formatDueDate(parsed.date)}</span>
+          {parsed.rest && parsed.rest !== title && <span className="text-gray-400">，标题：{parsed.rest}</span>}
+        </p>
+      )}
 
       <div className="flex items-center gap-x-4 gap-y-2 flex-wrap text-xs">
         {/* 归属 */}
