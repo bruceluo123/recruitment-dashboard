@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Users, CalendarCheck } from 'lucide-react';
+import { Users, CalendarCheck, FileUp } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
 import { RecommendationBar } from './RecommendationBar';
 import { EditRecommendationModal } from './EditRecommendationModal';
+import { DailyReportModal } from './DailyReportModal';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
@@ -43,10 +44,12 @@ export function RecommendationCenter() {
 
   const jds = useJDStore((s) => s.jds);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
+  const candidates = useInterviewStore((s) => s.candidates);
 
   const [view, setView] = useState<RepushColumnId>('a');
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [editing, setEditing] = useState<RepushItem | null>(null);
+  const [reporting, setReporting] = useState(false);
 
   const orgOptions = useMemo(() => {
     const set = new Set<string>();
@@ -97,17 +100,26 @@ export function RecommendationCenter() {
               {viewItems.length} 人{scheduledCount > 0 ? ` · ${scheduledCount} 已约面` : ''}
             </span>
           </h3>
-          {/* 两个推荐人切换（非并排） */}
-          <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm shrink-0">
-            {(['a', 'b'] as RepushColumnId[]).map((c) => (
-              <button
-                key={c}
-                onClick={() => setView(c)}
-                className={cn('px-4 h-9 font-medium transition-colors', view === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}
-              >
-                {columnNames[c]}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* 一键日报：把当前推荐人今日数据提交到团队数据看板 */}
+            <button
+              onClick={() => setReporting(true)}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 text-sm font-medium hover:bg-indigo-100 transition-colors"
+            >
+              <FileUp className="w-4 h-4" />一键日报
+            </button>
+            {/* 两个推荐人切换（非并排） */}
+            <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
+              {(['a', 'b'] as RepushColumnId[]).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setView(c)}
+                  className={cn('px-4 h-9 font-medium transition-colors', view === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}
+                >
+                  {columnNames[c]}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -154,6 +166,15 @@ export function RecommendationCenter() {
           jds={jds}
           onClose={() => setEditing(null)}
           onSave={updateItem}
+        />
+      )}
+      {reporting && (
+        <DailyReportModal
+          column={view}
+          name={columnNames[view]}
+          items={items}
+          candidates={candidates}
+          onClose={() => setReporting(false)}
         />
       )}
     </div>
