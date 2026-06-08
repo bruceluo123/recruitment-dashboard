@@ -5,6 +5,7 @@ import { WeekGridView } from './WeekGridView';
 import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
+import { usePrefStore } from '@/store/pref-store';
 import type { CandidateStatus, CandidateOwner } from '@/types/interview';
 import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
@@ -20,7 +21,8 @@ export function InterviewCalendarPage() {
   const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
-  const [ownerTab, setOwnerTab] = useState<CandidateOwner>('a');
+  const ownerTab = usePrefStore((s) => s.activeOwner) as CandidateOwner;
+  const setOwnerTab = usePrefStore((s) => s.setActiveOwner);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);

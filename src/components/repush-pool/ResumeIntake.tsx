@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Sparkles, Loader2, Check, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JD } from '@/types/jd';
@@ -11,12 +11,14 @@ interface ResumeIntakeProps {
   orgOptions: string[];
   deptOptions: string[];
   jds: JD[];
+  defaultOwner?: RepushColumnId;
   onAdd: (rec: NewRecommendation) => void;
+  onOwnerChange?: (owner: RepushColumnId) => void;
 }
 
-export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd }: ResumeIntakeProps) {
+export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaultOwner = 'a', onAdd, onOwnerChange }: ResumeIntakeProps) {
   const [rawText, setRawText] = useState('');
-  const [owner, setOwner] = useState<RepushColumnId>('a');
+  const [owner, setOwner] = useState<RepushColumnId>(defaultOwner);
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState(false);
   const [name, setName] = useState('');
@@ -26,6 +28,14 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
   const [organization, setOrganization] = useState('');
   const [department, setDepartment] = useState('');
   const [justAdded, setJustAdded] = useState(false);
+
+  // 外部偏好（活跃推荐人）变化时同步本地选择
+  useEffect(() => { setOwner(defaultOwner); }, [defaultOwner]);
+
+  const handleOwnerChange = (c: RepushColumnId) => {
+    setOwner(c);
+    onOwnerChange?.(c);
+  };
 
   // 岗位下拉选项：JD 库中去重、非空的岗位名
   const jdTitleOptions = useMemo(() => {
@@ -99,7 +109,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, onAdd 
             {(['a', 'b'] as RepushColumnId[]).map((c) => (
               <button
                 key={c}
-                onClick={() => setOwner(c)}
+                onClick={() => handleOwnerChange(c)}
                 className={cn('px-3 h-7 font-medium transition-colors', owner === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}
               >
                 {columnNames[c]}

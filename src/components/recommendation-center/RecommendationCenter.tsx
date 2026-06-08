@@ -9,6 +9,7 @@ import { EditRecommendationModal } from './EditRecommendationModal';
 import { DailyReportModal } from './DailyReportModal';
 import { TodayReportModal } from './TodayReportModal';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
+import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { scheduleRecommendation } from '@/lib/schedule';
@@ -47,7 +48,8 @@ export function RecommendationCenter() {
   const addCandidate = useInterviewStore((s) => s.addCandidate);
   const candidates = useInterviewStore((s) => s.candidates);
 
-  const [view, setView] = useState<RepushColumnId>('a');
+  const view = usePrefStore((s) => s.activeOwner);
+  const setView = usePrefStore((s) => s.setActiveOwner);
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [editing, setEditing] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
@@ -90,7 +92,9 @@ export function RecommendationCenter() {
         orgOptions={orgOptions}
         deptOptions={deptOptions}
         jds={jds}
+        defaultOwner={view}
         onAdd={addRecommendation}
+        onOwnerChange={setView}
       />
 
       {/* 推荐数据列表 */}

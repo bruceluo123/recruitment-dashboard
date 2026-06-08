@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useTodoStore } from '@/store/todo-store';
 import { useRepushStore } from '@/store/repush-store';
+import { usePrefStore } from '@/store/pref-store';
 import type { TodoItem, TodoOwner } from '@/types/todo';
 import { groupByTimeline } from '@/lib/todo-format';
 import { AddTodoForm } from './AddTodoForm';
@@ -30,8 +31,16 @@ export function TodoBoardPage() {
   const toggleDone = useTodoStore((s) => s.toggleDone);
   const removeTodo = useTodoStore((s) => s.removeTodo);
   const columnNames = useRepushStore((s) => s.columnNames);
+  const activeOwner = usePrefStore((s) => s.activeOwner);
+  const setActiveOwner = usePrefStore((s) => s.setActiveOwner);
 
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all');
+
+  // 切到具体某人时记住为当前用户（共用表，'全部'/'共同' 不改身份）
+  const handleOwnerFilter = (o: OwnerFilter) => {
+    setOwnerFilter(o);
+    if (o === 'a' || o === 'b') setActiveOwner(o);
+  };
   const [showDone, setShowDone] = useState(false);
   const [editing, setEditing] = useState<TodoItem | null>(null);
 
@@ -62,7 +71,7 @@ export function TodoBoardPage() {
           {(['all', 'a', 'b', 'both'] as OwnerFilter[]).map((o) => (
             <button
               key={o}
-              onClick={() => setOwnerFilter(o)}
+              onClick={() => handleOwnerFilter(o)}
               className={cn('px-3 h-9 font-medium transition-colors', ownerFilter === o ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}
             >
               {ownerLabel(o)}
@@ -72,7 +81,7 @@ export function TodoBoardPage() {
       </div>
 
       <AddTodoForm
-        defaultOwner={ownerFilter === 'all' ? 'a' : ownerFilter}
+        defaultOwner={ownerFilter === 'all' ? activeOwner : ownerFilter}
         ownerNames={ownerNames}
         onAdd={addTodo}
       />

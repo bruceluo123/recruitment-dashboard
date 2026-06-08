@@ -5,6 +5,7 @@ import { FeedbackBar } from './FeedbackBar';
 import { ScheduleModal } from './ScheduleModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
+import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { scheduleRecommendation } from '@/lib/schedule';
@@ -33,7 +34,8 @@ export function RepushPoolPage() {
   const jds = useJDStore((s) => s.jds);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
 
-  const [view, setView] = useState<RepushColumnId>('a');
+  const view = usePrefStore((s) => s.activeOwner);
+  const setView = usePrefStore((s) => s.setActiveOwner);
   const [day, setDay] = useState<number>(todayWeekday());
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [copied, setCopied] = useState<'' | 'this' | 'last'>('');
