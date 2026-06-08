@@ -42,11 +42,11 @@ export function parseDueDateFromText(text: string, now = new Date()): ParsedDate
     () => match(text, /后天/, () => new Date(today.getTime() + 2 * DAY)),
     () => match(text, /明(天|日)/, () => new Date(today.getTime() + DAY)),
     () => match(text, /今(天|日)/, () => today),
-    // （上上周|上周|这周|本周|下下周|下周）?（周|星期|礼拜）X
+    // 周几：支持「本周三/下周五」(前缀已含"周"，单独的 周/星期/礼拜 可省略) 与「周三/星期三/礼拜五」
     () => {
-      const m = text.match(/(上上周|下下周|上周|这周|本周|下周)?\s*(周|星期|礼拜)\s*([一二三四五六日天七])/);
+      const m = text.match(/(?:(上上周|下下周|上周|这周|本周|下周)(?:周|星期|礼拜)?|(?:周|星期|礼拜))\s*([一二三四五六日天七])/);
       if (!m) return null;
-      const weekday = WEEKDAY[m[3]];
+      const weekday = WEEKDAY[m[2]];
       const prefix = m[1];
       let offset = prefix ? WEEK_OFFSET[prefix] : 0;
       let d = dateForWeekday(now, offset, weekday);
@@ -67,6 +67,16 @@ export function parseDueDateFromText(text: string, now = new Date()): ParsedDate
       let d = new Date(today.getFullYear(), mon, day);
       if (d.getTime() < today.getTime()) d = new Date(today.getFullYear() + 1, mon, day);
       return [d, m[0]];
+    },
+    // 纯 X号 / X日（无月份）→ 默认当月，已过则顺延到下月。须前置在 X.X 规则之前以优先识别「17号」
+    () => {
+      const m = text.match(/(^|[^\d月.])(\d{1,2})[号日](?![\d线])/);
+      if (!m) return null;
+      const day = parseInt(m[2]);
+      if (day < 1 || day > 31) return null;
+      let d = new Date(today.getFullYear(), today.getMonth(), day);
+      if (d.getTime() < today.getTime()) d = new Date(today.getFullYear(), today.getMonth() + 1, day);
+      return [d, `${m[2]}${m[0].slice(-1)}`]; // 只剥离「数字+号/日」，保留前导字符
     },
     // X.X（如 6.10）。用分隔符捕获避免 16.100 这类误匹配，且不用 lookbehind（兼容老版 Safari）
     () => {
