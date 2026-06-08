@@ -23,6 +23,7 @@ export function JDLibraryPage() {
   // Excel 式列筛选：空集合 = 不筛选
   const [orgFilter, setOrgFilter] = useState<Set<string>>(new Set());
   const [serviceFilter, setServiceFilter] = useState<Set<string>>(new Set());
+  const [gapOnly, setGapOnly] = useState(false);
   const [rawJDText, setRawJDText] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
@@ -70,7 +71,8 @@ export function JDLibraryPage() {
   const statusFiltered = activeOnly ? filteredJDs.filter((j) => j.status !== 'paused') : filteredJDs;
   const finalFiltered = statusFiltered.filter((j) =>
     (orgFilter.size === 0 || orgFilter.has(orgOf(j))) &&
-    (serviceFilter.size === 0 || serviceFilter.has(svcOf(j))),
+    (serviceFilter.size === 0 || serviceFilter.has(svcOf(j))) &&
+    (!gapOnly || (!!j.gap && j.gap !== '0')),
   );
   const selectedJd = jds.find((j) => j.id === selectedJdId) || null;
   const visibleIds = finalFiltered.map((j) => j.id);
@@ -240,6 +242,8 @@ export function JDLibraryPage() {
             serviceFilter={serviceFilter}
             onOrgFilterChange={setOrgFilter}
             onServiceFilterChange={setServiceFilter}
+            gapOnly={gapOnly}
+            onGapOnlyToggle={() => setGapOnly((v) => !v)}
           />
         ) : (
           <EmptyState icon={Briefcase} title={jds.length === 0 ? '暂无岗位数据' : '无匹配结果'} description={jds.length === 0 ? '点击"添加岗位"或"批量导入"添加数据' : '尝试调整筛选条件'} />

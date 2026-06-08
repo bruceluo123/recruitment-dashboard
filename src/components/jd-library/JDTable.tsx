@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { cn, formatSalary } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority, type JD } from '@/types/jd';
-import { ChevronRight, Trash2, Copy, Check } from 'lucide-react';
+import { ChevronRight, Trash2, Copy, Check, Filter } from 'lucide-react';
 import { ColumnFilter } from '@/components/ui/ColumnFilter';
 
 interface JDTableProps {
@@ -20,11 +20,14 @@ interface JDTableProps {
   serviceFilter?: Set<string>;
   onOrgFilterChange?: (next: Set<string>) => void;
   onServiceFilterChange?: (next: Set<string>) => void;
+  gapOnly?: boolean;
+  onGapOnlyToggle?: () => void;
 }
 
 export function JDTable({
   jds, onSelect, selectedId, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll,
   orgOptions = [], serviceOptions = [], orgFilter, serviceFilter, onOrgFilterChange, onServiceFilterChange,
+  gapOnly = false, onGapOnlyToggle,
 }: JDTableProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -75,7 +78,21 @@ export function JDTable({
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">岗位名称</th>
             <th className="text-left py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">分类</th>
             <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">HC</th>
-            <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">缺口</th>
+            <th className="text-center py-3 px-2 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">
+              {onGapOnlyToggle ? (
+                <button
+                  onClick={onGapOnlyToggle}
+                  title={gapOnly ? '点击显示全部岗位' : '点击只看有缺口的岗位'}
+                  className={cn(
+                    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors',
+                    gapOnly ? 'bg-red-100 text-red-600' : 'text-gray-400 hover:text-red-500 hover:bg-red-50',
+                  )}
+                >
+                  缺口
+                  <Filter className={cn('w-3 h-3', gapOnly ? 'fill-red-500 text-red-500' : '')} />
+                </button>
+              ) : '缺口'}
+            </th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">
               {onOrgFilterChange
                 ? <ColumnFilter label="编制组织" options={orgOptions} selected={orgFilter ?? new Set()} onChange={onOrgFilterChange} />
