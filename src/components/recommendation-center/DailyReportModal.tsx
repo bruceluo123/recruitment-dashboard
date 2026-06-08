@@ -7,6 +7,7 @@ import {
   buildRemoteRecord,
   todaysRecommendations,
   todaysInterviews,
+  upcomingInterviews,
   findExistingReportId,
   submitRemoteRecord,
   makeJobKey,
@@ -41,7 +42,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const draft = useMemo(() => {
     const recommendations = todaysRecommendations(items, ref, column);
     const interviews = todaysInterviews(candidates, ref, column);
-    return buildRemoteRecord({ date: today, name, recommendations, interviews });
+    const scheduled = upcomingInterviews(candidates, ref, column);
+    return buildRemoteRecord({ date: today, name, recommendations, interviews, scheduled });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

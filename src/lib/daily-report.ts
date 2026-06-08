@@ -117,6 +117,18 @@ export function todaysInterviews(candidates: Candidate[], ref: Date, owner?: 'a'
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
 }
 
+/** 约面明细：interviewDate 为今日或将来的候选人（可按归属人过滤）。 */
+export function upcomingInterviews(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
+  const dayStart = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate()).getTime();
+  return candidates
+    .filter((c) => {
+      if (!c.interviewDate) return false;
+      if (owner && (c.owner || 'a') !== owner) return false;
+      return new Date(c.interviewDate).getTime() >= dayStart;
+    })
+    .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
+}
+
 /** 把今日推荐按「岗位+部门」聚合计数，得到推荐明细。 */
 export function aggregateRecommendations(items: RepushItem[]): JobLine[] {
   const map = new Map<string, JobLine>();
@@ -147,7 +159,8 @@ export interface BuildOptions {
   date: string;
   name: string;
   recommendations: RepushItem[]; // 已按今日(+列)过滤
-  interviews: Candidate[];       // 已按今日过滤
+  interviews: Candidate[];       // 业务面试明细：已按今日过滤
+  scheduled?: Candidate[];       // 约面明细：今日及未来（缺省时回退用 interviews）
   remark?: string;
   id?: string;                   // 覆盖更新时复用既有 id
   rng?: () => number;
@@ -162,7 +175,8 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
   const cvTotal = sum(cvDetail);
   const screenNew = cvTotal > 0 ? cvTotal + rand1to2(rng) : 0;
 
-  const scheduledDetail: ScheduledLine[] = opts.interviews.map((c) => ({
+  const scheduledSource = opts.scheduled ?? opts.interviews;
+  const scheduledDetail: ScheduledLine[] = scheduledSource.map((c) => ({
     job: c.jdTitle,
     person: c.name,
     date: localDate(c.interviewDate!),
