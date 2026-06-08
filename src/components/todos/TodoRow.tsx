@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Check, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TodoItem, TodoOwner } from '@/types/todo';
-import { TODO_CATEGORY_LABEL } from '@/types/todo';
+import { TODO_CATEGORY_LABEL, TODO_PRIORITY_LABEL } from '@/types/todo';
 import { formatDueDate } from '@/lib/todo-format';
 
 interface TodoRowProps {
@@ -20,22 +20,41 @@ const OWNER_STYLE: Record<TodoOwner, string> = {
   both: 'bg-purple-50 text-purple-600',
 };
 
-const PRIORITY_DOT: Record<TodoItem['priority'], string> = {
+/** 重要项：左侧色条 + 背景微染 + 边框，整条更显眼 */
+const PRIORITY_CARD: Record<TodoItem['priority'], string> = {
+  high: 'border-red-200 bg-red-50/60 hover:border-red-300 hover:shadow-sm',
+  normal: 'border-gray-100 hover:border-indigo-200 hover:shadow-sm',
+  low: 'border-gray-100 bg-gray-50/40',
+};
+
+/** 左侧竖条颜色（重要=红、普通=琥珀、次要=灰） */
+const PRIORITY_BAR: Record<TodoItem['priority'], string> = {
   high: 'bg-red-500',
   normal: 'bg-amber-400',
-  low: 'bg-gray-300',
+  low: 'bg-gray-200',
+};
+
+/** 重要徽标 */
+const PRIORITY_BADGE: Record<TodoItem['priority'], string | null> = {
+  high: 'bg-red-500 text-white',
+  normal: null,
+  low: 'bg-gray-100 text-gray-400',
 };
 
 export function TodoRow({ todo, ownerNames, onToggle, onEdit, onRemove }: TodoRowProps) {
   const [confirming, setConfirming] = useState(false);
   const ownerLabel = todo.owner === 'both' ? '共同' : ownerNames[todo.owner];
   const overdue = !todo.done && todo.dueDate && new Date(todo.dueDate).setHours(0, 0, 0, 0) < new Date().setHours(0, 0, 0, 0);
+  const badge = PRIORITY_BADGE[todo.priority];
 
   return (
     <div className={cn(
-      'group flex items-center gap-3 px-4 py-3 rounded-2xl border bg-white transition-all',
-      todo.done ? 'border-gray-100 opacity-60' : overdue ? 'border-red-100 hover:border-red-200' : 'border-gray-100 hover:border-indigo-200 hover:shadow-sm',
+      'group relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-2xl border bg-white transition-all overflow-hidden',
+      todo.done ? 'border-gray-100 opacity-60' : overdue ? 'border-red-200 bg-red-50/60 hover:border-red-300' : PRIORITY_CARD[todo.priority],
     )}>
+      {/* 左侧优先级竖条 */}
+      {!todo.done && <span className={cn('absolute left-0 top-0 bottom-0 w-1.5', PRIORITY_BAR[todo.priority])} />}
+
       {/* 完成勾选 */}
       <button
         onClick={() => onToggle(todo.id)}
@@ -51,14 +70,27 @@ export function TodoRow({ todo, ownerNames, onToggle, onEdit, onRemove }: TodoRo
       {/* 主信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 flex-wrap">
-          {!todo.done && <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 self-center', PRIORITY_DOT[todo.priority])} />}
+          {/* 重要/次要徽标（普通不显示，保持干净） */}
+          {!todo.done && badge && (
+            <span className={cn('px-1.5 py-0.5 rounded-md text-[11px] font-semibold shrink-0 self-center', badge)}>
+              {TODO_PRIORITY_LABEL[todo.priority]}
+            </span>
+          )}
           {/* 日期前置、加粗、显眼 */}
           {todo.dueDate && (
-            <span className={cn('text-base font-bold shrink-0', todo.done ? 'text-gray-400' : overdue ? 'text-red-500' : 'text-indigo-600')}>
+            <span className={cn(
+              todo.priority === 'high' && !todo.done ? 'text-lg font-extrabold' : 'text-base font-bold',
+              'shrink-0',
+              todo.done ? 'text-gray-400' : overdue ? 'text-red-500' : todo.priority === 'high' ? 'text-red-600' : 'text-indigo-600',
+            )}>
               {formatDueDate(todo.dueDate)}
             </span>
           )}
-          <span className={cn('text-sm font-medium truncate', todo.done ? 'text-gray-400 line-through' : 'text-gray-800')}>{todo.title}</span>
+          <span className={cn(
+            'truncate',
+            todo.priority === 'high' && !todo.done ? 'text-base font-bold' : 'text-sm font-medium',
+            todo.done ? 'text-gray-400 line-through' : todo.priority === 'low' ? 'text-gray-500' : 'text-gray-800',
+          )}>{todo.title}</span>
           <span className={cn('px-1.5 py-0.5 rounded-md text-[11px] font-medium shrink-0 self-center', OWNER_STYLE[todo.owner])}>{ownerLabel}</span>
           {todo.category !== 'other' && (
             <span className="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 text-[11px] shrink-0 self-center">{TODO_CATEGORY_LABEL[todo.category]}</span>
