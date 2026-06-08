@@ -64,7 +64,7 @@ export function buildTodayScheduleTable(candidates: Candidate[], ref: Date = new
       const d = new Date(c.interviewDate!);
       // 面试时间按截图写法：月.日 + 轮次，如「6.7一面」
       const time = `${d.getMonth() + 1}.${d.getDate()}${STAGE_LABELS[c.stage]}`;
-      const dept = [c.organization, c.department].filter(Boolean).join(' ');
+      const dept = c.department || c.organization || '';
       // 面试时间与入职部门之间留两个空列（对应截图的「面试详情」「薪资方案」）
       return [c.name, c.jdTitle, PROGRESS_LABELS[c.stage], time, '', '', dept, '', ''].join('\t');
     })
