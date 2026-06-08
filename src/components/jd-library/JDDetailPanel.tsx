@@ -16,11 +16,12 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<Record<string, string>>({});
   const [showAI, setShowAI] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const jdId = jd?.id || '';
   const aiResult = aiResults[jdId] || null;
 
   // Reset editing when JD changes
-  useEffect(() => { setEditing(false); }, [jdId]);
+  useEffect(() => { setEditing(false); setConfirmingDelete(false); }, [jdId]);
   const [form, setForm] = useState({
     title: '', department: '', location: '', salary: '',
     categories: [] as JDCategory[], status: 'active' as JDStatus,
@@ -297,10 +298,23 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
               <button onClick={handleDownloadWord} className="flex-1 h-11 rounded-xl bg-white border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-all flex items-center justify-center gap-2">
                 <Download className="w-4 h-4" />下载 Word
               </button>
-              <button onClick={() => { deleteJD(jd.id); onClose(); }}
-                className="h-11 px-4 rounded-xl bg-white border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all flex items-center justify-center gap-1.5">
-                <Trash2 className="w-4 h-4" />删除
-              </button>
+              {confirmingDelete ? (
+                <>
+                  <button onClick={() => { deleteJD(jd.id); setConfirmingDelete(false); onClose(); }}
+                    className="h-11 px-4 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-all flex items-center justify-center gap-1.5">
+                    <Trash2 className="w-4 h-4" />确认删除
+                  </button>
+                  <button onClick={() => setConfirmingDelete(false)}
+                    className="h-11 px-4 rounded-xl bg-white border border-gray-200 text-gray-500 text-sm font-medium hover:bg-gray-50 transition-all">
+                    取消
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setConfirmingDelete(true)}
+                  className="h-11 px-4 rounded-xl bg-white border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all flex items-center justify-center gap-1.5">
+                  <Trash2 className="w-4 h-4" />删除
+                </button>
+              )}
             </div>
           )}
         </div>

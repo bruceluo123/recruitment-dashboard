@@ -27,6 +27,7 @@ export function JDTable({
   orgOptions = [], serviceOptions = [], orgFilter, serviceFilter, onOrgFilterChange, onServiceFilterChange,
 }: JDTableProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const copyText = async (key: string, text: string) => {
     if (!text) return;
@@ -173,11 +174,20 @@ export function JDTable({
                 <div className="flex items-center gap-1">
                   {!batchMode && (
                     <>
-                      <button onClick={(e) => { e.stopPropagation(); onDelete(jd.id); }}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
-                        title="删除岗位">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {confirmingId === jd.id ? (
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => { onDelete(jd.id); setConfirmingId(null); }}
+                            className="px-2 h-7 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600">确认删除</button>
+                          <button onClick={() => setConfirmingId(null)}
+                            className="px-2 h-7 rounded-lg text-xs text-gray-500 hover:bg-gray-100">取消</button>
+                        </div>
+                      ) : (
+                        <button onClick={(e) => { e.stopPropagation(); setConfirmingId(jd.id); }}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                          title="删除岗位">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                       <ChevronRight className={cn('w-4 h-4 transition-all', selectedId === jd.id ? 'text-indigo-500 rotate-90' : 'text-gray-300')} />
                     </>
                   )}
