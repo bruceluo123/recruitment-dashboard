@@ -40,7 +40,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   // 仅用一次自动算出的初稿来初始化可编辑状态；之后全部以编辑态为准。
   const draft = useMemo(() => {
     const recommendations = todaysRecommendations(items, ref, column);
-    const interviews = todaysInterviews(candidates, ref);
+    const interviews = todaysInterviews(candidates, ref, column);
     return buildRemoteRecord({ date: today, name, recommendations, interviews });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

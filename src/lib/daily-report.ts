@@ -108,10 +108,10 @@ export function todaysRecommendations(items: RepushItem[], ref: Date, column?: '
   return items.filter((it) => isSameDay(it.uploadedAt, ref) && (!column || it.column === column));
 }
 
-/** 今日面试：interviewDate 落在 ref 当天的候选人。 */
-export function todaysInterviews(candidates: Candidate[], ref: Date): Candidate[] {
+/** 今日面试：interviewDate 落在 ref 当天的候选人（可按归属人过滤）。 */
+export function todaysInterviews(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
   return candidates
-    .filter((c) => isSameDay(c.interviewDate, ref))
+    .filter((c) => isSameDay(c.interviewDate, ref) && (!owner || (c.owner || 'a') === owner))
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
 }
 
