@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, RefreshCw, Copy, Check } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { X, Copy, Check } from 'lucide-react';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
 import type { Candidate } from '@/types/interview';
 import {
@@ -9,7 +9,7 @@ import {
   aggregateRecommendations,
   isInterviewPassed,
 } from '@/lib/daily-report';
-import { generateTodayReport, type TodayReportInput } from '@/lib/daily-report-text';
+import { buildTodayReportTemplate, type TodayReportInput } from '@/lib/daily-report-text';
 
 interface TodayReportModalProps {
   column: RepushColumnId;   // 当前推荐人列
@@ -19,18 +19,15 @@ interface TodayReportModalProps {
   onClose: () => void;
 }
 
-/** 今日日报：依据今日简历/面试数据，AI 按真人模板自由生成一份每日不重样的文字日报。 */
+/** 今日日报：按真人模板直接套用今日数据生成文字日报，改日期/微调后即可复制（不调用 AI）。 */
 export function TodayReportModal({ column, name, items, candidates, onClose }: TodayReportModalProps) {
   const ref = useMemo(() => new Date(), []);
-  const [text, setText] = useState('');
-  const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
   const input: TodayReportInput = useMemo(() => {
     const recs = todaysRecommendations(items, ref, column);
     const recommendDetail = aggregateRecommendations(recs);
-    const interviews = todaysInterviews(candidates, ref).map((c) => ({
+    const interviews = todaysInterviews(candidates, ref, column).map((c) => ({
       job: c.jdTitle,
       person: c.name,
       status: c.stage === 'offer' ? '已通过' : '待反馈',
@@ -39,26 +36,7 @@ export function TodayReportModal({ column, name, items, candidates, onClose }: T
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const run = async () => {
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    setLoading(true);
-    try {
-      const out = await generateTodayReport(input, ctrl.signal);
-      if (!ctrl.signal.aborted) setText(out);
-    } catch {
-      /* aborted */
-    } finally {
-      if (!ctrl.signal.aborted) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    run();
-    return () => abortRef.current?.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [text, setText] = useState(() => buildTodayReportTemplate(input));
 
   const handleCopy = async () => {
     try {
@@ -85,32 +63,19 @@ export function TodayReportModal({ column, name, items, candidates, onClose }: T
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           <div className="text-xs text-gray-400">
-            依据今日数据自动生成（收取/推荐 {input.recommendDetail.length} 类岗位 · 面试 {input.interviews.length} 场，通过 {passCount}）。每次生成内容都会有变化，可手动修改后复制。
+            按模板套用今日数据（收取/推荐 {input.recommendDetail.length} 类岗位 · 面试 {input.interviews.length} 场，通过 {passCount}）。改一下日期或微调后即可复制。
           </div>
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 text-gray-400 py-16">
-              <Loader2 className="w-5 h-5 animate-spin" />AI 正在撰写今日日报…
-            </div>
-          ) : (
-            <textarea
-              className="w-full h-72 px-3 py-2 rounded-xl border border-gray-200 text-sm leading-relaxed resize-none focus:outline-none focus:border-emerald-300"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-          )}
+          <textarea
+            className="w-full h-72 px-3 py-2 rounded-xl border border-gray-200 text-sm leading-relaxed resize-none focus:outline-none focus:border-emerald-300"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
         </div>
 
         <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
           <button
-            onClick={run}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 disabled:opacity-60"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />重新生成
-          </button>
-          <button
             onClick={handleCopy}
-            disabled={loading || !text.trim()}
+            disabled={!text.trim()}
             className="flex items-center gap-1.5 px-4 h-9 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-60"
           >
             {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
