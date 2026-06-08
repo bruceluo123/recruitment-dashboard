@@ -162,7 +162,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
               <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
                 <input className={inputCls} placeholder="人选" value={s.person} onChange={(e) => patch(setScheduled, i, { person: e.target.value })} />
                 <input className={inputCls} placeholder="岗位" value={s.job} onChange={(e) => patch(setScheduled, i, { job: e.target.value })} />
-                <input className="w-24 px-2 h-8 rounded-lg border border-gray-200" placeholder="时间" value={s.time} onChange={(e) => patch(setScheduled, i, { time: e.target.value })} />
+                <input type="date" className="w-36 px-2 h-8 rounded-lg border border-gray-200" value={s.date} onChange={(e) => patch(setScheduled, i, { date: e.target.value })} />
+                <input className="w-20 px-2 h-8 rounded-lg border border-gray-200" placeholder="时间" value={s.time} onChange={(e) => patch(setScheduled, i, { time: e.target.value })} />
                 <DropBtn onClick={() => drop(setScheduled, i)} />
               </div>
             ))}
