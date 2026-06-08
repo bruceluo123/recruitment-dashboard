@@ -11,8 +11,8 @@ import {
   submitRemoteRecord,
   makeJobKey,
   isInterviewPassed,
-  INTERVIEW_PASS,
   INTERVIEW_PENDING,
+  INTERVIEW_STATUS_OPTIONS,
   type JobLine,
   type ScheduledLine,
   type InterviewLine,
@@ -177,9 +177,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
               <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
                 <input className={inputCls} placeholder="人选" value={v.person} onChange={(e) => patch(setInterview, i, { person: e.target.value })} />
                 <input className={inputCls} placeholder="岗位" value={v.name} onChange={(e) => patch(setInterview, i, { name: e.target.value })} />
-                <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white" value={isInterviewPassed(v.status) ? INTERVIEW_PASS : INTERVIEW_PENDING} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
-                  <option value={INTERVIEW_PENDING}>待反馈 (pending)</option>
-                  <option value={INTERVIEW_PASS}>已通过 (pass)</option>
+                <select className="w-28 px-2 h-8 rounded-lg border border-gray-200 bg-white" value={v.status} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
+                  {INTERVIEW_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <DropBtn onClick={() => drop(setInterview, i)} />
               </div>

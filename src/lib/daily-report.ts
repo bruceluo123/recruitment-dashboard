@@ -40,6 +40,8 @@ export interface OnboardLine {
 /** 业务面试状态：与看板站一致，已通过(pass) / 待反馈(pending)。 */
 export const INTERVIEW_PASS = '已通过';
 export const INTERVIEW_PENDING = '待反馈';
+/** 业务面试状态下拉的 4 个选项（原样保存，不做改动）。 */
+export const INTERVIEW_STATUS_OPTIONS = ['已通过', 'pass', 'pending', '待反馈'] as const;
 /** 看板站历史数据里 pass 既可能是「已通过」也可能是英文「pass」，统一判定。 */
 export function isInterviewPassed(status: string): boolean {
   const s = (status || '').trim().toLowerCase();
