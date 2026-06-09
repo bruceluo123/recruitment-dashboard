@@ -21,6 +21,7 @@ export function InterviewCalendarPage() {
   const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
+  const [todayOnly, setTodayOnly] = useState(false);
   const ownerTab = usePrefStore((s) => s.activeOwner) as CandidateOwner;
   const setOwnerTab = usePrefStore((s) => s.setActiveOwner);
   const [showImport, setShowImport] = useState(false);
@@ -198,6 +199,17 @@ export function InterviewCalendarPage() {
     [candidates, ownerTab],
   );
 
+  // 看板「当天面试」开关：开启时只保留面试日期在今天的候选人
+  const boardCandidates = useMemo(() => {
+    if (!todayOnly) return ownerCandidates;
+    const now = new Date();
+    return ownerCandidates.filter((c) => {
+      if (!c.interviewDate) return false;
+      const d = new Date(c.interviewDate);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    });
+  }, [ownerCandidates, todayOnly]);
+
   const selected = candidates.find((c) => c.id === selectedId);
   const firstInterviewCount = ownerCandidates.filter((c) => c.stage === 'interview-1').length;
   const secondInterviewCount = ownerCandidates.filter((c) => c.stage === 'interview-2').length;
@@ -258,6 +270,11 @@ export function InterviewCalendarPage() {
               <CalendarRange className="w-3.5 h-3.5" />周历
             </button>
           </div>
+          {view === 'kanban' && (
+            <button onClick={() => setTodayOnly((v) => !v)} className={cn('px-3 h-9 rounded-xl text-sm font-medium transition-all flex items-center gap-1.5', todayOnly ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm' : 'bg-white border border-gray-200 text-gray-600 hover:bg-amber-50')}>
+              <CalendarRange className="w-4 h-4" />{todayOnly ? '全部面试' : '当天面试'}
+            </button>
+          )}
           <button onClick={handleCopyToday} className="px-3 h-9 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-1.5 shadow-sm">
             <Copy className="w-4 h-4" />今日面试
           </button>
@@ -271,7 +288,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={ownerCandidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
+        <StageKanbanBoard candidates={boardCandidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
       ) : (
         <WeekGridView candidates={ownerCandidates} onCandidateClick={setSelectedId} />
       )}
