@@ -117,14 +117,13 @@ export function todaysInterviews(candidates: Candidate[], ref: Date, owner?: 'a'
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
 }
 
-/** 约面明细：interviewDate 为今日或将来的候选人（可按归属人过滤）。 */
-export function upcomingInterviews(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
-  const dayStart = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate()).getTime();
+/** 今日约面明细：appliedAt 落在 ref 当天（即今天在推荐中心点的约面），可按归属人过滤。 */
+export function scheduledToday(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
   return candidates
     .filter((c) => {
       if (!c.interviewDate) return false;
       if (owner && (c.owner || 'a') !== owner) return false;
-      return new Date(c.interviewDate).getTime() >= dayStart;
+      return isSameDay(c.appliedAt, ref);
     })
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
 }
