@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
@@ -13,8 +13,18 @@ interface RecommendationBarProps {
 
 export function RecommendationBar({ item, onSchedule, onEdit, onRemove }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
+  const [copied, setCopied] = useState(false);
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
+
+  const copyContact = async () => {
+    if (!item.contact) return;
+    try {
+      await navigator.clipboard.writeText(item.contact);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  };
 
   return (
     <div className="group flex items-center gap-4 px-4 py-3 rounded-2xl border border-gray-100 bg-white hover:border-indigo-200 hover:shadow-sm transition-all">
@@ -28,11 +38,22 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRemove }: Recomm
         </div>
         <div className="mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-xs text-gray-400">
           {orgDept && <span className="text-indigo-500">{orgDept}</span>}
-          {item.contact && <span className="flex items-center gap-0.5"><Phone className="w-3 h-3" />{item.contact}</span>}
           {item.contactPerson && <span className="flex items-center gap-0.5"><UserCog className="w-3 h-3" />对接 {item.contactPerson}</span>}
           <span className="text-gray-400">{formatRecommendTime(item.uploadedAt)}</span>
         </div>
       </div>
+
+      {/* TG 号：放大显示，点击复制 */}
+      {item.contact && (
+        <button
+          onClick={copyContact}
+          title="点击复制 TG 号"
+          className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-lg text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-colors"
+        >
+          {copied ? <Check className="w-4 h-4 text-green-500" /> : <Phone className="w-4 h-4" />}
+          <span className="max-w-[180px] truncate">{copied ? '已复制' : item.contact}</span>
+        </button>
+      )}
 
       {/* 操作区 */}
       <div className="flex items-center gap-1.5 shrink-0">
