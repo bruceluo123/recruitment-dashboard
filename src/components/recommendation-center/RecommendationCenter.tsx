@@ -8,6 +8,7 @@ import { RecommendationBar } from './RecommendationBar';
 import { EditRecommendationModal } from './EditRecommendationModal';
 import { DailyReportModal } from './DailyReportModal';
 import { TodayReportModal } from './TodayReportModal';
+import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
@@ -54,6 +55,7 @@ export function RecommendationCenter() {
   const [editing, setEditing] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
   const [todayReporting, setTodayReporting] = useState(false);
+  const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
 
   const orgOptions = useMemo(() => {
     const set = new Set<string>();
@@ -70,8 +72,10 @@ export function RecommendationCenter() {
   if (!mounted) return null;
 
   const viewItems = items.filter((it) => it.column === view);
-  const groups = groupByDay(viewItems);
+  const filteredItems = filterRecommendations(viewItems, filters);
+  const groups = groupByDay(filteredItems);
   const scheduledCount = viewItems.filter((it) => it.interviewStatus === 'scheduled').length;
+  const hasFilter = Object.values(filters).some((v) => v.trim());
 
   const confirmSchedule = (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => {
     if (!scheduling) return;
@@ -103,7 +107,8 @@ export function RecommendationCenter() {
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
             <Users className="w-4 h-4 text-indigo-500" />推荐数据
             <span className="text-sm font-normal text-gray-400">
-              {viewItems.length} 人{scheduledCount > 0 ? ` · ${scheduledCount} 已约面` : ''}
+              {hasFilter ? `${filteredItems.length} / ${viewItems.length} 人` : `${viewItems.length} 人`}
+              {scheduledCount > 0 ? ` · ${scheduledCount} 已约面` : ''}
             </span>
           </h3>
           <div className="flex items-center gap-2 shrink-0">
@@ -136,6 +141,8 @@ export function RecommendationCenter() {
           </div>
         </div>
 
+        <RecommendationSearchBar items={viewItems} filters={filters} onChange={setFilters} />
+
         {groups.length > 0 ? (
           <div className="space-y-5">
             {groups.map((g) => (
@@ -162,6 +169,8 @@ export function RecommendationCenter() {
               </div>
             ))}
           </div>
+        ) : hasFilter ? (
+          <EmptyState icon={Users} title="没有匹配的推荐" description="试试放宽或清空查找条件" />
         ) : (
           <EmptyState icon={Users} title={`${columnNames[view]} 暂无推荐`} description="在上方简历入口粘贴简历一键录入推荐人" />
         )}
