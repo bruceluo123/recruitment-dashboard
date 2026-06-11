@@ -94,6 +94,53 @@ export interface FetchSheetResult {
 }
 
 /**
+ * 用 Sheets API v4 的 values 端点读取表格为二维数组（service account 鉴权）。
+ * 比 docs.google.com 的 export?format=xlsx 网页导出更可靠——后者带 SA Bearer
+ * 常返回 403。返回 null 表示未配置 SA（调用方可回退到 export 方案）。
+ */
+export async function fetchGoogleSheetValues(rawUrl: string): Promise<string[][] | null> {
+  const parsed = parseGoogleUrl(rawUrl);
+  if (!parsed || parsed.type !== 'sheet') {
+    throw new Error('仅支持 Google Sheets 表格链接');
+  }
+  const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT;
+  if (!serviceAccountJson) return null;
+
+  const token = await getServiceAccountToken(serviceAccountJson);
+  const authHeader = { Authorization: `Bearer ${token}` };
+
+  // 1. 取元数据，把 gid 映射到工作表标题（values 端点按标题而非 gid 读取）
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${parsed.fileId}?fields=sheets.properties(sheetId,title)`,
+    { headers: authHeader },
+  );
+  if (!metaRes.ok) {
+    const body = await metaRes.text();
+    const notShared = metaRes.status === 404 || body.includes('not found') || body.includes('PERMISSION_DENIED') || metaRes.status === 403;
+    throw new Error(notShared
+      ? '服务账号无访问权限，请将表格共享给服务账号邮箱（查看者权限）'
+      : `Google 表格读取错误 ${metaRes.status}`);
+  }
+  const meta = (await metaRes.json()) as { sheets?: { properties?: { sheetId?: number; title?: string } }[] };
+  const sheets = meta.sheets ?? [];
+  const wantGid = parsed.gid != null ? Number(parsed.gid) : undefined;
+  const target = (wantGid != null ? sheets.find((s) => s.properties?.sheetId === wantGid) : undefined) ?? sheets[0];
+  const title = target?.properties?.title;
+  if (!title) throw new Error('表格没有可读取的工作表');
+
+  // 2. 按工作表标题读取全部值（二维数组）
+  const valuesRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${parsed.fileId}/values/${encodeURIComponent(title)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`,
+    { headers: authHeader },
+  );
+  if (!valuesRes.ok) {
+    throw new Error(`Google 表格读取错误 ${valuesRes.status}`);
+  }
+  const data = (await valuesRes.json()) as { values?: unknown[][] };
+  return (data.values ?? []).map((row) => row.map((cell) => String(cell ?? '')));
+}
+
+/**
  * Fetch a Google Sheet/Doc as a binary buffer. Tries public access first,
  * then falls back to the configured Service Account. Throws on failure with a
  * user-readable message.

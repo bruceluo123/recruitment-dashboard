@@ -3,7 +3,7 @@
 // No request/auth concerns here — callers handle that.
 
 import type { JD } from '@/types/jd';
-import { fetchGoogleExport } from '@/lib/google-sheet';
+import { fetchGoogleExport, fetchGoogleSheetValues } from '@/lib/google-sheet';
 import { analyzeColumns, getJDKey, normalizeExcelRows, rowToColumnJD } from '@/lib/jd-parse-core';
 import { kvGet, kvSet, SYNC_KEYS } from '@/lib/kv';
 
@@ -96,16 +96,24 @@ function safeParseArray(raw: string | null): JD[] {
 export async function runGoogleSync(): Promise<SyncSummary> {
   const sheetUrl = process.env.GOOGLE_SYNC_SHEET_URL || DEFAULT_SHEET_URL;
 
-  // 1. 拉取表格
-  const { buffer, type } = await fetchGoogleExport(sheetUrl);
-  if (type !== 'sheet') throw new Error('同步源必须是 Google Sheets 表格');
+  // 1. 拉取表格 → 二维数组
+  //   优先用 Sheets API v4 的 values 端点（service account 鉴权，可靠）；
+  //   未配置 SA 时回退到 docs.google.com 的 export?format=xlsx 网页导出。
+  let rawRows: unknown[][];
+  const values = await fetchGoogleSheetValues(sheetUrl);
+  if (values) {
+    rawRows = values;
+  } else {
+    const { buffer, type } = await fetchGoogleExport(sheetUrl);
+    if (type !== 'sheet') throw new Error('同步源必须是 Google Sheets 表格');
+    const XLSX = await import('xlsx');
+    const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) throw new Error('表格为空');
+    rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+  }
 
-  // 2. 解析为行
-  const XLSX = await import('xlsx');
-  const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) throw new Error('表格为空');
-  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+  // 2. 规范化为对象行
   const rows = normalizeExcelRows(rawRows);
   if (!rows.length) throw new Error('表格没有数据行');
 
