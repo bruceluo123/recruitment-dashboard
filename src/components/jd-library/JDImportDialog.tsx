@@ -1,15 +1,34 @@
 'use client';
 import { useState } from 'react';
-import { X, Upload, Link, FileSpreadsheet, AlertCircle, Check, Loader2, FileText } from 'lucide-react';
+import { X, Upload, Link, FileSpreadsheet, AlertCircle, Check, Loader2, FileText, ClipboardPaste } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
 import type { JDImportResult } from '@/types/jd';
 
 interface JDImportDialogProps { isOpen: boolean; onClose: () => void; }
 
+/** 把粘贴的表格文本解析为二维数组。优先用复制带的 HTML 表格（能正确处理含换行的单元格），
+ * 退回到纯文本时按 TSV（制表符分列、换行分行）解析。 */
+function parsePastedTable(plain: string, html?: string): string[][] {
+  if (html && /<table/i.test(html)) {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const rows = Array.from(doc.querySelectorAll('tr'))
+        .map((tr) => Array.from(tr.querySelectorAll('th,td')).map((c) => (c.textContent || '').trim()))
+        .filter((r) => r.some(Boolean));
+      if (rows.length) return rows;
+    } catch { /* 退回 TSV */ }
+  }
+  return plain
+    .split(/\r?\n/)
+    .map((line) => line.split('\t').map((c) => c.trim()))
+    .filter((r) => r.some(Boolean));
+}
+
 export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
-  const [tab, setTab] = useState<'excel' | 'sheet'>('excel');
+  const [tab, setTab] = useState<'excel' | 'sheet' | 'paste'>('excel');
   const [file, setFile] = useState<File | null>(null);
   const [sheetUrl, setSheetUrl] = useState('');
+  const [pasteText, setPasteText] = useState('');
   const [result, setResult] = useState<JDImportResult | null>(null);
   const isImporting = useJDStore((s) => s.isImporting);
   const progress = useJDStore((s) => s.importProgress);
@@ -55,6 +74,24 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
     }
   };
 
+  const handlePasteImport = async (rows: string[][]) => {
+    setResult(null);
+    if (rows.length < 2) {
+      setResult({ success: 0, failed: 1, errors: ['没有可识别的表格数据，请先选中表格再复制粘贴（需包含表头行）'] });
+      return;
+    }
+    try {
+      const XLSX = await import('xlsx');
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      setResult(await importFromExcel(new File([buffer], 'pasted-table.xlsx')));
+    } catch (err) {
+      setResult({ success: 0, failed: 1, errors: [(err as Error).message || '粘贴内容解析失败'] });
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/30" onClick={isImporting ? undefined : onClose} />
@@ -67,6 +104,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
         <div className="flex border-b border-gray-100 mx-6 mt-4">
           {[
             { id: 'excel' as const, label: 'Excel 文件', icon: FileSpreadsheet },
+            { id: 'paste' as const, label: '粘贴表格', icon: ClipboardPaste },
             { id: 'sheet' as const, label: 'Google 文档', icon: Link },
           ].map((t) => (
             <button key={t.id} onClick={() => { if (!isImporting) { setTab(t.id); setResult(null); } }}
@@ -122,6 +160,40 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
               </label>
               <button onClick={handleFileImport} disabled={!file} className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 <Upload className="w-4 h-4" />开始导入
+              </button>
+            </>
+          )}
+
+          {!isImporting && tab === 'paste' && (
+            <>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1.5">粘贴表格内容</label>
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  onPaste={(e) => {
+                    const html = e.clipboardData.getData('text/html');
+                    const plain = e.clipboardData.getData('text/plain');
+                    if (html && /<table/i.test(html)) {
+                      e.preventDefault();
+                      const rows = parsePastedTable(plain, html);
+                      setPasteText(rows.map((r) => r.join('\t')).join('\n'));
+                    }
+                  }}
+                  rows={8}
+                  placeholder="在需求面板里选中整个表格（含表头），Ctrl+C 复制，然后在此处 Ctrl+V 粘贴。可分页多次粘贴，重复表头会自动忽略。"
+                  className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-xs font-mono leading-relaxed focus:outline-none focus:border-indigo-300 transition-all resize-y"
+                />
+                <p className="text-xs text-gray-400 mt-1.5">
+                  自动识别 岗位名称 / 编制组织 / 服务单位 / 部门 / HC / 缺口 / 优先级 等列，按岗位名称+部门查重去重
+                </p>
+              </div>
+              <button
+                onClick={() => handlePasteImport(parsePastedTable(pasteText))}
+                disabled={!pasteText.trim()}
+                className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <ClipboardPaste className="w-4 h-4" />解析并导入
               </button>
             </>
           )}
