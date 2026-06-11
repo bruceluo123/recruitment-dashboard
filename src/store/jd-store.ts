@@ -13,7 +13,7 @@ import {
   mergeUniqueJDs,
   normalizeExcelRows,
   parseSalary,
-  splitJDBySection,
+  rowToColumnJD,
   stripContactMeta,
 } from '@/lib/jd-parse-core';
 
@@ -152,7 +152,7 @@ export const useJDStore = create<JDStore>()(
             set({ isImporting: false });
             return { success: 0, failed: rows.length, errors: ['未找到岗位名称列，请使用表头：岗位名称 / 职位名称 / 岗位 / 职位 / title / job_title'] };
           }
-          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, contentCols } = cols;
+          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, contentCols } = cols;
 
           const total = rows.length;
           set({ importProgress: { current: 0, total, percent: 0, status: 'parsing' } });
@@ -160,10 +160,13 @@ export const useJDStore = create<JDStore>()(
           const batch: JD[] = [];
           const result: JDImportResult = { success: 0, failed: 0, errors: [] };
 
-          // Check which rows need AI (long unstructured text)
+          // 仅「无结构化标题列、整段长文本」（如 Google 文档整篇粘贴）才需要 AI 拆分。
+          // 面板竖排粘贴 / 规范 Excel 已带岗位名称等列，走确定性列解析即可——
+          // 既避免每行一次 DeepSeek 调用导致的数分钟卡顿，也确保对接人(odc)列被写入。
           const rowTexts = rows.map((r) =>
             contentCols.map((c) => String(r[c] || '').trim()).filter(Boolean).join('\n'));
-          const needAI = rowTexts.map((t) => t.length > 200); // Long text → needs AI
+          const needAI = rows.map((r, i) =>
+            !String(r[titleCol] || '').trim() && rowTexts[i].length > 200);
 
           // AI batch parse rows that need it
           const aiResults: (ParsedJD | null)[] = new Array(total).fill(null);
@@ -201,46 +204,30 @@ export const useJDStore = create<JDStore>()(
                 const rawTitleCell = String(row[titleCol] || '').trim();
                 if (rawTitleCell && isAllowedTitleHeader(rawTitleCell)) continue;
 
-                let title: string;
-                let department: string;
-                let rawSalary: string;
-                let location: string;
-                let responsibilities: string[] = [];
-                let requirements: string[] = [];
+                if (!ai) {
+                  // 确定性列解析：含对接人(odc)，无 AI 调用，速度快
+                  const jd = rowToColumnJD(row, cols);
+                  if (!jd) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
+                  batch.push(jd);
+                  result.success++;
+                  continue;
+                }
 
+                // AI 路径：整段长文本无标题列时由 AI 拆解，仍尽量保留列上的元数据
                 const organization = orgCol ? String(row[orgCol] || '').trim() : '';
                 const serviceUnit = serviceCol ? String(row[serviceCol] || '').trim() : '';
                 const headcount = hcCol ? String(row[hcCol] || '').trim() : '';
-                const gap = vacancyCol ? String(row[vacancyCol] || '').trim() : '';
+                const gap = (vacancyCol ? String(row[vacancyCol] || '').trim() : '') || '0';
                 const priority = priorityCol ? parsePriority(String(row[priorityCol] || '').trim()) : undefined;
+                const odc = odcCol ? String(row[odcCol] || '').trim() : '';
 
-                if (ai) {
-                  title = String(row[titleCol] || '').trim();
-                  if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
-                  department = serviceUnit || ai.department || (deptCol ? String(row[deptCol] || '').trim() : '') || organization;
-                  rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : ai.salary || '';
-                  location = ai.location || (locCol ? String(row[locCol] || '').trim() : 'remote');
-                  responsibilities = Array.isArray(ai.responsibilities) ? ai.responsibilities : [];
-                  requirements = Array.isArray(ai.requirements) ? ai.requirements : [];
-                } else {
-                  title = String(row[titleCol] || '').trim();
-                  if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称（列"${titleCol}"为空）`); continue; }
-                  rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : '';
-                  department = serviceUnit || (deptCol ? String(row[deptCol] || '').trim() : '') || organization;
-                  location = locCol ? String(row[locCol] || '').trim() : 'remote';
-
-                  // Collect content, keeping column order
-                  const allText: string[] = [];
-                  for (const col of contentCols) {
-                    const v = String(row[col] || '').trim();
-                    if (v && v.length > 1) allText.push(v);
-                  }
-                  // Split by section headers if present, otherwise by punctuation
-                  const combined = allText.join('\n');
-                  const split = splitJDBySection(combined);
-                  responsibilities = split.responsibilities;
-                  requirements = split.requirements;
-                }
+                const title = rawTitleCell || (ai.title || '').trim();
+                if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称`); continue; }
+                const department = serviceUnit || ai.department || (deptCol ? String(row[deptCol] || '').trim() : '') || organization;
+                const rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : ai.salary || '';
+                const location = ai.location || (locCol ? String(row[locCol] || '').trim() : 'remote');
+                const responsibilities = Array.isArray(ai.responsibilities) ? ai.responsibilities : [];
+                const requirements = Array.isArray(ai.requirements) ? ai.requirements : [];
 
                 const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
                 const hasExtra = rawSalary && !isNegotiable && !/^[\d.]+[-~至到][\d.]+[kKw万Uu]?$/i.test(rawSalary.replace(/[,，\s]/g, ''));
@@ -254,6 +241,7 @@ export const useJDStore = create<JDStore>()(
                   headcount: headcount || undefined,
                   gap: gap || undefined,
                   priority,
+                  odc: odc || undefined,
                   categories: detectCategories(title),
                   responsibilities: stripContactMeta(responsibilities),
                   requirements: stripContactMeta(requirements),
