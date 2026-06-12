@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Flame, Layers, AlertTriangle, Megaphone, X, Copy, Check } from 'lucide-react';
+import { Flame, AlertTriangle, Megaphone, X, Copy, Check } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
 import {
   PRIORITY_COLORS,
@@ -48,10 +48,13 @@ export function HotHiringPage() {
       return r !== 0 ? r : b.gap - a.gap;
     });
 
-  // 大量招：缺口 >= 2，按缺口降序
-  const massHiring = rows
-    .filter(({ gap }) => gap >= 2)
-    .sort((a, b) => b.gap - a.gap);
+  // 加急：源表 ❗ 标记的岗位，P0 在前，其次按缺口降序
+  const expedited = rows
+    .filter(({ jd }) => jd.expedited)
+    .sort((a, b) => {
+      const r = priorityRank(a.jd.priority) - priorityRank(b.jd.priority);
+      return r !== 0 ? r : b.gap - a.gap;
+    });
 
   const handleOpenJD = (id: string) => { selectJD(id); router.push('/jd-library'); };
 
@@ -60,7 +63,7 @@ export function HotHiringPage() {
       <div>
         <h2 className="text-2xl font-bold text-gray-800">热招看板</h2>
         <p className="text-sm text-gray-500 mt-1">
-          急招 {urgent.length} 个（P0/P1）· 大量招 {massHiring.length} 个（缺口 ≥ 2）
+          急招 {urgent.length} 个（P0/P1）· 加急 {expedited.length} 个（❗ 标记）
         </p>
       </div>
 
@@ -102,22 +105,22 @@ export function HotHiringPage() {
           )}
         </GlassPanel>
 
-        {/* 大量招 */}
+        {/* 加急 */}
         <GlassPanel>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-orange-500" />大量招 · 缺口 ≥ 2
+              <Flame className="w-4 h-4 text-red-600" />加急 · ❗ 标记
             </h3>
-            <span className="text-xs text-gray-400">共 {massHiring.length} 个</span>
+            <span className="text-xs text-gray-400">共 {expedited.length} 个</span>
           </div>
-          {massHiring.length > 0 ? (
+          {expedited.length > 0 ? (
             <div className="space-y-2">
-              {massHiring.map(({ jd, gap }) => (
-                <HotJDRow key={jd.id} jd={jd} gap={gap} onOpen={handleOpenJD} showPriority />
+              {expedited.map(({ jd, gap }) => (
+                <HotJDRow key={jd.id} jd={jd} gap={gap} onOpen={handleOpenJD} showPriority expedited />
               ))}
             </div>
           ) : (
-            <EmptyState icon={Flame} title="暂无大量招岗位" description="JD 设置缺口 ≥ 2 后将在此排序展示" />
+            <EmptyState icon={Flame} title="暂无加急岗位" description="粘贴需求面板「加急」清单（带 ❗ 标记）后将在此展示" />
           )}
         </GlassPanel>
       </div>
@@ -217,16 +220,19 @@ interface HotJDRowProps {
   gap: number;
   onOpen: (id: string) => void;
   showPriority?: boolean;
+  expedited?: boolean;
 }
 
-function HotJDRow({ jd, gap, onOpen, showPriority }: HotJDRowProps) {
+function HotJDRow({ jd, gap, onOpen, showPriority, expedited }: HotJDRowProps) {
   return (
     <button
       onClick={() => onOpen(jd.id)}
       className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all text-left group"
     >
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate group-hover:text-indigo-600">{jd.title}</p>
+        <p className="text-sm font-medium text-gray-800 truncate group-hover:text-indigo-600">
+          {expedited && <span className="mr-1 text-red-600">❗</span>}{jd.title}
+        </p>
         <p className="text-xs text-gray-400 truncate">{jd.department || jd.organization || '—'}</p>
       </div>
       {showPriority && jd.priority && (

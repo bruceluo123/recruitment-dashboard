@@ -19,6 +19,8 @@ export const VACANCY_KEYS = ['缺口', '空缺', '待招', '招聘缺口'];
 export const PRIORITY_KEYS = ['优先级', '优先级别', '优先', 'priority', '急招级别', '紧急程度', '紧急度', 'p级'];
 // 需求Key（REQ-xxx）——面板每条需求的唯一编号，作为跨导入去重的稳定身份。
 export const REQ_KEY_KEYS = ['需求key', '需求编号', '需求id', 'reqkey', 'reqid'];
+// 加急标记（源面板 ❗ 列）——独立于优先级的人工加急标记，用于热招看板「加急岗位」栏。
+export const EXPEDITED_KEYS = ['加急', '加急岗位', '紧急标记', 'expedited'];
 // 简历对接人（花名 & @TG）——招聘实际要联系的人（带 TG 句柄），列入岗位卡片的「对接ODC」展示。
 // 优先于「对应的ODC」（多为内部角色花名，无 TG）。
 export const CONTACT_KEYS = ['简历对接人', '花名'];
@@ -290,6 +292,14 @@ export function getJDKey(jd: Pick<JD, 'title' | 'department' | 'location' | 'req
     .join('|');
 }
 
+/** 加急列取值是否为真：'1'/'是'/'y'/'true'/'❗' 等视为加急，空/0/否 视为非加急。 */
+function isTruthyFlag(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (!v) return false;
+  if (['0', '否', 'no', 'false', 'n', '-'].includes(v)) return false;
+  return true;
+}
+
 function normalizeJDKey(value: string): string {
   return value
     .toLowerCase()
@@ -301,15 +311,25 @@ function normalizeJDKey(value: string): string {
 export function mergeUniqueJDs(existing: JD[], incoming: JD[]): { jds: JD[]; skipped: number } {
   const seen = new Set(existing.map(getJDKey));
   const unique: JD[] = [];
+  // 重复记录里若带「加急」标记，则把标记合并回已有岗位——
+  // 这样无需清空即可重新粘贴加急清单来点亮对应岗位。
+  const expediteKeys = new Set<string>();
 
   for (const jd of incoming) {
     const key = getJDKey(jd);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      if (jd.expedited) expediteKeys.add(key);
+      continue;
+    }
     seen.add(key);
     unique.push(jd);
   }
 
-  return { jds: [...existing, ...unique], skipped: incoming.length - unique.length };
+  const merged = expediteKeys.size
+    ? existing.map((jd) => (expediteKeys.has(getJDKey(jd)) && !jd.expedited ? { ...jd, expedited: true } : jd))
+    : existing;
+
+  return { jds: [...merged, ...unique], skipped: incoming.length - unique.length };
 }
 
 // ─── Column analysis + column-based row → JD ───
@@ -326,6 +346,7 @@ export interface ColumnMap {
   priorityCol: string | null;
   odcCol: string | null;
   reqKeyCol: string | null;
+  expeditedCol: string | null;
   contentCols: string[];
 }
 
@@ -344,16 +365,17 @@ export function analyzeColumns(headers: string[]): ColumnMap | null {
   // 「对接ODC」展示优先取「简历对接人（花名 & @TG）」列；缺失时回退到「对应的ODC」列。
   const odcCol = findColumnByKeywords(headers, CONTACT_KEYS) || findColumnByKeywords(headers, ODC_KEYS);
   const reqKeyCol = findColumnByKeywords(headers, REQ_KEY_KEYS);
+  const expeditedCol = findColumnByKeywords(headers, EXPEDITED_KEYS);
   const skipCols = headers.filter((h) => matchesAnyKeyword(h, SKIP_KEYS));
   const metaCols = headers.filter((h) => matchesAnyKeyword(h, META_KEYS));
 
   const knownCols = new Set<string>(
-    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, reqKeyCol, ...skipCols, ...metaCols]
+    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, reqKeyCol, expeditedCol, ...skipCols, ...metaCols]
       .filter((x): x is string => x !== null)
   );
   const contentCols = headers.filter((h) => !knownCols.has(h));
 
-  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, reqKeyCol, contentCols };
+  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, reqKeyCol, expeditedCol, contentCols };
 }
 
 /** Build a JD from a row using deterministic column parsing (no AI).
@@ -372,6 +394,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   const priority = cols.priorityCol ? parsePriority(String(row[cols.priorityCol] || '').trim()) : undefined;
   const odc = cols.odcCol ? String(row[cols.odcCol] || '').trim() : '';
   const reqKey = cols.reqKeyCol ? String(row[cols.reqKeyCol] || '').trim() : '';
+  const expedited = cols.expeditedCol ? isTruthyFlag(String(row[cols.expeditedCol] || '')) : false;
 
   const title = rawTitleCell;
   const rawSalary = cols.salaryCol ? String(row[cols.salaryCol] || '').trim() : '';
@@ -404,6 +427,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     priority,
     odc: odc || undefined,
     reqKey: reqKey || undefined,
+    expedited: expedited || undefined,
     categories: detectCategories(title),
     responsibilities: stripContactMeta(split.responsibilities),
     requirements: stripContactMeta(split.requirements),

@@ -18,8 +18,19 @@ interface JDImportDialogProps { isOpen: boolean; onClose: () => void; }
 // JD 正文可能自带换行导致中间列变多，故用「前 13 列 + 后 6 列固定、中间全部并入 JD」兜底。
 const PANEL_HEADERS = [
   '需求Key', '岗位名称', '编制组织', '服务单位', '部门', 'HC', '缺口', '优先级',
-  '简历对接人 (花名 & @TG)', '薪资范围', 'JD 岗位职责与任职要求',
+  '简历对接人 (花名 & @TG)', '薪资范围', 'JD 岗位职责与任职要求', '加急',
 ];
+
+/** 记录是否「加急」：源面板在该需求的 REQ- 行前单独放一行 ❗ 标记。
+ * 从 REQ- 行往上找最近的非空行，是 ❗ 则该记录加急（非加急行此处为「最近更新」）。 */
+function isExpeditedBefore(lines: string[], reqLineIdx: number): boolean {
+  for (let k = reqLineIdx - 1; k >= 0; k--) {
+    const t = lines[k].trim();
+    if (t === '') continue;
+    return t.startsWith('❗');
+  }
+  return false;
+}
 
 function reconstructCells(seg: string[]): string[] {
   const cells = [seg[0].trim()];
@@ -66,6 +77,7 @@ function reconstructPanelVertical(text: string): string[][] | null {
       full[0], // 需求Key（唯一身份，用于去重）
       full[1], full[2], full[3], full[4], full[5], // 岗位名称/编制组织/服务单位/部门/HC
       full[7], full[11], full[12], full[14], full[13], // 缺口/优先级/简历对接人/薪资范围/JD
+      isExpeditedBefore(lines, ri) ? '1' : '', // 加急（❗ 标记）
     ]);
   }
   return rows.length > 1 ? rows : null;
