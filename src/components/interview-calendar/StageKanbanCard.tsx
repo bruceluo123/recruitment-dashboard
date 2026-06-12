@@ -25,7 +25,10 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
       className="bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-xl p-3.5 cursor-pointer transition-all group animate-fade-in shadow-sm">
       <div className="flex items-start justify-between mb-2">
         <h4 className="text-sm font-medium text-gray-800 truncate pr-2">{candidate.name}</h4>
-        <span className={cn('text-xs font-bold shrink-0', scoreColor)}>{candidate.score}</span>
+        <span className="shrink-0 flex items-baseline gap-0.5 leading-none">
+          <span className={cn('text-xl font-extrabold tabular-nums', scoreColor)}>{candidate.score}</span>
+          <span className="text-[10px] font-medium text-gray-400">分</span>
+        </span>
       </div>
       <p className="text-xs text-gray-400 mb-3 truncate">{candidate.jdTitle}</p>
       <div className="space-y-1.5">
