@@ -29,7 +29,7 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
         <h4 className="text-sm font-medium text-gray-800 truncate pr-2">{candidate.name}</h4>
         {showScore && (
           <span className="shrink-0 flex items-baseline gap-0.5 leading-none">
-            <span className={cn('text-xl font-extrabold tabular-nums', scoreColor)}>{candidate.score}</span>
+            <span className={cn('text-base font-extrabold tabular-nums', scoreColor)}>{candidate.score}</span>
             <span className="text-[10px] font-medium text-gray-400">分</span>
           </span>
         )}
