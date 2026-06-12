@@ -16,6 +16,10 @@ interface StageKanbanColumnProps {
 
 export function StageKanbanColumn({ stage, candidates, onCandidateMove, onCandidateClick, onDeleteCandidate, onAddCandidate }: StageKanbanColumnProps) {
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
+  // Offer 列徽标展示「所有 Offer 分数的总和」（可能含小数，保留 1 位去尾零）；其余列展示候选人数
+  const isOffer = stage.id === 'offer';
+  const scoreSum = candidates.reduce((sum, c) => sum + (c.score || 0), 0);
+  const badgeValue = isOffer ? Number(scoreSum.toFixed(1)) : candidates.length;
 
   return (
     <div className="flex-shrink-0 w-[280px] flex flex-col" onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-indigo-50/50'); }} onDragLeave={(e) => { e.currentTarget.classList.remove('bg-indigo-50/50'); }} onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('bg-indigo-50/50'); const candidateId = e.dataTransfer.getData('candidateId'); if (candidateId) onCandidateMove(candidateId, stage.id); }}>
