@@ -17,7 +17,7 @@ interface JDImportDialogProps { isOpen: boolean; onClose: () => void; }
 //   [14]薪资范围 [15]备注说明 [16]来源表格 [17]对应ODC [18]对应SSC [19]更新时间
 // JD 正文可能自带换行导致中间列变多，故用「前 13 列 + 后 6 列固定、中间全部并入 JD」兜底。
 const PANEL_HEADERS = [
-  '岗位名称', '编制组织', '服务单位', '部门', 'HC', '缺口', '优先级',
+  '需求Key', '岗位名称', '编制组织', '服务单位', '部门', 'HC', '缺口', '优先级',
   '简历对接人 (花名 & @TG)', '薪资范围', 'JD 岗位职责与任职要求',
 ];
 
@@ -63,6 +63,7 @@ function reconstructPanelVertical(text: string): string[][] | null {
     const jd = cells.slice(13, cells.length - 6).filter(Boolean).join('\n');
     const full = [...front, jd, ...back]; // 恒为 20 列
     rows.push([
+      full[0], // 需求Key（唯一身份，用于去重）
       full[1], full[2], full[3], full[4], full[5], // 岗位名称/编制组织/服务单位/部门/HC
       full[7], full[11], full[12], full[14], full[13], // 缺口/优先级/简历对接人/薪资范围/JD
     ]);

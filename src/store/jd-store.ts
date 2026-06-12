@@ -220,6 +220,7 @@ export const useJDStore = create<JDStore>()(
                 const gap = (vacancyCol ? String(row[vacancyCol] || '').trim() : '') || '0';
                 const priority = priorityCol ? parsePriority(String(row[priorityCol] || '').trim()) : undefined;
                 const odc = odcCol ? String(row[odcCol] || '').trim() : '';
+                const reqKey = cols.reqKeyCol ? String(row[cols.reqKeyCol] || '').trim() : '';
 
                 const title = rawTitleCell || (ai.title || '').trim();
                 if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称`); continue; }
@@ -242,6 +243,7 @@ export const useJDStore = create<JDStore>()(
                   gap: gap || undefined,
                   priority,
                   odc: odc || undefined,
+                  reqKey: reqKey || undefined,
                   categories: detectCategories(title),
                   responsibilities: stripContactMeta(responsibilities),
                   requirements: stripContactMeta(requirements),
