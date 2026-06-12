@@ -24,7 +24,7 @@ export function StageKanbanColumn({ stage, candidates, onCandidateMove, onCandid
           <div className={cn('w-2.5 h-2.5 rounded-full', dotColor)} />
           <h3 className="text-sm font-semibold text-gray-700">{stage.name}</h3>
         </div>
-        <span className="text-xs text-gray-400 bg-white px-2 py-0.5 rounded-lg border border-gray-200">{candidates.length}</span>
+        <span className="text-sm font-bold text-gray-700 tabular-nums bg-white px-2.5 py-0.5 rounded-lg border border-gray-200">{candidates.length}</span>
       </div>
       <div className="flex-1 px-2 pb-4 space-y-2 overflow-y-auto min-h-[200px]">
         {candidates.map((c) => <StageKanbanCard key={c.id} candidate={c} onClick={() => onCandidateClick(c.id)} onDelete={onDeleteCandidate} />)}
