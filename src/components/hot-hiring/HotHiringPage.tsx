@@ -145,6 +145,19 @@ export function HotHiringPage() {
   );
 }
 
+/** 只保留带 ❗ 加急标记的行（含表头）。
+ * 表头里找「加急」列，仅留下该列为真值的数据行；无加急列时返回空（视为没有加急岗位）。 */
+function filterExpeditedRows(rows: string[][]): string[][] {
+  const header = rows[0];
+  const idx = header.findIndex((h) => h.trim() === '加急');
+  if (idx === -1) return [];
+  const kept = rows.slice(1).filter((r) => {
+    const v = (r[idx] || '').trim().toLowerCase();
+    return v !== '' && !['0', '否', 'no', 'false', 'n', '-'].includes(v);
+  });
+  return kept.length ? [header, ...kept] : [];
+}
+
 function ExpeditedPasteDialog({ onClose }: { onClose: () => void }) {
   const [pasteText, setPasteText] = useState('');
   const [result, setResult] = useState<JDImportResult | null>(null);
@@ -158,8 +171,14 @@ function ExpeditedPasteDialog({ onClose }: { onClose: () => void }) {
       setResult({ success: 0, failed: 1, errors: ['没有可识别的加急清单，请在需求面板全选复制带 ❗ 标记的岗位再粘贴'] });
       return;
     }
+    // 此入口专属「加急」：只保留带 ❗ 标记的岗位，整页粘贴也只会点亮加急岗位，不污染 JD 库
+    const expeditedRows = filterExpeditedRows(rows);
+    if (expeditedRows.length < 2) {
+      setResult({ success: 0, failed: 1, errors: ['粘贴内容里没有带 ❗ 标记的加急岗位，请确认复制的是加急清单'] });
+      return;
+    }
     try {
-      setResult(await importFromExcel(await pastedRowsToFile(rows)));
+      setResult(await importFromExcel(await pastedRowsToFile(expeditedRows)));
     } catch (err) {
       setResult({ success: 0, failed: 1, errors: [(err as Error).message || '粘贴内容解析失败'] });
     }
