@@ -12,6 +12,8 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [sheetUrl, setSheetUrl] = useState('');
   const [pasteText, setPasteText] = useState('');
+  // 覆盖模式：用本次导入替换整个岗位库（适合每天粘贴完整面板做同步）。默认关闭=增量合并。
+  const [replaceMode, setReplaceMode] = useState(false);
   const [result, setResult] = useState<JDImportResult | null>(null);
   const isImporting = useJDStore((s) => s.isImporting);
   const progress = useJDStore((s) => s.importProgress);
@@ -20,10 +22,12 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
 
   if (!isOpen) return null;
 
+  const mode = replaceMode ? 'replace' : 'merge';
+
   const handleFileImport = async () => {
     if (!file) return;
     setResult(null);
-    setResult(await importFromExcel(file));
+    setResult(await importFromExcel(file, mode));
   };
 
   const handleSheetImport = async () => {
@@ -48,9 +52,9 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
         const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        setResult(await importFromExcel(new File([buffer], 'google-doc.xlsx')));
+        setResult(await importFromExcel(new File([buffer], 'google-doc.xlsx'), mode));
       } else {
-        setResult(await importFromExcel(new File([blob], 'google-sheet.xlsx')));
+        setResult(await importFromExcel(new File([blob], 'google-sheet.xlsx'), mode));
       }
     } catch (err) {
       setResult({ success: 0, failed: 1, errors: [(err as Error).message || '无法访问链接，请确认 Google 文档已开放查看权限'] });
@@ -64,7 +68,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
       return;
     }
     try {
-      setResult(await importFromExcel(await pastedRowsToFile(rows)));
+      setResult(await importFromExcel(await pastedRowsToFile(rows), mode));
     } catch (err) {
       setResult({ success: 0, failed: 1, errors: [(err as Error).message || '粘贴内容解析失败'] });
     }
@@ -163,9 +167,16 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
                   className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-xs font-mono leading-relaxed focus:outline-none focus:border-indigo-300 transition-all resize-y"
                 />
                 <p className="text-xs text-gray-400 mt-1.5">
-                  自动识别需求面板的竖排复制格式，提取 岗位名称 / 编制组织 / 服务单位 / 部门 / HC / 缺口 / 优先级 / 对接人 / 薪资 / JD，按岗位名称+部门查重去重
+                  自动识别需求面板的竖排复制格式，提取 岗位名称 / 编制组织 / 服务单位 / 部门 / HC / 缺口 / 优先级 / 对接人 / 薪资 / JD，按需求Key(REQ-xxx)查重
                 </p>
               </div>
+              <label className="flex items-start gap-2.5 px-3.5 py-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-indigo-300 transition-all">
+                <input type="checkbox" checked={replaceMode} onChange={(e) => setReplaceMode(e.target.checked)} className="mt-0.5 w-4 h-4 accent-indigo-500" />
+                <span className="text-xs leading-relaxed">
+                  <span className="font-medium text-gray-700">覆盖模式（每日同步推荐）</span>
+                  <span className="block text-gray-400 mt-0.5">用这一次粘贴<b className="text-gray-600">替换整个岗位库</b>：新增 / 更新 / 删除一步到位，面板里没有的岗位会被移除。请<b className="text-gray-600">一次性粘贴完整面板</b>，不要分页粘。关闭则为增量合并（只新增、不删不改）。</span>
+                </span>
+              </label>
               <button
                 onClick={() => handlePasteImport(parsePastedTable(pasteText))}
                 disabled={!pasteText.trim()}
@@ -194,10 +205,16 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
             <div className={`p-4 rounded-xl border ${result.failed === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
               <div className="flex items-center gap-2 mb-2">
                 {result.failed === 0 ? <Check className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
-                <span className="text-sm font-medium text-gray-800">成功 {result.success} 条{result.failed > 0 && `，失败 ${result.failed} 条`}</span>
+                <span className="text-sm font-medium text-gray-800">
+                  {result.replaced !== undefined
+                    ? `已覆盖：岗位库现为 ${result.replaced} 个岗位`
+                    : `新增 ${result.success} 条`}
+                  {result.failed > 0 && `，失败 ${result.failed} 条`}
+                  {result.skipped ? `，跳过 ${result.skipped} 条已存在` : ''}
+                </span>
               </div>
               {result.errors.length > 0 && (
-                <ul className="space-y-0.5 mt-2">{result.errors.slice(0, 5).map((e, i) => <li key={i} className="text-xs text-red-500">{e}</li>)}</ul>
+                <ul className="space-y-0.5 mt-2">{result.errors.slice(0, 5).map((e, i) => <li key={i} className={`text-xs ${result.failed > 0 ? 'text-red-500' : 'text-gray-500'}`}>{e}</li>)}</ul>
               )}
             </div>
           )}

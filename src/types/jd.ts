@@ -107,7 +107,7 @@ export function hasCategory(jd: { categories?: JDCategory[]; category?: JDCatego
   if (jd.categories) return jd.categories.includes(cat);
   return jd.category === cat;
 }
-export interface JDImportResult { success: number; failed: number; errors: string[]; }
+export interface JDImportResult { success: number; failed: number; errors: string[]; skipped?: number; replaced?: number; }
 
 export const JD_CATEGORY_LABELS: Record<JDCategory, string> = {
   frontend: '前端',
