@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createPublicClient } from "@/lib/supabase/public";
 import { ScoreCard } from "@/components/m/ScoreCard";
+import { FavoriteButton } from "@/components/m/FavoriteButton";
+import { getBuyer, isFavorited, recordView } from "@/lib/buyer";
 import {
   formatWan,
   formatDiscount,
@@ -20,6 +22,10 @@ export default async function MobileDetailPage({ params }: { params: { id: strin
   if (!data) notFound();
   const p = data as PublicProperty;
 
+  const buyer = await getBuyer();
+  const favorited = buyer ? await isFavorited(p.id) : false;
+  if (buyer) await recordView(p.id);
+
   const facts: Array<[string, string]> = [
     ["物业类型", PROPERTY_TYPE_LABEL[p.property_type]],
     ["建筑面积", formatArea(p.area_sqm)],
@@ -37,6 +43,9 @@ export default async function MobileDetailPage({ params }: { params: { id: strin
             ←
           </Link>
           <b>房源详情</b>
+          <Link href={buyer ? "/m/account" : "/m/login"} className="m-bar-link">
+            {buyer ? "我的" : "登录"}
+          </Link>
         </header>
 
         <div className="m-detail">
@@ -80,6 +89,7 @@ export default async function MobileDetailPage({ params }: { params: { id: strin
         </div>
 
         <div className="m-actionbar">
+          <FavoriteButton propertyId={p.id} initialFavorited={favorited} />
           <Link href={`/m/demand?from=${p.id}`} className="m-action-ghost">
             咨询顾问
           </Link>

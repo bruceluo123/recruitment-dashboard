@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createPublicClient } from "@/lib/supabase/public";
+import { getBuyer } from "@/lib/buyer";
 import { formatDiscount, formatArea, PROPERTY_TYPE_LABEL } from "@/lib/format";
 import type { PublicProperty } from "@/types/db";
 
@@ -25,6 +26,7 @@ export default async function MobileListPage({
   if (searchParams.district) query = query.ilike("district", `%${searchParams.district}%`);
   const { data } = await query;
   const list = (data ?? []) as PublicProperty[];
+  const buyer = await getBuyer();
 
   return (
     <div className="yfp-m">
@@ -33,6 +35,9 @@ export default async function MobileListPage({
           <div className="m-hero-brand">
             <img src="/assets/logo.png" alt="易房拼拼" width={34} height={34} />
             <b>易房拼拼</b>
+            <Link href={buyer ? "/m/account" : "/m/login"} className="m-hero-me">
+              {buyer ? "我的" : "登录"}
+            </Link>
           </div>
           <h1>笋盘精选</h1>
           <p>已核验真实房源 · 价格优势一目了然</p>
