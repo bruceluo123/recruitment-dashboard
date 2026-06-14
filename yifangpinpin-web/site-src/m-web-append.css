@@ -18,7 +18,9 @@
   .yfp-m .m-wrap-list .m-hero .m-search { max-width: 720px; margin: 24px 0 0; padding: 5px 5px 5px 18px; }
   .yfp-m .m-wrap-list .m-hero .m-search input { padding: 14px 0; font-size: 15px; }
   .yfp-m .m-wrap-list .m-hero .m-search button { padding: 11px 28px; font-size: 14px; }
-  .yfp-m .m-wrap-list .m-hero-me { top: 50%; right: 0; transform: translateY(-50%); padding: 9px 22px; font-size: 14px; }
+  .yfp-m .m-wrap-list .m-hero-nav { top: 50%; right: 0; transform: translateY(-50%); gap: 10px; }
+  .yfp-m .m-wrap-list .m-hero-me,
+  .yfp-m .m-wrap-list .m-hero-home { padding: 9px 22px; font-size: 14px; }
 
   /* 类型筛选：居中、透明背景、不再吸顶横滑 */
   .yfp-m .m-wrap-list .m-tabs { max-width: 1180px; margin: 0 auto; justify-content: center; flex-wrap: wrap; background: transparent; position: static; overflow: visible; padding: 22px 24px 2px; }

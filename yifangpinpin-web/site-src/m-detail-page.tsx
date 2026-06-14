@@ -43,6 +43,9 @@ export default async function MobileDetailPage({ params }: { params: { id: strin
             ←
           </Link>
           <b>房源详情</b>
+          <Link href="/" className="m-bar-link m-bar-home">
+            返回官网
+          </Link>
           <Link href={buyer ? "/m/account" : "/m/login"} className="m-bar-link">
             {buyer ? "我的" : "登录"}
           </Link>

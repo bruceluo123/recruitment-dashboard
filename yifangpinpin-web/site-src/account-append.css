@@ -7,7 +7,9 @@
 .yfp-m .m-bar { justify-content: flex-start; }
 .yfp-m .m-bar b { flex: 1; }
 .yfp-m .m-bar-link { font-size: 13px; font-weight: 700; color: var(--yfp-red-deep); padding: 6px 10px; border-radius: 8px; background: var(--yfp-ivory); }
-.yfp-m .m-hero-me { position: absolute; top: 16px; right: 16px; font-size: 12.5px; font-weight: 700; color: #fff; padding: 6px 12px; border-radius: 999px; background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .35); backdrop-filter: blur(4px); }
+.yfp-m .m-hero-nav { position: absolute; top: 16px; right: 16px; z-index: 3; display: flex; align-items: center; gap: 8px; }
+.yfp-m .m-hero-me { font-size: 12.5px; font-weight: 700; color: #fff; padding: 6px 12px; border-radius: 999px; background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .35); backdrop-filter: blur(4px); }
+.yfp-m .m-hero-home { font-size: 12.5px; font-weight: 700; color: #fff; padding: 6px 12px; border-radius: 999px; background: rgba(255, 255, 255, .10); border: 1px solid rgba(255, 255, 255, .30); backdrop-filter: blur(4px); }
 .yfp-m .m-hero-brand { position: relative; }
 
 /* 登录 / 注册 */

@@ -35,9 +35,14 @@ export default async function MobileListPage({
           <div className="m-hero-brand">
             <img src="/assets/logo.png" alt="易房拼拼" width={34} height={34} />
             <b>易房拼拼</b>
-            <Link href={buyer ? "/m/account" : "/m/login"} className="m-hero-me">
-              {buyer ? "我的" : "登录"}
-            </Link>
+            <div className="m-hero-nav">
+              <Link href="/" className="m-hero-home">
+                返回官网
+              </Link>
+              <Link href={buyer ? "/m/account" : "/m/login"} className="m-hero-me">
+                {buyer ? "我的" : "登录"}
+              </Link>
+            </div>
           </div>
           <h1>笋盘精选</h1>
           <p>已核验真实房源 · 价格优势一目了然</p>
