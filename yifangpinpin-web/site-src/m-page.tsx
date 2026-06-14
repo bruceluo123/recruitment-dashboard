@@ -30,7 +30,7 @@ export default async function MobileListPage({
 
   return (
     <div className="yfp-m">
-      <main className="m-wrap">
+      <main className="m-wrap m-wrap-list">
         <header className="m-hero">
           <div className="m-hero-brand">
             <img src="/assets/logo.png" alt="易房拼拼" width={34} height={34} />

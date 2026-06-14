@@ -37,7 +37,7 @@ export default async function MobileDetailPage({ params }: { params: { id: strin
 
   return (
     <div className="yfp-m">
-      <main className="m-wrap">
+      <main className="m-wrap m-wrap-detail">
         <header className="m-bar">
           <Link href="/m" className="back">
             ←
