@@ -1,0 +1,28 @@
+/* ============================================================
+   经纪后台登录页（品牌红金）
+   ============================================================ */
+.yfp-login { position: relative; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--yfp-bg); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+.yfp-login-bg { position: absolute; inset: 0; background:
+    radial-gradient(1100px 520px at 85% -10%, rgba(216, 50, 59, .14), transparent 60%),
+    radial-gradient(900px 460px at 10% 110%, rgba(242, 180, 58, .16), transparent 60%); }
+.yfp-login-card { position: relative; width: 100%; max-width: 384px; background: #fff; border: 1px solid var(--yfp-line); border-radius: 22px; padding: 40px 34px 30px; box-shadow: var(--yfp-sh-md); }
+.yfp-login-card::before { content: ""; position: absolute; top: 0; left: 28px; right: 28px; height: 3px; border-radius: 0 0 4px 4px; background: linear-gradient(90deg, var(--yfp-gold), var(--yfp-red)); }
+
+.yfp-login-hd { text-align: center; margin-bottom: 26px; }
+.yfp-login-logo { display: inline-block; font-family: var(--yfp-serif); font-size: 30px; font-weight: 800; letter-spacing: .02em; background: linear-gradient(135deg, var(--yfp-red), var(--yfp-red-deep)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.yfp-login-hd p { margin: 8px 0 0; font-size: 13px; color: var(--yfp-ink-2); }
+
+.yfp-login-err { margin-bottom: 16px; font-size: 13px; color: var(--yfp-red-deep); background: #FCE9EA; border: 1px solid #F3C6C9; border-radius: 12px; padding: 11px 14px; }
+
+.yfp-login-form { display: flex; flex-direction: column; gap: 16px; }
+.yfp-login-field { display: flex; flex-direction: column; gap: 7px; }
+.yfp-login-field label { font-size: 13px; font-weight: 700; color: var(--yfp-ink); }
+.yfp-login-field input { width: 100%; box-sizing: border-box; height: 46px; padding: 0 14px; font-size: 14px; color: var(--yfp-ink); background: var(--yfp-ivory); border: 1.5px solid var(--yfp-line); border-radius: 12px; outline: none; transition: border-color .15s, box-shadow .15s, background .15s; }
+.yfp-login-field input::placeholder { color: var(--yfp-ink-3); }
+.yfp-login-field input:focus { background: #fff; border-color: var(--yfp-gold); box-shadow: 0 0 0 3px rgba(242, 180, 58, .22); }
+
+.yfp-login-btn { margin-top: 6px; height: 48px; border: none; border-radius: 12px; font-size: 15px; font-weight: 800; color: #fff; cursor: pointer; background: linear-gradient(135deg, var(--yfp-red), var(--yfp-red-deep)); box-shadow: 0 12px 26px -12px rgba(168, 36, 44, .8); transition: transform .12s, box-shadow .12s, filter .12s; }
+.yfp-login-btn:hover { filter: brightness(1.04); box-shadow: 0 16px 30px -12px rgba(168, 36, 44, .9); }
+.yfp-login-btn:active { transform: translateY(1px); }
+
+.yfp-login-foot { margin: 20px 0 0; text-align: center; font-size: 12px; color: var(--yfp-ink-3); }
