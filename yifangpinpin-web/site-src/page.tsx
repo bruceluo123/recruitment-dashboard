@@ -49,7 +49,7 @@ export default async function Home() {
             <a href="#culture">企业文化</a>
           </nav>
           <div className="nav-cta">
-            <Link className="btn btn-ghost" href="/login">
+            <Link className="btn btn-ghost" href="/m/login">
               登录
             </Link>
             <Link className="btn btn-primary" href="/m">
