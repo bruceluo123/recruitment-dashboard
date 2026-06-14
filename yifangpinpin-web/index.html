@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>易房拼拼 · 立足深圳，放眼大湾区 — 让买房更简单</title>
 <meta name="description" content="易房拼拼：以笋度评分为核心的大湾区笋盘代理与房产金融服务。真房源、真笋盘、真服务，做让用户放心靠谱的笋盘代理人。" />
+<meta name="theme-color" content="#D8323B" />
+<link rel="icon" type="image/png" href="assets/logo.png" />
+<link rel="apple-touch-icon" href="assets/logo.png" />
 <style>
 /* ============ 设计令牌 ============ */
 :root{
@@ -39,8 +42,9 @@ header{position:sticky;top:0;z-index:80;backdrop-filter:saturate(1.2) blur(10px)
   background:rgba(251,246,236,.86);border-bottom:1px solid var(--line);transition:.3s}
 .nav{display:flex;align-items:center;justify-content:space-between;height:72px}
 .brand{display:flex;align-items:center;gap:12px}
-.brand-mark{width:42px;height:42px;border-radius:10px;background:linear-gradient(150deg,var(--red),var(--red-deep));
-  display:grid;place-items:center;box-shadow:0 6px 16px -6px rgba(168,36,44,.6);flex:0 0 auto}
+.brand-mark{width:44px;height:44px;border-radius:11px;overflow:hidden;
+  display:grid;place-items:center;box-shadow:0 6px 16px -6px rgba(168,36,44,.55);flex:0 0 auto}
+.brand-mark img{width:100%;height:100%;object-fit:cover;display:block}
 .brand-mark svg{width:26px;height:26px}
 .brand-text{display:flex;flex-direction:column;line-height:1.05}
 .brand-name{font-size:20px;font-weight:800;letter-spacing:.04em}
@@ -168,8 +172,8 @@ header{position:sticky;top:0;z-index:80;backdrop-filter:saturate(1.2) blur(10px)
 .filt.on{background:var(--gold);color:var(--red-ink);border-color:var(--gold)}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
 .card{background:#fff;color:var(--ink);border-radius:18px;overflow:hidden;box-shadow:0 20px 40px -22px rgba(0,0,0,.55);
-  display:flex;flex-direction:column;transition:.26s}
-.card:hover{transform:translateY(-5px)}
+  display:flex;flex-direction:column;transition:.26s;text-decoration:none;cursor:pointer}
+.card:hover{transform:translateY(-5px);box-shadow:0 28px 52px -22px rgba(0,0,0,.6)}
 .card-top{padding:20px 22px;background:linear-gradient(135deg,#fff,#FFFBF3);position:relative}
 .card .sun{position:absolute;top:18px;right:18px}
 .sun-pill{display:flex;flex-direction:column;align-items:center;justify-content:center;width:54px;height:54px;border-radius:13px;
@@ -268,10 +272,8 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:64px 0 30px}
 <header>
   <div class="wrap nav">
     <a class="brand" href="#top">
-      <span class="brand-mark" title="易房拼拼（待替换为官方 logo 图标）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#FFD466" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 11.2 12 4l9 7.2"/><path d="M5 10v9h14v-9"/><path d="M10 19v-5h4v5"/>
-        </svg>
+      <span class="brand-mark">
+        <img src="assets/logo.png" alt="易房拼拼" width="44" height="44">
       </span>
       <span class="brand-text">
         <span class="brand-name">易房<b>拼拼</b></span>
@@ -286,8 +288,8 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:64px 0 30px}
       <a href="#culture">企业文化</a>
     </nav>
     <div class="nav-cta">
-      <a class="btn btn-ghost" href="#contact">联系我们</a>
-      <a class="btn btn-primary" href="#match">免费找笋盘</a>
+      <a class="btn btn-ghost" href="/login">登录</a>
+      <a class="btn btn-primary" href="/m">进入平台 · 找笋盘</a>
     </div>
   </div>
 </header>
@@ -301,8 +303,8 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:64px 0 30px}
       <p class="hero-sub">做让用户放心靠谱的笋盘代理人</p>
       <p class="hero-desc">用数据为每一套房源打出「笋度」分，帮你找到真正低于市场价、产权清晰、可放心入手的好房；并为你对接银行与持牌机构的房产金融贷款方案。</p>
       <div class="hero-cta">
-        <a class="btn btn-gold" href="#match">🔍 找笋盘</a>
-        <a class="btn btn-ghost" href="#loan" style="color:#fff;border-color:rgba(255,255,255,.4)">申请贷款</a>
+        <a class="btn btn-gold" href="/m">🔍 立即找笋盘</a>
+        <a class="btn btn-ghost" href="/m/demand" style="color:#fff;border-color:rgba(255,255,255,.4)">申请贷款 / 登记需求</a>
       </div>
       <div class="hero-trust">
         <div class="ht"><b>11+</b><span>在售笋盘</span></div>
@@ -514,8 +516,8 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:64px 0 30px}
         <h2>在大湾区，找一套放心的笋盘</h2>
         <p>留下需求，专业顾问 1 对 1 为你匹配笋盘、规划贷款方案 —— 全程免费咨询。</p>
         <div class="hero-cta">
-          <a class="btn btn-gold" href="tel:400-000-0000">📞 400-000-0000</a>
-          <a class="btn btn-ghost" href="#listings" style="color:#fff;border-color:rgba(255,255,255,.4)">先逛逛笋盘</a>
+          <a class="btn btn-gold" href="/m/demand">免费登记需求</a>
+          <a class="btn btn-ghost" href="/m" style="color:#fff;border-color:rgba(255,255,255,.4)">先逛逛笋盘</a>
         </div>
       </div>
     </div>
@@ -528,7 +530,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:64px 0 30px}
     <div class="foot-grid">
       <div class="foot-brand">
         <div class="brand">
-          <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="#FFD466" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.2 12 4l9 7.2"/><path d="M5 10v9h14v-9"/><path d="M10 19v-5h4v5"/></svg></span>
+          <span class="brand-mark"><img src="assets/logo.png" alt="易房拼拼" width="44" height="44"></span>
           <span class="brand-text"><span class="brand-name" style="color:#fff">易房<b style="color:var(--gold)">拼拼</b></span><span class="brand-tag" style="color:rgba(255,255,255,.5)">让买房更简单</span></span>
         </div>
         <p>立足深圳，放眼大湾区。以笋度评分为核心的笋盘代理与房产金融服务，做让用户放心靠谱的笋盘代理人。</p>
@@ -583,7 +585,7 @@ function render(f){
   g.innerHTML=LISTINGS.filter(x=>f==='all'||x.pt===f).map(x=>{
     const d=disc(x.p,x.r);
     const hot=x.s>=80?'hot':'';
-    return `<div class="card">
+    return `<a class="card" href="/m">
       <div class="card-top">
         <span class="sun"><span class="sun-pill ${hot}"><b>${x.s}</b><span>笋度</span></span></span>
         <span class="ptype">${PT[x.pt]}</span>
@@ -598,7 +600,7 @@ function render(f){
           <span class="chip">已核验</span>
         </div>
       </div>
-    </div>`;
+    </a>`;
   }).join('');
 }
 render('all');
