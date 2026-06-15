@@ -8,6 +8,7 @@ import { generateId } from '@/lib/utils';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
 import {
   analyzeColumns,
+  cleanJDNumbering,
   detectCategories,
   isAllowedTitleHeader,
   mergeUniqueJDs,
@@ -85,11 +86,14 @@ export const useJDStore = create<JDStore>()(
         }),
       })),
       cleanAllJDs: () => set((s) => ({
-        jds: s.jds.map((j) => ({
-          ...j,
-          responsibilities: stripContactMeta(j.responsibilities.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean)),
-          requirements: stripContactMeta(j.requirements.map((r: string) => r.replace(/^[\d]+[.、.\s]*/, '').trim()).filter(Boolean)),
-        })),
+        jds: s.jds.map((j) => {
+          const cleaned = cleanJDNumbering(j);
+          return {
+            ...cleaned,
+            responsibilities: stripContactMeta(cleaned.responsibilities),
+            requirements: stripContactMeta(cleaned.requirements),
+          };
+        }),
       })),
 
       exportAllJDs: () => {
@@ -264,7 +268,10 @@ export const useJDStore = create<JDStore>()(
             await new Promise((r) => setTimeout(r, 0));
           }
 
-          if (mode === 'replace' && batch.length === 0) {
+          // 导入后统一清理一遍职责/要求里的序号前缀（1. 一、 ① 等），无论合并还是覆盖。
+          const cleanBatch = batch.map(cleanJDNumbering);
+
+          if (mode === 'replace' && cleanBatch.length === 0) {
             // 安全保护：覆盖模式下解析为 0 条时绝不清空岗位库（避免误粘空内容把库清空）。
             set({ isImporting: false, importProgress: { current: 0, total: 0, percent: 100, status: 'done' } });
             return { success: 0, failed: 0, errors: ['未解析到任何岗位，已取消覆盖（岗位库保持不变）'] };
@@ -272,7 +279,7 @@ export const useJDStore = create<JDStore>()(
           if (mode === 'replace') {
             // 全量覆盖：用本次粘贴替换整个岗位库（先对本批内部去重，避免同一面板里重复 REQ-Key）。
             // 一次粘贴 = 新增 + 更新 + 删除：面板里没有的岗位会随覆盖一并移除。
-            const deduped = mergeUniqueJDs([], batch);
+            const deduped = mergeUniqueJDs([], cleanBatch);
             useJDStore.setState({ jds: deduped.jds });
             result.success = deduped.jds.length;
             result.failed = 0;
@@ -281,7 +288,7 @@ export const useJDStore = create<JDStore>()(
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
           } else {
             // 增量合并：跳过岗位库里已存在的岗位（按 REQ-Key 查重），只新增没有的。
-            const merged = mergeUniqueJDs(get().jds, batch);
+            const merged = mergeUniqueJDs(get().jds, cleanBatch);
             useJDStore.setState({ jds: merged.jds });
             if (merged.skipped > 0) {
               result.success -= merged.skipped;

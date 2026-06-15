@@ -146,8 +146,27 @@ export function splitJDBySection(text: string): { responsibilities: string[]; re
 
 function splitOnPunct(text: string): string[] {
   return text.split(/[；;。]+/)
-    .map((s) => s.replace(/^[\d一二三四五六七八九十]+[.、,，\s]+/, '').trim())
+    .map((s) => stripLeadingNumber(s))
     .filter((s) => s.length > 1);
+}
+
+/** 去掉条目开头的序号前缀：1. / 2、 / （3） / 一、 / ① 等。
+ * 导入后统一清理一遍，避免 JD 职责/要求里残留编号。 */
+export function stripLeadingNumber(text: string): string {
+  return text
+    .replace(/^[\s　]*[（(]\s*[\d一二三四五六七八九十]+\s*[）)][.、,，:：\s]*/, '') // （1） (1)
+    .replace(/^[\s　]*[\d一二三四五六七八九十]+\s*[.、,，。:：)）]+\s*/, '')          // 1. 一、 2)
+    .replace(/^[\s　]*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\s*/, '')             // ① ②
+    .trim();
+}
+
+/** 清理一条 JD 的职责/要求列表里的序号前缀（导入后自动跑一遍）。 */
+export function cleanJDNumbering(jd: JD): JD {
+  return {
+    ...jd,
+    responsibilities: jd.responsibilities.map(stripLeadingNumber).filter(Boolean),
+    requirements: jd.requirements.map(stripLeadingNumber).filter(Boolean),
+  };
 }
 
 // ─── Contact / meta line cleanup ───
