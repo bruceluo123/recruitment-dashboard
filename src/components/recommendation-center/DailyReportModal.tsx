@@ -59,6 +59,17 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 
   const [state, setState] = useState<SubmitState>('idle');
   const [errMsg, setErrMsg] = useState('');
+  // 是否有未提交的编辑。用于防止误点遮罩/关闭导致填写丢失。
+  const [dirty, setDirty] = useState(false);
+  const markDirty = () => setDirty(true);
+
+  // 关闭前确认：有未提交编辑且尚未成功提交时，先二次确认，避免误点丢失记录。
+  const requestClose = () => {
+    if (dirty && state !== 'done') {
+      if (!window.confirm('有未提交的编辑内容，确定要关闭吗？关闭后本次填写将丢失。')) return;
+    }
+    onClose();
+  };
 
   const recommendTotal = sum(recommend);
   const cvTotal = sum(cv);
@@ -102,17 +113,23 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     }
   };
 
-  // 通用：更新/删除/新增某个明细数组里的一行
-  const patch = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, i: number, partial: Partial<T>) =>
+  // 通用：更新/删除/新增某个明细数组里的一行（任一操作都标记为已编辑）
+  const patch = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, i: number, partial: Partial<T>) => {
+    markDirty();
     setter((arr) => arr.map((row, idx) => (idx === i ? { ...row, ...partial } : row)));
-  const drop = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, i: number) =>
+  };
+  const drop = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, i: number) => {
+    markDirty();
     setter((arr) => arr.filter((_, idx) => idx !== i));
+  };
 
-  const addJob = (setter: React.Dispatch<React.SetStateAction<JobLine[]>>) =>
+  const addJob = (setter: React.Dispatch<React.SetStateAction<JobLine[]>>) => {
+    markDirty();
     setter((arr) => [...arr, { name: '', department: '', jobKey: '', qty: 1 }]);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={requestClose}>
       <div
         className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[88vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -122,7 +139,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
             一键看板 · <span className="text-indigo-600">{name}</span>
             <span className="ml-2 text-sm font-normal text-gray-400">{today}</span>
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={requestClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -139,7 +156,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           <div className="grid grid-cols-3 gap-2">
             <Stat label="推荐总数" value={recommendTotal} />
             <Stat label="新收简历总数" value={cvTotal} />
-            <NumStat label="新增沟通(初筛)" value={screenNew} onChange={setScreenNew} />
+            <NumStat label="新增沟通(初筛)" value={screenNew} onChange={(v) => { markDirty(); setScreenNew(v); }} />
           </div>
 
           <JobSection
@@ -159,7 +176,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           />
 
           {/* 约面明细 */}
-          <EditSection title="约面明细" onAdd={() => setScheduled((a) => [...a, { job: '', person: '', date: today, time: '', tz: '北京时间' }])}>
+          <EditSection title="约面明细" onAdd={() => { markDirty(); setScheduled((a) => [...a, { job: '', person: '', date: today, time: '', tz: '北京时间' }]); }}>
             {scheduled.map((s, i) => (
               <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
                 <input className={inputCls} placeholder="人选" value={s.person} onChange={(e) => patch(setScheduled, i, { person: e.target.value })} />
@@ -174,7 +191,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           {/* 业务面试明细（含 pass/pending 统计） */}
           <EditSection
             title={`业务面试明细（通过 ${passCount} · 待反馈 ${pendingCount}）`}
-            onAdd={() => setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: INTERVIEW_PENDING }])}
+            onAdd={() => { markDirty(); setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: INTERVIEW_PENDING }]); }}
           >
             {interview.map((v, i) => (
               <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
@@ -200,12 +217,12 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           {/* 入职明细（手动填写，默认空；到岗日期默认今天） */}
           <EditSection
             title={`入职明细（当天入职 ${onboard.length}）`}
-            onAdd={() => setOnboard((a) => [...a, {
+            onAdd={() => { markDirty(); setOnboard((a) => [...a, {
               jobName: '', candidateName: '', department: '',
               probationSalary: '', probationCurrency: 'CNY',
               regularSalary: '', regularCurrency: 'CNY',
               source: '', score: '', onboardDate: today, responsibleHr: name, remark: '',
-            }])}
+            }]); }}
           >
             {onboard.map((o, i) => (
               <div key={i} className="px-2 py-2 space-y-1.5">
@@ -236,7 +253,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
               rows={2}
               placeholder="可选"
               value={remark}
-              onChange={(e) => setRemark(e.target.value)}
+              onChange={(e) => { markDirty(); setRemark(e.target.value); }}
             />
           </div>
         </div>
