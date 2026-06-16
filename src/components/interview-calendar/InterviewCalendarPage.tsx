@@ -220,6 +220,8 @@ export function InterviewCalendarPage() {
 
   return (
     <div className="animate-fade-in space-y-6 max-w-7xl mx-auto">
+      <datalist id="org-options">{orgOptions.map((o) => <option key={o} value={o} />)}</datalist>
+      <datalist id="dept-options">{deptOptions.map((d) => <option key={d} value={d} />)}</datalist>
       {notification && (
         <div className="fixed top-20 right-6 z-50 animate-slide-in-right">
           <div className="bg-amber-50 border border-amber-200 rounded-2xl shadow-xl p-4 max-w-sm">
@@ -339,17 +341,11 @@ export function InterviewCalendarPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">编制</label>
-                  <select value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300">
-                    <option value="">未选编制</option>
-                    {orgOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-                  </select>
+                  <input list="org-options" value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} placeholder="选择或输入编制" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">部门</label>
-                  <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300">
-                    <option value="">未选部门</option>
-                    {deptOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
+                  <input list="dept-options" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="选择或输入部门" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
                 </div>
               </div>
               <div><label className="block text-xs text-gray-500 mb-1">面试时间</label><input type="datetime-local" value={form.interviewDate} onChange={(e) => setForm({ ...form, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
@@ -386,8 +382,8 @@ export function InterviewCalendarPage() {
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs text-gray-500 mb-1">姓名</label><input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">岗位</label><input value={editForm.jdTitle} onChange={(e) => setEditForm({ ...editForm, jdTitle: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">编制</label><select value={editForm.organization} onChange={(e) => setEditForm({ ...editForm, organization: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300"><option value="">未选编制</option>{orgOptions.map((o) => <option key={o} value={o}>{o}</option>)}</select></div>
-              <div><label className="block text-xs text-gray-500 mb-1">部门</label><select value={editForm.department} onChange={(e) => setEditForm({ ...editForm, department: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300"><option value="">未选部门</option>{deptOptions.map((d) => <option key={d} value={d}>{d}</option>)}</select></div>
+              <div><label className="block text-xs text-gray-500 mb-1">编制</label><input list="org-options" value={editForm.organization} onChange={(e) => setEditForm({ ...editForm, organization: e.target.value })} placeholder="选择或输入编制" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">部门</label><input list="dept-options" value={editForm.department} onChange={(e) => setEditForm({ ...editForm, department: e.target.value })} placeholder="选择或输入部门" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">分数</label><input type="text" inputMode="decimal" value={editForm.score} onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) setEditForm({ ...editForm, score: v }); }} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={editForm.salary || ''} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">面试时间</label><input type="datetime-local" value={editForm.interviewDate} onChange={(e) => setEditForm({ ...editForm, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
