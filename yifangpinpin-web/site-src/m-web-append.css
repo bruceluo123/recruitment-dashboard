@@ -37,6 +37,44 @@
   .yfp-m .m-wrap-list .m-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
+/* ===================== 贷款撮合页 ===================== */
+@media (min-width: 768px) {
+  .yfp-m .m-wrap-loan { max-width: none; background: var(--yfp-bg); }
+
+  /* Hero：全宽，内容居中收束 */
+  .yfp-m .m-wrap-loan .m-hero { padding: 30px clamp(28px, 5vw, 72px) 44px; overflow: hidden; }
+  .yfp-m .m-wrap-loan .m-hero::after { font-size: 340px; right: 1%; bottom: -44%; }
+  .yfp-m .m-wrap-loan .m-hero-brand { max-width: 1180px; margin: 0 auto; position: relative; }
+  .yfp-m .m-wrap-loan .m-hero-brand img { width: 40px; height: 40px; }
+  .yfp-m .m-wrap-loan .m-hero-brand b { font-size: 20px; }
+  .yfp-m .m-wrap-loan .m-hero h1 { max-width: 1180px; margin: 24px auto 6px; font-size: 36px; }
+  .yfp-m .m-wrap-loan .m-hero p { max-width: 1180px; margin: 0 auto; font-size: 15px; }
+  .yfp-m .m-wrap-loan .m-fivelaw { max-width: 1180px; margin: 18px auto 0; }
+
+  /* nav 跟随 hero-brand 内容右侧定位 */
+  .yfp-m .m-wrap-loan .m-hero-nav { top: 50%; right: 0; transform: translateY(-50%); gap: 10px; }
+  .yfp-m .m-wrap-loan .m-hero-home,
+  .yfp-m .m-wrap-loan .m-hero-me { padding: 9px 22px; font-size: 14px; }
+
+  /* 类型筛选：居中、透明背景、不吸顶横滑 */
+  .yfp-m .m-wrap-loan .m-tabs { max-width: 1180px; margin: 0 auto; justify-content: center; flex-wrap: wrap; background: transparent; position: static; overflow: visible; padding: 24px 24px 4px; }
+  .yfp-m .m-wrap-loan .m-tab { font-size: 14px; padding: 9px 22px; cursor: pointer; }
+
+  /* 产品卡网格 */
+  .yfp-m .m-wrap-loan .m-loan-list { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 16px clamp(28px, 5vw, 72px) 12px; }
+  .yfp-m .m-wrap-loan .m-loan-card { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+  .yfp-m .m-wrap-loan .m-loan-card:hover { transform: translateY(-3px); box-shadow: var(--yfp-sh-md); border-color: var(--yfp-gold); }
+  .yfp-m .m-wrap-loan .m-loan-card:active { transform: translateY(-1px); }
+  .yfp-m .m-wrap-loan .m-empty { grid-column: 1 / -1; }
+
+  /* CTA + 免责：同宽收束 */
+  .yfp-m .m-wrap-loan .m-loan-cta { max-width: 1180px; margin: 20px auto 0; }
+  .yfp-m .m-wrap-loan .m-loan-disclaimer { max-width: 1180px; margin: 0 auto; padding: 12px clamp(28px, 5vw, 72px) 56px; }
+}
+@media (min-width: 1160px) {
+  .yfp-m .m-wrap-loan .m-loan-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 /* ===================== 详情页 ===================== */
 @media (min-width: 860px) {
   .yfp-m .m-wrap-detail { max-width: 1060px; margin: 0 auto; min-height: 100vh; background: var(--yfp-bg);
