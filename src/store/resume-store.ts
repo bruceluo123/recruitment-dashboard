@@ -144,7 +144,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
         if (ac.signal.aborted) return;
         set((s) => {
           const prev = s.resultsByResume[resumeId]?.results || [];
-          const next = [...prev, result].sort((a, b) => b.score - a.score).slice(0, 5);
+          const next = [...prev, result].sort((a, b) => b.score - a.score).slice(0, 10);
           return { resultsByResume: { ...s.resultsByResume, [resumeId]: { results: next, matchedAt: Date.now() } } };
         });
       }, ac.signal);
