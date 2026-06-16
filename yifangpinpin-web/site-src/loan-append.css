@@ -1,0 +1,80 @@
+/* =====================================================================
+   易房拼拼 · 房产金融贷款模块样式（追加到 globals.css）
+   复用 .yfp-m 作用域与 --yfp-* 令牌，金色系点缀区别于房源红
+   ===================================================================== */
+
+/* 顶部 nav 定位（贷款列表页，复用 m-hero） */
+.yfp-m .m-wrap-loan .m-hero-nav { position: absolute; top: 18px; right: 18px; z-index: 3; display: flex; align-items: center; gap: 8px; }
+.yfp-m .m-wrap-loan .m-hero-home,
+.yfp-m .m-wrap-loan .m-hero-me { font-size: 12.5px; font-weight: 700; color: #fff; padding: 6px 13px; border-radius: 999px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .32); backdrop-filter: blur(4px); }
+.yfp-m .m-wrap-loan .m-hero-me { background: rgba(255, 212, 102, .22); border-color: rgba(255, 212, 102, .5); color: var(--yfp-gold-bright); }
+
+/* 五不原则 chips */
+.yfp-m .m-fivelaw { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.yfp-m .m-fivelaw-chip { font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--yfp-gold-bright); background: rgba(255, 212, 102, .14); border: 1px solid rgba(255, 212, 102, .4); padding: 4px 10px; border-radius: 999px; }
+
+/* 产品卡列表 */
+.yfp-m .m-loan-list { padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 12px; }
+.yfp-m .m-loan-card { display: block; background: #fff; border: 1px solid var(--yfp-line); border-radius: 16px; padding: 16px; box-shadow: var(--yfp-sh); }
+.yfp-m .m-loan-card:active { transform: scale(.99); }
+.yfp-m .m-loan-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.yfp-m .m-loan-type { font-size: 10.5px; font-weight: 700; color: var(--yfp-gold-deep); background: var(--paper-warm); border: 1px solid var(--yfp-line); padding: 3px 9px; border-radius: 6px; }
+.yfp-m .m-loan-rate { text-align: right; line-height: 1.1; flex: 0 0 auto; }
+.yfp-m .m-loan-rate b { font-family: var(--yfp-serif); font-size: 24px; font-weight: 700; color: var(--yfp-red); }
+.yfp-m .m-loan-rate em { display: block; font-style: normal; font-size: 10.5px; color: var(--yfp-ink-3); margin-top: 2px; }
+.yfp-m .m-loan-card h2 { font-size: 16px; font-weight: 800; margin: 12px 0 4px; line-height: 1.3; }
+.yfp-m .m-loan-bank { font-size: 12px; color: var(--yfp-ink-2); margin: 0; }
+.yfp-m .m-loan-hl { font-size: 12.5px; color: var(--yfp-gold-deep); background: var(--paper-warm); border-radius: 9px; padding: 7px 11px; margin: 10px 0 0; line-height: 1.5; }
+.yfp-m .m-loan-hl.big { font-size: 14px; padding: 11px 14px; margin: 14px 0 0; }
+.yfp-m .m-loan-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.yfp-m .m-loan-tags span { font-size: 11.5px; font-weight: 600; color: var(--yfp-ink-2); background: var(--yfp-ivory); border: 1px solid var(--yfp-line); padding: 3px 9px; border-radius: 6px; }
+
+/* 留资 CTA 块 */
+.yfp-m .m-loan-cta { margin: 16px; padding: 20px 18px; border-radius: 18px; text-align: center; color: #fff; position: relative; overflow: hidden;
+  background: linear-gradient(150deg, var(--yfp-red), var(--yfp-red-deep)); box-shadow: 0 16px 34px -18px rgba(168, 36, 44, .8); }
+.yfp-m .m-loan-cta p { position: relative; z-index: 2; font-size: 13.5px; margin: 0 0 14px; color: rgba(255, 255, 255, .92); }
+.yfp-m .m-loan-cta-btn { position: relative; z-index: 2; display: inline-block; padding: 11px 28px; border-radius: 999px; font-size: 14px; font-weight: 800; color: var(--yfp-red-ink); background: linear-gradient(135deg, var(--yfp-gold-bright), var(--yfp-gold-deep)); }
+
+.yfp-m .m-loan-disclaimer { font-size: 11px; line-height: 1.7; color: var(--yfp-ink-3); padding: 4px 18px 36px; margin: 0; }
+
+/* 产品详情 */
+.yfp-m .m-loan-detail { padding: 18px 16px 110px; }
+.yfp-m .m-loan-detail .m-loan-type { display: inline-block; }
+.yfp-m .m-loan-detail h1 { font-size: 22px; font-weight: 800; margin: 12px 0 4px; }
+.yfp-m .m-loan-specs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0; }
+.yfp-m .m-loan-spec { background: #fff; border: 1px solid var(--yfp-line); border-radius: 14px; padding: 14px; box-shadow: var(--yfp-sh); }
+.yfp-m .m-loan-spec em { font-style: normal; font-size: 11.5px; color: var(--yfp-ink-3); display: block; margin-bottom: 6px; }
+.yfp-m .m-loan-spec b { font-family: var(--yfp-serif); font-size: 19px; font-weight: 700; color: var(--yfp-red); }
+.yfp-m .m-loan-req { background: #fff; border: 1px solid var(--yfp-line); border-radius: 16px; padding: 16px; box-shadow: var(--yfp-sh); margin-bottom: 16px; }
+.yfp-m .m-loan-req h3 { font-size: 14px; font-weight: 800; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+.yfp-m .m-loan-req h3::before { content: ""; width: 4px; height: 14px; border-radius: 2px; background: linear-gradient(var(--yfp-red), var(--yfp-gold)); }
+.yfp-m .m-loan-req ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.yfp-m .m-loan-req li { position: relative; padding-left: 22px; font-size: 13.5px; color: var(--yfp-ink); line-height: 1.5; }
+.yfp-m .m-loan-req li::before { content: ""; position: absolute; left: 0; top: 6px; width: 14px; height: 14px; border-radius: 50%; background: var(--yfp-gold-deep);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M5 13l4 4L19 7'/></svg>") center/10px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M5 13l4 4L19 7'/></svg>") center/10px no-repeat; }
+
+/* 详情底部固定栏 */
+.yfp-m .m-loan-bottombar { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; margin: 0 auto; max-width: 480px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: rgba(255, 255, 255, .94); backdrop-filter: blur(10px); border-top: 1px solid var(--yfp-line); }
+.yfp-m .m-loan-apply-btn { display: block; text-align: center; padding: 13px; border-radius: 999px; font-size: 15px; font-weight: 800; color: #fff; background: linear-gradient(135deg, var(--yfp-red), var(--yfp-red-deep)); box-shadow: 0 12px 26px -12px rgba(168, 36, 44, .8); }
+
+/* 申请表单：已选产品提示 */
+.yfp-m .m-loan-picked { font-size: 12.5px; font-weight: 600; color: var(--yfp-gold-deep); background: var(--paper-warm); border: 1px solid var(--yfp-line); border-radius: 10px; padding: 9px 13px; margin: 0 0 16px; }
+
+/* 笋盘列表页：贷款服务入口横幅 */
+.yfp-m .m-loan-entry { display: flex; align-items: center; gap: 12px; margin: 0 16px 14px; padding: 13px 15px; border-radius: 16px; text-decoration: none;
+  background: linear-gradient(135deg, rgba(255, 212, 102, .18), rgba(255, 212, 102, .05)); border: 1px solid rgba(255, 212, 102, .5); }
+.yfp-m .m-loan-entry:active { transform: scale(.99); }
+.yfp-m .m-loan-entry-ic { flex: 0 0 auto; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--yfp-gold-deep); background: rgba(255, 212, 102, .25); }
+.yfp-m .m-loan-entry-ic svg { width: 20px; height: 20px; }
+.yfp-m .m-loan-entry-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.yfp-m .m-loan-entry-tx b { font-size: 14.5px; font-weight: 800; color: var(--yfp-ink); }
+.yfp-m .m-loan-entry-tx em { font-style: normal; font-size: 11.5px; color: var(--yfp-ink-3); }
+.yfp-m .m-loan-entry-go { flex: 0 0 auto; font-size: 17px; font-weight: 800; color: var(--yfp-gold-deep); }
+
+/* 房源详情页：贷款测算入口 */
+.yfp-m .m-detail-loan { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 0; padding: 13px 15px; border-radius: 14px; text-decoration: none;
+  background: linear-gradient(135deg, rgba(255, 212, 102, .16), rgba(255, 212, 102, .06)); border: 1px solid rgba(255, 212, 102, .5); }
+.yfp-m .m-detail-loan:active { transform: scale(.99); }
+.yfp-m .m-detail-loan span { font-size: 14px; font-weight: 800; color: var(--yfp-gold-deep); }
+.yfp-m .m-detail-loan em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--yfp-gold-bright); white-space: nowrap; }
