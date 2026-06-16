@@ -81,7 +81,7 @@ export default async function MobileListPage({
             <b>房产金融贷款</b>
             <em>按揭 · 房抵 · 经营贷，免费测算可贷额度</em>
           </span>
-          <span className="m-loan-entry-go">→</span>
+          <span className="m-loan-entry-go">免费测算 →</span>
         </Link>
 
         <div className="m-list">

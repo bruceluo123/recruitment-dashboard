@@ -61,16 +61,22 @@
 /* 申请表单：已选产品提示 */
 .yfp-m .m-loan-picked { font-size: 12.5px; font-weight: 600; color: var(--yfp-gold-deep); background: var(--paper-warm); border: 1px solid var(--yfp-line); border-radius: 10px; padding: 9px 13px; margin: 0 0 16px; }
 
-/* 笋盘列表页：贷款服务入口横幅 */
-.yfp-m .m-loan-entry { display: flex; align-items: center; gap: 12px; margin: 0 16px 14px; padding: 13px 15px; border-radius: 16px; text-decoration: none;
-  background: linear-gradient(135deg, rgba(255, 212, 102, .18), rgba(255, 212, 102, .05)); border: 1px solid rgba(255, 212, 102, .5); }
+/* 笋盘列表页：贷款服务入口（独立功能块按钮，金色高亮） */
+.yfp-m .m-loan-entry { position: relative; overflow: hidden; display: flex; align-items: center; gap: 14px; margin: 6px 16px 16px; padding: 16px 18px; border-radius: 18px; text-decoration: none;
+  background: linear-gradient(135deg, #fff6e0 0%, #ffe8b2 48%, #ffd76e 100%); border: 1px solid rgba(214, 168, 70, .55); box-shadow: 0 14px 30px -16px rgba(201, 142, 32, .85); }
+.yfp-m .m-loan-entry::after { content: ""; position: absolute; right: -34px; top: -46px; width: 156px; height: 156px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, .6), transparent 70%); pointer-events: none; }
 .yfp-m .m-loan-entry:active { transform: scale(.99); }
-.yfp-m .m-loan-entry-ic { flex: 0 0 auto; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--yfp-gold-deep); background: rgba(255, 212, 102, .25); }
-.yfp-m .m-loan-entry-ic svg { width: 20px; height: 20px; }
-.yfp-m .m-loan-entry-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.yfp-m .m-loan-entry-tx b { font-size: 14.5px; font-weight: 800; color: var(--yfp-ink); }
-.yfp-m .m-loan-entry-tx em { font-style: normal; font-size: 11.5px; color: var(--yfp-ink-3); }
-.yfp-m .m-loan-entry-go { flex: 0 0 auto; font-size: 17px; font-weight: 800; color: var(--yfp-gold-deep); }
+.yfp-m .m-loan-entry-ic { flex: 0 0 auto; position: relative; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 13px; color: #fff; background: linear-gradient(135deg, var(--yfp-gold-deep), #b8821e); box-shadow: 0 6px 14px -6px rgba(184, 130, 30, .9); }
+.yfp-m .m-loan-entry-ic svg { width: 24px; height: 24px; }
+.yfp-m .m-loan-entry-tx { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; gap: 3px; }
+.yfp-m .m-loan-entry-tx b { font-size: 16px; font-weight: 900; color: #6b4a12; letter-spacing: .01em; }
+.yfp-m .m-loan-entry-tx em { font-style: normal; font-size: 12px; color: #9a7424; }
+.yfp-m .m-loan-entry-go { flex: 0 0 auto; position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 800; white-space: nowrap; color: #fff; background: linear-gradient(135deg, var(--yfp-red), var(--yfp-red-deep)); box-shadow: 0 8px 18px -8px rgba(168, 36, 44, .85); }
+
+/* 桌面端：入口与列表同宽收束居中 */
+@media (min-width: 768px) {
+  .yfp-m .m-wrap-list .m-loan-entry { max-width: 1180px; margin: 10px auto 18px; padding: 18px 24px; }
+}
 
 /* 房源详情页：贷款测算入口 */
 .yfp-m .m-detail-loan { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 0; padding: 13px 15px; border-radius: 14px; text-decoration: none;
