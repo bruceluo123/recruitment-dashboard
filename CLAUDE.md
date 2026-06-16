@@ -113,7 +113,7 @@ interface Candidate {
 
 4. **导入流程**: Excel 解析 → 自动检测列名（标题/薪资/部门/地点）→ 长文本(>200字)走 AI 解析 → 短文本走列解析 → 自动分类。
 
-5. **AI 匹配**: 简历上传后在分类范围（可多选）内匹配，单次 API 调用批量评估，返回前 5 匹配。
+5. **AI 匹配**: 简历上传后在分类范围（可多选）内匹配，单次 API 调用批量评估，返回前 10 匹配。
 
 6. **部署**: Vercel + Upstash KV。`qieqiuzhidao.vercel.app` 为生产域名（通过 `vercel domains` 绑定）。`vercel deploy --prod --yes` 自动更新。
 
