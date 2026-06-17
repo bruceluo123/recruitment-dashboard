@@ -23,6 +23,8 @@ interface VariantConfig {
   label: string;
   /** 头部行：priorityLabel 为 P0/P1，seq 为日期/分段序号 */
   buildHeader: (priorityLabel: string, seq: string) => string;
+  /** 职能分类小标题：emoji 为分类图标，label 为分类中文名 */
+  buildHeading: (emoji: string, label: string) => string;
   /** 署名行 */
   signature: string;
 }
@@ -30,12 +32,14 @@ interface VariantConfig {
 const VARIANTS: Record<AdVariant, VariantConfig> = {
   maimanfen: {
     label: '麦满分',
-    buildHeader: (priorityLabel, seq) => `全远程居家工作—今日 ${priorityLabel} 急招岗位🍔🍔（${seq}）`,
-    signature: '欢迎自荐或转推荐，投递联系麦满分同学🍔 @bruceluo123',
+    buildHeader: (priorityLabel, seq) => `🚀 全远程 · 居家办公 ｜ ${priorityLabel} 急招速递（${seq}）`,
+    buildHeading: (emoji, label) => `━━ ${emoji} ${label} ━━`,
+    signature: '📩 自荐 / 转推荐，直接私信麦满分同学 👉 @Robinlee99',
   },
   tieniu: {
     label: '铁牛',
     buildHeader: () => '全远程居家工作—今日急招',
+    buildHeading: (emoji, label) => `${emoji}${label}类`,
     signature: '欢迎自荐或转推荐，投递联系 @Tie_Niu66',
   },
 };
@@ -139,7 +143,7 @@ export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant
 
   for (const group of groups) {
     const emoji = CATEGORY_EMOJI[group.cat] || '💼';
-    const heading = `${emoji}${JD_CATEGORY_LABELS[group.cat]}类`;
+    const heading = cfg.buildHeading(emoji, JD_CATEGORY_LABELS[group.cat]);
     let headingWritten = false;
     for (const jd of group.jds) {
       if (cur.count >= perSegment) flush();
