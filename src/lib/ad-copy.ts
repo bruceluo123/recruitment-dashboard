@@ -25,21 +25,38 @@ interface VariantConfig {
   buildHeader: (priorityLabel: string, seq: string) => string;
   /** 职能分类小标题：emoji 为分类图标，label 为分类中文名 */
   buildHeading: (emoji: string, label: string) => string;
-  /** 署名行 */
+  /** 单个岗位行：title 岗位名，salary 薪资，loc 地点（远程为空字符串） */
+  buildLine: (title: string, salary: string, loc: string) => string;
+  /** 署名块（可多行） */
   signature: string;
 }
 
 const VARIANTS: Record<AdVariant, VariantConfig> = {
   maimanfen: {
     label: '麦满分',
-    buildHeader: (priorityLabel, seq) => `🚀 全远程 · 居家办公 ｜ ${priorityLabel} 急招速递（${seq}）`,
-    buildHeading: (emoji, label) => `━━ ${emoji} ${label} ━━`,
-    signature: '📩 自荐 / 转推荐，直接私信麦满分同学 👉 @Robinlee99',
+    buildHeader: (priorityLabel, seq) =>
+      [
+        '╭───────────────╮',
+        `   💼 在家就能赚 · 远程高薪局`,
+        `   🗓️ ${seq}　🔖 ${priorityLabel} 优先`,
+        '╰───────────────╯',
+      ].join('\n'),
+    buildHeading: (emoji, label) => `${emoji} 〔${label}〕`,
+    buildLine: (title, salary, loc) =>
+      `  ▷ ${title}　💰${salary}${loc ? `　📍${loc}` : ''}`,
+    signature:
+      [
+        '———————————————',
+        '👀 看到合适的，简历直接甩过来',
+        '🤝 自荐 / 内推都欢迎',
+        '🐧 加我聊 → @Robinlee99',
+      ].join('\n'),
   },
   tieniu: {
     label: '铁牛',
     buildHeader: () => '全远程居家工作—今日急招',
     buildHeading: (emoji, label) => `${emoji}${label}类`,
+    buildLine: (title, salary, loc) => `- ${title} ｜ ${salary}${loc ? `  ${loc}` : ''}`,
     signature: '欢迎自荐或转推荐，投递联系 @Tie_Niu66',
   },
 };
@@ -81,11 +98,11 @@ function salaryOf(jd: JD): string {
   return '面议';
 }
 
-/** 生成一行岗位文案：- 岗位名 ｜ 薪资  地点 */
-function lineOf(jd: JD): string {
+/** 生成一行岗位文案，具体格式由风格的 buildLine 决定 */
+function lineOf(jd: JD, cfg: VariantConfig): string {
   const salary = salaryOf(jd);
-  const loc = isRemoteLocation(jd.location) ? '' : `  ${jd.location!.trim()}`;
-  return `- ${jd.title} ｜ ${salary}${loc}`;
+  const loc = isRemoteLocation(jd.location) ? '' : jd.location!.trim();
+  return cfg.buildLine(jd.title, salary, loc);
 }
 
 export interface AdSegment {
@@ -155,7 +172,7 @@ export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant
           headingWritten = true;
         }
       }
-      cur.lines.push(lineOf(jd));
+      cur.lines.push(lineOf(jd, cfg));
       cur.count++;
     }
   }
