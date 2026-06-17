@@ -34,22 +34,16 @@ interface VariantConfig {
 const VARIANTS: Record<AdVariant, VariantConfig> = {
   maimanfen: {
     label: '麦满分',
-    buildHeader: (priorityLabel, seq) =>
-      [
-        '╭───────────────╮',
-        `   💼 在家就能赚 · 远程高薪局`,
-        `   🗓️ ${seq}　🔖 ${priorityLabel} 优先`,
-        '╰───────────────╯',
-      ].join('\n'),
-    buildHeading: (emoji, label) => `${emoji} 〔${label}〕`,
+    buildHeader: () => '远程remote 工作，欢迎联系',
+    buildHeading: (_emoji, label) => `${label}类：`,
     buildLine: (title, salary, loc) =>
-      `  ▷ ${title}　💰${salary}${loc ? `　📍${loc}` : ''}`,
+      `  ▷ ${title}　${salary}${loc ? `　${loc}` : ''}`,
     signature:
       [
         '———————————————',
-        '👀 看到合适的，简历直接甩过来',
-        '🤝 自荐 / 内推都欢迎',
-        '🐧 加我聊 → @Robinlee99',
+        '看到合适的，简历直接甩过来',
+        '自荐 / 内推都欢迎',
+        '加我聊 → @Robinlee99',
       ].join('\n'),
   },
   tieniu: {
