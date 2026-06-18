@@ -404,6 +404,8 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   if (!rawTitleCell) return null;
   // Skip repeated section header rows mid-sheet
   if (isAllowedTitleHeader(rawTitleCell)) return null;
+  // Skip garbage rows whose "title" is purely a number/序号（如错位粘贴产生的 "1" 行）
+  if (/^[\d.\s、,，#-]+$/.test(rawTitleCell)) return null;
 
   const organization = cols.orgCol ? String(row[cols.orgCol] || '').trim() : '';
   const serviceUnit = cols.serviceCol ? String(row[cols.serviceCol] || '').trim() : '';

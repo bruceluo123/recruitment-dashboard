@@ -303,8 +303,31 @@ export const useJDStore = create<JDStore>()(
             result.replaced = enriched.length;
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
           } else {
+            // 每日面板新行常缺职责/要求。合并前先从库中同岗位回填内容，
+            // 否则「岗位身份变了（旧无 REQ-Key、新有 REQ-Key）」时会新增一条空壳 JD。
+            // 双重匹配：先按 getJDKey（含 REQ-Key），再按标题兜底。
+            const existing = get().jds;
+            const oldByKey = new Map(existing.map((j) => [getJDKey(j), j]));
+            const normTitle = (t: string) => t.toLowerCase().replace(/[（(]\s*\d+\s*人\s*[）)]/g, '').replace(/\s+/g, '');
+            const oldByTitle = new Map(
+              existing
+                .filter((j) => (j.responsibilities?.length || 0) > 0 || (j.requirements?.length || 0) > 0)
+                .map((j) => [normTitle(j.title), j])
+            );
+            const enrichedBatch = cleanBatch.map((jd) => {
+              const hasResp = (jd.responsibilities?.length || 0) > 0;
+              const hasReq = (jd.requirements?.length || 0) > 0;
+              if (hasResp && hasReq) return jd;
+              const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(normTitle(jd.title));
+              if (!old) return jd;
+              return {
+                ...jd,
+                responsibilities: hasResp ? jd.responsibilities : old.responsibilities,
+                requirements: hasReq ? jd.requirements : old.requirements,
+              };
+            });
             // 增量合并：跳过岗位库里已存在的岗位（按 REQ-Key 查重），只新增没有的。
-            const merged = mergeUniqueJDs(get().jds, cleanBatch);
+            const merged = mergeUniqueJDs(existing, enrichedBatch);
             useJDStore.setState({ jds: merged.jds });
             if (merged.skipped > 0) {
               result.success -= merged.skipped;

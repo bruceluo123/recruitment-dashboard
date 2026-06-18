@@ -3,11 +3,11 @@
 //   - 每个非空单元格值占一行，后跟 1 个空行作分隔
 //   - 空单元格 = 多一个空行（连续 N 个空行 = 1 个分隔符 + (N-1) 个空单元格）
 //   - 锚点：需求Key 列恒以「REQ-」开头（记录起点），最后一列恒为字面文字「最近更新」（记录终点）
-// 一条记录在 REQ- 与「最近更新」之间还原出固定 20 个字段：
+// 一条记录在 REQ- 与「最近更新」之间还原出固定 21 个字段：
 //   [0]需求Key [1]岗位名称 [2]编制组织 [3]服务单位 [4]部门 [5]HC [6]已到岗 [7]缺口
-//   [8]已发offer待入职 [9]提需日期 [10]期望到岗日期 [11]优先级 [12]简历对接人 [13]JD
-//   [14]薪资范围 [15]备注说明 [16]来源表格 [17]对应ODC [18]对应SSC [19]更新时间
-// JD 正文可能自带换行导致中间列变多，故用「前 13 列 + 后 6 列固定、中间全部并入 JD」兜底。
+//   [8]已发offer待入职 [9]提需日期 [10]期望到岗日期 [11]优先级 [12]简历对接人 [13]需求发起人
+//   [14]JD [15]薪资范围 [16]备注说明 [17]来源表格 [18]对应ODC [19]对应SSC [20]更新时间
+// JD 正文可能自带换行导致中间列变多，故用「前 14 列 + 后 6 列固定、中间全部并入 JD」兜底。
 export const PANEL_HEADERS = [
   '需求Key', '岗位名称', '编制组织', '服务单位', '部门', 'HC', '缺口', '优先级',
   '简历对接人 (花名 & @TG)', '薪资范围', 'JD 岗位职责与任职要求', '加急',
@@ -61,14 +61,14 @@ function reconstructPanelVertical(text: string): string[][] | null {
     const cells = reconstructCells(lines.slice(ri, j));
     if (cells.length < 20) continue; // 异常记录，跳过
 
-    const front = cells.slice(0, 13);
+    const front = cells.slice(0, 14);
     const back = cells.slice(cells.length - 6);
-    const jd = cells.slice(13, cells.length - 6).filter(Boolean).join('\n');
-    const full = [...front, jd, ...back]; // 恒为 20 列
+    const jd = cells.slice(14, cells.length - 6).filter(Boolean).join('\n');
+    const full = [...front, jd, ...back]; // 恒为 21 列
     rows.push([
       full[0], // 需求Key（唯一身份，用于去重）
       full[1], full[2], full[3], full[4], full[5], // 岗位名称/编制组织/服务单位/部门/HC
-      full[7], full[11], full[12], full[14], full[13], // 缺口/优先级/简历对接人/薪资范围/JD
+      full[7], full[11], full[12], full[15], full[14], // 缺口/优先级/简历对接人/薪资范围/JD
       isExpeditedBefore(lines, ri) ? '1' : '', // 加急（❗ 标记）
     ]);
   }
