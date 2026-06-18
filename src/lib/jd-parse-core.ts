@@ -21,7 +21,7 @@ export const PRIORITY_KEYS = ['优先级', '优先级别', '优先', 'priority',
 export const REQ_KEY_KEYS = ['需求key', '需求编号', '需求id', 'reqkey', 'reqid'];
 // 加急标记（源面板 ❗ 列）——独立于优先级的人工加急标记，用于热招看板「加急岗位」栏。
 export const EXPEDITED_KEYS = ['加急', '加急岗位', '紧急标记', 'expedited'];
-// 简历对接人（花名 & @TG）——招聘实际要联系的人（带 TG 句柄），作为「对接ODC」缺失时的回退。
+// 简历对接人（花名 & @TG）——招聘实际要联系的人（带 TG 句柄），「对接ODC」列优先展示此列。
 export const CONTACT_KEYS = ['简历对接人', '花名'];
 export const ODC_KEYS = ['对应的odc', '对接odc', 'odc'];
 export const SKIP_KEYS = ['已到岗', '已发offer', '待入职', '提需日期', '期望到岗日期', '期望到岗'];
@@ -380,8 +380,8 @@ export function analyzeColumns(headers: string[]): ColumnMap | null {
   const hcCol = findColumnByKeywords(headers, HC_KEYS);
   const vacancyCol = findColumnByKeywords(headers, VACANCY_KEYS);
   const priorityCol = findColumnByKeywords(headers, PRIORITY_KEYS);
-  // 「对接ODC」展示取源表「对应的ODC」列；缺失时回退到「简历对接人（花名 & @TG）」列。
-  const odcCol = findColumnByKeywords(headers, ODC_KEYS) || findColumnByKeywords(headers, CONTACT_KEYS);
+  // 「对接ODC」展示取源表「简历对接人（花名 & @TG）」列（带 TG 号、可直接联系）；缺失时回退到「对应的ODC」列。
+  const odcCol = findColumnByKeywords(headers, CONTACT_KEYS) || findColumnByKeywords(headers, ODC_KEYS);
   const reqKeyCol = findColumnByKeywords(headers, REQ_KEY_KEYS);
   const expeditedCol = findColumnByKeywords(headers, EXPEDITED_KEYS);
   const skipCols = headers.filter((h) => matchesAnyKeyword(h, SKIP_KEYS));

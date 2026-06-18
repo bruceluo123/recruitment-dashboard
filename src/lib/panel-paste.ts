@@ -10,7 +10,7 @@
 // JD 正文可能自带换行导致中间列变多，故用「前 14 列 + 后 6 列固定、中间全部并入 JD」兜底。
 export const PANEL_HEADERS = [
   '需求Key', '岗位名称', '编制组织', '服务单位', '部门', 'HC', '缺口', '优先级',
-  '对应ODC', '薪资范围', 'JD 岗位职责与任职要求', '加急',
+  '简历对接人 (花名 & @TG)', '薪资范围', 'JD 岗位职责与任职要求', '加急',
 ];
 
 /** 记录是否「加急」：源面板在该需求的 REQ- 行前单独放一行 ❗ 标记。
@@ -68,7 +68,7 @@ function reconstructPanelVertical(text: string): string[][] | null {
     rows.push([
       full[0], // 需求Key（唯一身份，用于去重）
       full[1], full[2], full[3], full[4], full[5], // 岗位名称/编制组织/服务单位/部门/HC
-      full[7], full[11], full[18], full[15], full[14], // 缺口/优先级/对应ODC/薪资范围/JD
+      full[7], full[11], full[12], full[15], full[14], // 缺口/优先级/简历对接人(花名&@TG)/薪资范围/JD
       isExpeditedBefore(lines, ri) ? '1' : '', // 加急（❗ 标记）
     ]);
   }
