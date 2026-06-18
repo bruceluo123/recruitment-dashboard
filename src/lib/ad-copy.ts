@@ -40,7 +40,7 @@ const VARIANTS: Record<AdVariant, VariantConfig> = {
     signature:
       [
         '各种类岗位总计200+，自荐 / 内推都欢迎',
-        '想找工作的欢迎加我问hc   → @Robinlee99',
+        '想看看自己的岗位有没有需求的，欢迎找我聊聊 → @Robinlee99',
       ].join('\n'),
   },
   tieniu: {
@@ -173,9 +173,8 @@ export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant
   const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日`;
   const total = segments.length;
   return segments.map((seg, i) => {
-    const seq = total > 1 ? `${dateLabel} · ${i + 1}/${total}` : dateLabel;
     const title = `${priorityLabel} 急招${total > 1 ? `（${i + 1}/${total}）` : ''}`;
-    const header = cfg.buildHeader(priorityLabel, seq);
+    const header = cfg.buildHeader(priorityLabel, dateLabel);
     const text = [header, '', ...seg.lines, '', cfg.signature].join('\n');
     return { title, text, count: seg.count };
   });
