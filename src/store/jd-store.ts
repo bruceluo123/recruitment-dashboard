@@ -10,6 +10,7 @@ import {
   analyzeColumns,
   cleanJDNumbering,
   detectCategories,
+  getJDKey,
   isAllowedTitleHeader,
   mergeUniqueJDs,
   normalizeExcelRows,
@@ -280,11 +281,26 @@ export const useJDStore = create<JDStore>()(
             // 全量覆盖：用本次粘贴替换整个岗位库（先对本批内部去重，避免同一面板里重复 REQ-Key）。
             // 一次粘贴 = 新增 + 更新 + 删除：面板里没有的岗位会随覆盖一并移除。
             const deduped = mergeUniqueJDs([], cleanBatch);
-            useJDStore.setState({ jds: deduped.jds });
-            result.success = deduped.jds.length;
+            // 每日面板只有摘要列（岗位名/薪资/部门/编制），没有职责/要求。
+            // 覆盖时若新行缺职责/要求，则沿用库中同一岗位的旧内容，避免覆盖把 JD 详情清空。
+            const oldByKey = new Map(get().jds.map((j) => [getJDKey(j), j]));
+            const enriched = deduped.jds.map((jd) => {
+              const old = oldByKey.get(getJDKey(jd));
+              if (!old) return jd;
+              const hasResp = jd.responsibilities && jd.responsibilities.length > 0;
+              const hasReq = jd.requirements && jd.requirements.length > 0;
+              if (hasResp && hasReq) return jd;
+              return {
+                ...jd,
+                responsibilities: hasResp ? jd.responsibilities : old.responsibilities,
+                requirements: hasReq ? jd.requirements : old.requirements,
+              };
+            });
+            useJDStore.setState({ jds: enriched });
+            result.success = enriched.length;
             result.failed = 0;
             result.errors = [];
-            result.replaced = deduped.jds.length;
+            result.replaced = enriched.length;
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
           } else {
             // 增量合并：跳过岗位库里已存在的岗位（按 REQ-Key 查重），只新增没有的。
