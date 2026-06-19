@@ -103,7 +103,8 @@ export function JDTable({
                 ? <ColumnFilter label="服务单位" options={serviceOptions} selected={serviceFilter ?? new Set()} onChange={onServiceFilterChange} />
                 : '服务单位'}
             </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">对接ODC</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">简历对接人</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">需求发起人</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">薪资</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">状态</th>
             <th className="w-12" />
@@ -157,6 +158,7 @@ export function JDTable({
                   </button>
                 ) : <span className="text-sm text-gray-400">-</span>;
                 const odcKey = `${jd.id}-odc`;
+                const requesterKey = `${jd.id}-requester`;
                 return (
                   <>
                     <td className="py-3 px-4">{renderOrgService(jd.organization || '-')}</td>
@@ -168,6 +170,18 @@ export function JDTable({
                           className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-full">
                           <span className="truncate">{jd.odc}</span>
                           {copiedKey === odcKey
+                            ? <Check className="w-3 h-3 text-green-600 shrink-0" />
+                            : <Copy className="w-3 h-3 shrink-0 opacity-0 group-hover/cp:opacity-100 transition-opacity" />}
+                        </button>
+                      ) : <span className="text-sm text-gray-400">-</span>}
+                    </td>
+                    <td className="py-3 px-4">
+                      {jd.requester ? (
+                        <button onClick={(e) => { e.stopPropagation(); copyText(requesterKey, jd.requester!); }}
+                          title={`点击复制：${jd.requester}`}
+                          className="group/cp inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-600 transition-colors max-w-full">
+                          <span className="truncate">{jd.requester}</span>
+                          {copiedKey === requesterKey
                             ? <Check className="w-3 h-3 text-green-600 shrink-0" />
                             : <Copy className="w-3 h-3 shrink-0 opacity-0 group-hover/cp:opacity-100 transition-opacity" />}
                         </button>

@@ -127,13 +127,13 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                 <button onClick={() => setViewMode(viewMode === 'odc' ? 'ai' : 'odc')}
                   className={cn('flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5',
                     viewMode === 'odc' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
-                  <UserRound className="w-3.5 h-3.5" />对接 ODC
+                  <UserRound className="w-3.5 h-3.5" />简历对接人
                 </button>
               </div>
 
               {viewMode === 'odc' && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-gray-400">对接 ODC</p>
+                  <p className="text-xs font-medium text-gray-400">简历对接人</p>
                   {jd.odc ? (
                     <button onClick={handleCopyOdc}
                       className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-left transition-colors group">
@@ -143,7 +143,7 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                         : <span className="flex items-center gap-1 text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"><Copy className="w-3.5 h-3.5" />点击复制</span>}
                     </button>
                   ) : (
-                    <p className="text-sm text-gray-400 px-3 py-2.5 rounded-lg bg-gray-50">暂无 ODC 信息</p>
+                    <p className="text-sm text-gray-400 px-3 py-2.5 rounded-lg bg-gray-50">暂无简历对接人信息</p>
                   )}
                 </div>
               )}

@@ -41,7 +41,8 @@ export interface JD {
   headcount?: string;
   gap?: string;
   priority?: string;             // 优先级：P0 / P1 / P2 / P3（源表"优先级"列）
-  odc?: string;                  // 对接 ODC（源表"对应的ODC"列）
+  odc?: string;                  // 简历对接人（源表"简历对接人 花名 & @TG"列）——带 TG 句柄、可直接联系
+  requester?: string;            // 需求发起人（源表"需求发起人"列）
   reqKey?: string;               // 需求Key（源表 REQ-xxx 列）——跨导入的唯一身份，用于去重
   expedited?: boolean;           // 加急（源表 ❗ 标记）——独立于优先级，用于热招看板「加急岗位」栏
   categories: JDCategory[];

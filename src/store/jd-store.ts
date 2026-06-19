@@ -157,7 +157,7 @@ export const useJDStore = create<JDStore>()(
             set({ isImporting: false });
             return { success: 0, failed: rows.length, errors: ['未找到岗位名称列，请使用表头：岗位名称 / 职位名称 / 岗位 / 职位 / title / job_title'] };
           }
-          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, contentCols } = cols;
+          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, contentCols } = cols;
 
           const total = rows.length;
           set({ importProgress: { current: 0, total, percent: 0, status: 'parsing' } });
@@ -225,6 +225,7 @@ export const useJDStore = create<JDStore>()(
                 const gap = (vacancyCol ? String(row[vacancyCol] || '').trim() : '') || '0';
                 const priority = priorityCol ? parsePriority(String(row[priorityCol] || '').trim()) : undefined;
                 const odc = odcCol ? String(row[odcCol] || '').trim() : '';
+                const requester = requesterCol ? String(row[requesterCol] || '').trim() : '';
                 const reqKey = cols.reqKeyCol ? String(row[cols.reqKeyCol] || '').trim() : '';
                 const expedited = cols.expeditedCol ? !!String(row[cols.expeditedCol] || '').trim() : false;
 
@@ -249,6 +250,7 @@ export const useJDStore = create<JDStore>()(
                   gap: gap || undefined,
                   priority,
                   odc: odc || undefined,
+                  requester: requester || undefined,
                   reqKey: reqKey || undefined,
                   expedited: expedited || undefined,
                   categories: detectCategories(title),
@@ -402,7 +404,8 @@ const EXPORT_COLUMNS: Array<{ header: string; key: string; width: number; wrap?:
   { header: '缺口', key: 'gap', width: 8 },
   { header: '编制组织', key: 'organization', width: 16 },
   { header: '服务单位', key: 'serviceUnit', width: 16 },
-  { header: '对接ODC', key: 'odc', width: 18 },
+  { header: '简历对接人', key: 'odc', width: 18 },
+  { header: '需求发起人', key: 'requester', width: 18 },
   { header: '薪资', key: 'salary', width: 18 },
   { header: '状态', key: 'status', width: 10 },
   { header: '地点', key: 'location', width: 12 },
@@ -422,6 +425,7 @@ function jdToExportRow(jd: JD): Record<string, string> {
     organization: jd.organization || '',
     serviceUnit: jd.serviceUnit || jd.department || '',
     odc: jd.odc || '',
+    requester: jd.requester || '',
     salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min} - ${jd.salaryRange.max}${jd.salaryRange.currency}` : ''),
     status: JD_STATUS_LABELS[jd.status],
     location: jd.location || 'remote',

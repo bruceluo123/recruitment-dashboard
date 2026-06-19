@@ -21,9 +21,11 @@ export const PRIORITY_KEYS = ['优先级', '优先级别', '优先', 'priority',
 export const REQ_KEY_KEYS = ['需求key', '需求编号', '需求id', 'reqkey', 'reqid'];
 // 加急标记（源面板 ❗ 列）——独立于优先级的人工加急标记，用于热招看板「加急岗位」栏。
 export const EXPEDITED_KEYS = ['加急', '加急岗位', '紧急标记', 'expedited'];
-// 简历对接人（花名 & @TG）——招聘实际要联系的人（带 TG 句柄），「对接ODC」列优先展示此列。
+// 简历对接人（花名 & @TG）——招聘实际要联系的人（带 TG 句柄），「简历对接人」列优先展示此列。
 export const CONTACT_KEYS = ['简历对接人', '花名'];
 export const ODC_KEYS = ['对应的odc', '对接odc', 'odc'];
+// 需求发起人——提出该需求的业务方（独立于简历对接人，单独成列展示）。
+export const REQUESTER_KEYS = ['需求发起人', '发起人', '需求方'];
 export const SKIP_KEYS = ['已到岗', '已发offer', '待入职', '提需日期', '期望到岗日期', '期望到岗'];
 // 联系人/来源等元数据列：不识别为岗位内容（如"来源表格""对应的ODC""对应的SSC""对接人""联系方式"）
 export const META_KEYS = ['来源表格', '对应的odc', '对应的ssc', 'odc', 'ssc', '对接人', '联系人', '联系方式', 'tg', 'telegram'];
@@ -363,6 +365,7 @@ export interface ColumnMap {
   vacancyCol: string | null;
   priorityCol: string | null;
   odcCol: string | null;
+  requesterCol: string | null;
   reqKeyCol: string | null;
   expeditedCol: string | null;
   contentCols: string[];
@@ -380,20 +383,21 @@ export function analyzeColumns(headers: string[]): ColumnMap | null {
   const hcCol = findColumnByKeywords(headers, HC_KEYS);
   const vacancyCol = findColumnByKeywords(headers, VACANCY_KEYS);
   const priorityCol = findColumnByKeywords(headers, PRIORITY_KEYS);
-  // 「对接ODC」展示取源表「简历对接人（花名 & @TG）」列（带 TG 号、可直接联系）；缺失时回退到「对应的ODC」列。
+  // 「简历对接人」展示取源表「简历对接人（花名 & @TG）」列（带 TG 号、可直接联系）；缺失时回退到「对应的ODC」列。
   const odcCol = findColumnByKeywords(headers, CONTACT_KEYS) || findColumnByKeywords(headers, ODC_KEYS);
+  const requesterCol = findColumnByKeywords(headers, REQUESTER_KEYS);
   const reqKeyCol = findColumnByKeywords(headers, REQ_KEY_KEYS);
   const expeditedCol = findColumnByKeywords(headers, EXPEDITED_KEYS);
   const skipCols = headers.filter((h) => matchesAnyKeyword(h, SKIP_KEYS));
   const metaCols = headers.filter((h) => matchesAnyKeyword(h, META_KEYS));
 
   const knownCols = new Set<string>(
-    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, reqKeyCol, expeditedCol, ...skipCols, ...metaCols]
+    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, reqKeyCol, expeditedCol, ...skipCols, ...metaCols]
       .filter((x): x is string => x !== null)
   );
   const contentCols = headers.filter((h) => !knownCols.has(h));
 
-  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, reqKeyCol, expeditedCol, contentCols };
+  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, reqKeyCol, expeditedCol, contentCols };
 }
 
 /** Build a JD from a row using deterministic column parsing (no AI).
@@ -413,6 +417,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   const gap = (cols.vacancyCol ? String(row[cols.vacancyCol] || '').trim() : '') || '0';
   const priority = cols.priorityCol ? parsePriority(String(row[cols.priorityCol] || '').trim()) : undefined;
   const odc = cols.odcCol ? String(row[cols.odcCol] || '').trim() : '';
+  const requester = cols.requesterCol ? String(row[cols.requesterCol] || '').trim() : '';
   const reqKey = cols.reqKeyCol ? String(row[cols.reqKeyCol] || '').trim() : '';
   const expedited = cols.expeditedCol ? isTruthyFlag(String(row[cols.expeditedCol] || '')) : false;
 
@@ -446,6 +451,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     gap: gap || undefined,
     priority,
     odc: odc || undefined,
+    requester: requester || undefined,
     reqKey: reqKey || undefined,
     expedited: expedited || undefined,
     categories: detectCategories(title),

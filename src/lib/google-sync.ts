@@ -46,6 +46,7 @@ function contentSignature(jd: JD): string {
     salaryText: jd.salaryText || '',
     location: jd.location || '',
     odc: jd.odc || '',
+    requester: jd.requester || '',
   });
 }
 
@@ -68,6 +69,7 @@ function refreshFromSheet(existing: JD, fresh: JD): JD {
     salaryText: fresh.salaryText,
     location: fresh.location,
     odc: fresh.odc,
+    requester: fresh.requester,
     source: 'google-sync',
     updatedAt: new Date().toISOString(),
   };
