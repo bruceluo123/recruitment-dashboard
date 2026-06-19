@@ -48,18 +48,19 @@ export function JDTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1040px] table-fixed">
+      <table className="w-full min-w-[1000px] table-fixed">
         <colgroup>
           {batchMode && <col className="w-10" />}
           <col className="w-[200px]" />
           <col className="w-[72px]" />
           <col className="w-[56px]" />
           <col className="w-[56px]" />
-          <col className="w-[120px]" />
-          <col className="w-[120px]" />
-          <col className="w-[190px]" />
-          <col className="w-[110px]" />
+          <col className="w-[96px]" />
+          <col className="w-[96px]" />
+          <col className="w-[128px]" />
+          <col className="w-[112px]" />
           <col className="w-[88px]" />
+          <col className="w-[72px]" />
           <col className="w-12" />
         </colgroup>
         <thead>

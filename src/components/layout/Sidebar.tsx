@@ -50,15 +50,18 @@ export function Sidebar() {
           <span className={cn('font-semibold text-sm text-gray-800', labelHidden)}>企鹅岛</span>
         </div>
 
-        <nav className="flex-1 py-4 px-2 space-y-1">
+        <nav className="flex-1 py-4 px-2 space-y-1.5">
           {menuItems.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link key={item.href} href={item.href} onClick={closeNav} className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
-                isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50',
+                'group/nav relative flex items-center gap-3 px-3 py-3 rounded-xl text-[15px] font-semibold transition-all duration-200',
+                isActive
+                  ? 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white shadow-md shadow-indigo-500/25'
+                  : 'text-gray-600 hover:text-indigo-700 hover:bg-indigo-50 active:scale-[0.98]',
               )}>
-                <item.icon className={cn('w-5 h-5 shrink-0', isActive && 'text-indigo-500')} />
+                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full bg-white/80" />}
+                <item.icon className={cn('w-[22px] h-[22px] shrink-0 transition-transform group-hover/nav:scale-110', isActive ? 'text-white' : 'text-gray-400 group-hover/nav:text-indigo-500')} />
                 <span className={labelHidden}>{item.label}</span>
               </Link>
             );
