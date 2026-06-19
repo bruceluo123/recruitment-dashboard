@@ -334,9 +334,13 @@ export function mergeUniqueJDs(existing: JD[], incoming: JD[]): { jds: JD[]; ski
   // 重复记录里若带「加急」标记，则把标记合并回已有岗位——
   // 这样无需清空即可重新粘贴加急清单来点亮对应岗位。
   const expediteKeys = new Set<string>();
+  // 同样回填「需求发起人」：旧数据在该字段加入前导入，缺这一列；
+  // 重新粘贴源表时把发起人补到已有岗位上（仅在原本为空时），无需清空重导。
+  const requesterByKey = new Map<string, string>();
 
   for (const jd of incoming) {
     const key = getJDKey(jd);
+    if (jd.requester && !requesterByKey.has(key)) requesterByKey.set(key, jd.requester);
     if (seen.has(key)) {
       if (jd.expedited) expediteKeys.add(key);
       continue;
@@ -345,8 +349,16 @@ export function mergeUniqueJDs(existing: JD[], incoming: JD[]): { jds: JD[]; ski
     unique.push(jd);
   }
 
-  const merged = expediteKeys.size
-    ? existing.map((jd) => (expediteKeys.has(getJDKey(jd)) && !jd.expedited ? { ...jd, expedited: true } : jd))
+  const needsBackfill = expediteKeys.size > 0 || requesterByKey.size > 0;
+  const merged = needsBackfill
+    ? existing.map((jd) => {
+        const key = getJDKey(jd);
+        let next = jd;
+        if (expediteKeys.has(key) && !jd.expedited) next = { ...next, expedited: true };
+        const requester = requesterByKey.get(key);
+        if (requester && !next.requester) next = { ...next, requester };
+        return next;
+      })
     : existing;
 
   return { jds: [...merged, ...unique], skipped: incoming.length - unique.length };
