@@ -48,19 +48,18 @@ export function JDTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1000px] table-fixed">
+      <table className="w-full min-w-[920px] table-fixed">
         <colgroup>
           {batchMode && <col className="w-10" />}
-          <col className="w-[200px]" />
+          <col className="w-[220px]" />
           <col className="w-[72px]" />
-          <col className="w-[56px]" />
-          <col className="w-[56px]" />
-          <col className="w-[96px]" />
-          <col className="w-[96px]" />
-          <col className="w-[128px]" />
-          <col className="w-[112px]" />
-          <col className="w-[88px]" />
-          <col className="w-[72px]" />
+          <col className="w-[52px]" />
+          <col className="w-[52px]" />
+          <col className="w-[120px]" />
+          <col className="w-[120px]" />
+          <col className="w-[150px]" />
+          <col className="w-[130px]" />
+          <col className="w-[100px]" />
           <col className="w-12" />
         </colgroup>
         <thead>
@@ -107,7 +106,6 @@ export function JDTable({
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">简历对接人</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">需求发起人</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">薪资</th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">状态</th>
             <th className="w-12" />
           </tr>
         </thead>
@@ -193,14 +191,6 @@ export function JDTable({
               })()}
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <span className="text-sm text-green-600 font-medium whitespace-nowrap">{jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')}</span>
-              </td>
-              <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <span className={cn('inline-flex items-center gap-1.5 text-xs',
-                  jd.status === 'urgent' ? 'text-red-600' : jd.status === 'active' ? 'text-green-600' : 'text-gray-400')}>
-                  <span className={cn('w-1.5 h-1.5 rounded-full',
-                    jd.status === 'urgent' ? 'bg-red-500' : jd.status === 'active' ? 'bg-green-500' : 'bg-gray-300')} />
-                  {jd.status === 'urgent' ? '急招' : jd.status === 'active' ? '活跃' : '暂缓'}
-                </span>
               </td>
               <td className="py-3 px-4">
                 <div className="flex items-center gap-1">
