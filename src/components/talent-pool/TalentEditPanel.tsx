@@ -21,9 +21,31 @@ interface EditForm {
   notes: string;
   resumeUrl: string;
   resumeFileName: string;
+  company: string;
+  department: string;
+  techDirection: string;
+  eduLevel: string;
+  school: string;
+  major: string;
+  gradYear: string;
+  location: string;
+  prevCompanies: string;
+  email: string;
+  phone: string;
+  maimai: string;
+  linkedin: string;
+  github: string;
+  scholar: string;
+  openreview: string;
+  homepage: string;
 }
 
-const EMPTY: EditForm = { name: '', jobTitle: '', categories: [], tg: '', notes: '', resumeUrl: '', resumeFileName: '' };
+const EMPTY: EditForm = {
+  name: '', jobTitle: '', categories: [], tg: '', notes: '', resumeUrl: '', resumeFileName: '',
+  company: '', department: '', techDirection: '', eduLevel: '', school: '', major: '', gradYear: '',
+  location: '', prevCompanies: '', email: '', phone: '',
+  maimai: '', linkedin: '', github: '', scholar: '', openreview: '', homepage: '',
+};
 
 export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProps) {
   const updateTalent = useTalentStore((s) => s.updateTalent);
@@ -41,6 +63,23 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
         notes: talent.notes || '',
         resumeUrl: talent.resumeUrl || '',
         resumeFileName: talent.resumeFileName || '',
+        company: talent.company || '',
+        department: talent.department || '',
+        techDirection: talent.techDirection || '',
+        eduLevel: talent.eduLevel || '',
+        school: talent.school || '',
+        major: talent.major || '',
+        gradYear: talent.gradYear || '',
+        location: talent.location || '',
+        prevCompanies: (talent.prevCompanies || []).join('、'),
+        email: talent.email || '',
+        phone: talent.phone || '',
+        maimai: talent.links?.maimai || '',
+        linkedin: talent.links?.linkedin || '',
+        github: talent.links?.github || '',
+        scholar: talent.links?.scholar || '',
+        openreview: talent.links?.openreview || '',
+        homepage: talent.links?.homepage || '',
       });
       setUploadError('');
     }
@@ -73,6 +112,20 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
   };
 
   const handleSave = () => {
+    const t = (s: string) => { const v = s.trim(); return v ? v : undefined; };
+    const prevCompanies = form.prevCompanies
+      .split(/[、,，;；\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const links = {
+      maimai: t(form.maimai),
+      linkedin: t(form.linkedin),
+      github: t(form.github),
+      scholar: t(form.scholar),
+      openreview: t(form.openreview),
+      homepage: t(form.homepage),
+    };
+    const hasLinks = Object.values(links).some(Boolean);
     updateTalent(talent.id, {
       name: form.name.trim(),
       jobTitle: form.jobTitle.trim(),
@@ -81,6 +134,18 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
       notes: form.notes.trim(),
       resumeUrl: form.resumeUrl || undefined,
       resumeFileName: form.resumeFileName || undefined,
+      company: t(form.company),
+      department: t(form.department),
+      techDirection: t(form.techDirection),
+      eduLevel: t(form.eduLevel),
+      school: t(form.school),
+      major: t(form.major),
+      gradYear: t(form.gradYear),
+      location: t(form.location),
+      prevCompanies: prevCompanies.length > 0 ? prevCompanies : undefined,
+      email: t(form.email),
+      phone: t(form.phone),
+      links: hasLinks ? links : undefined,
     });
     onClose();
   };
@@ -88,7 +153,7 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
+      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800">编辑人选</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
@@ -121,6 +186,87 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">最近公司</label>
+              <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })}
+                className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">部门</label>
+              <input value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}
+                className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">技术方向</label>
+              <input value={form.techDirection} onChange={(e) => setForm({ ...form, techDirection: e.target.value })}
+                className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">所在地</label>
+              <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+                className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">曾经任职公司（用 、分隔）</label>
+            <input value={form.prevCompanies} onChange={(e) => setForm({ ...form, prevCompanies: e.target.value })}
+              placeholder="如 字节跳动、腾讯、阿里巴巴"
+              className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+          </div>
+
+          <div className="grid grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">学历</label>
+              <input value={form.eduLevel} onChange={(e) => setForm({ ...form, eduLevel: e.target.value })}
+                className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">毕业院校</label>
+              <input value={form.school} onChange={(e) => setForm({ ...form, school: e.target.value })}
+                className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">专业</label>
+              <input value={form.major} onChange={(e) => setForm({ ...form, major: e.target.value })}
+                className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">毕业时间</label>
+              <input value={form.gradYear} onChange={(e) => setForm({ ...form, gradYear: e.target.value })}
+                className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">邮箱</label>
+              <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">电话</label>
+              <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">外部链接</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['maimai', '脉脉'], ['linkedin', 'LinkedIn'], ['github', 'GitHub'],
+                ['scholar', 'Scholar'], ['openreview', 'OpenReview'], ['homepage', '个人主页'],
+              ] as [keyof EditForm, string][]).map(([key, label]) => (
+                <input key={key} value={form[key] as string}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                  placeholder={label}
+                  className="w-full h-9 px-3 rounded-xl bg-white border border-gray-200 text-xs focus:outline-none focus:border-indigo-300" />
+              ))}
             </div>
           </div>
 

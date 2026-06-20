@@ -295,7 +295,11 @@ export function useFilteredTalents(): Talent[] {
     if (filter.category !== 'all' && !(t.categories || []).includes(filter.category)) return false;
     if (filter.search) {
       const q = filter.search.toLowerCase();
-      const haystack = [t.name, t.jobTitle, t.tg, t.notes].filter(Boolean).join(' ').toLowerCase();
+      const haystack = [
+        t.name, t.jobTitle, t.tg, t.notes,
+        t.company, t.department, t.techDirection, t.school, t.major, t.location,
+        ...(t.prevCompanies || []),
+      ].filter(Boolean).join(' ').toLowerCase();
       if (!haystack.includes(q)) return false;
     }
     return true;

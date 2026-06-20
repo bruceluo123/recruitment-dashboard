@@ -4,7 +4,16 @@ import { cn } from '@/lib/utils';
 import { useTalentStore } from '@/store/talent-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
 import type { Talent } from '@/types/talent';
-import { FileText, Pencil, Copy, Check, Trash2, X } from 'lucide-react';
+import { FileText, Pencil, Copy, Check, Trash2, X, Code2, Briefcase, GraduationCap, Globe, BookOpen, Link2 } from 'lucide-react';
+
+const LINK_META: { key: keyof NonNullable<Talent['links']>; label: string; Icon: typeof Code2 }[] = [
+  { key: 'maimai', label: '脉脉', Icon: Link2 },
+  { key: 'linkedin', label: 'LinkedIn', Icon: Briefcase },
+  { key: 'github', label: 'GitHub', Icon: Code2 },
+  { key: 'scholar', label: 'Scholar', Icon: GraduationCap },
+  { key: 'openreview', label: 'OpenReview', Icon: BookOpen },
+  { key: 'homepage', label: '主页', Icon: Globe },
+];
 
 interface TalentTableProps {
   talents: Talent[];
@@ -65,7 +74,9 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">姓名</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">分类</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">岗位名称</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">最近公司</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">简历链接</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">链接</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">TG 号</th>
             <th className="w-20" />
           </tr>
@@ -90,12 +101,33 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
               </td>
               <td className="py-3 px-4"><p className="text-sm text-gray-600 truncate max-w-[200px]">{t.jobTitle || '-'}</p></td>
               <td className="py-3 px-4">
+                {t.company ? (
+                  <p className="text-sm text-gray-600 truncate max-w-[160px]">{t.company}</p>
+                ) : <span className="text-sm text-gray-300">-</span>}
+              </td>
+              <td className="py-3 px-4">
                 {t.resumeUrl ? (
                   <a href={t.resumeUrl} target="_blank" rel="noopener noreferrer" download={t.resumeFileName}
                     className="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 hover:underline max-w-[200px]">
                     <FileText className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">{t.resumeFileName || '简历'}</span>
                   </a>
+                ) : <span className="text-sm text-gray-300">-</span>}
+              </td>
+              <td className="py-3 px-4">
+                {t.links && LINK_META.some(({ key }) => t.links?.[key]) ? (
+                  <div className="flex items-center gap-1.5">
+                    {LINK_META.map(({ key, label, Icon }) => {
+                      const url = t.links?.[key];
+                      if (!url) return null;
+                      return (
+                        <a key={key} href={url} target="_blank" rel="noopener noreferrer" title={label}
+                          className="text-gray-300 hover:text-indigo-500 transition-colors">
+                          <Icon className="w-3.5 h-3.5" />
+                        </a>
+                      );
+                    })}
+                  </div>
                 ) : <span className="text-sm text-gray-300">-</span>}
               </td>
               <td className="py-3 px-4">
