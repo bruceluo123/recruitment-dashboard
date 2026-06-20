@@ -31,6 +31,12 @@ function parseSourceLine(line: string): CompanySource | null {
   return null;
 }
 
+/** 按 url 去重后追加信息源 */
+function pushSource(group: { sources: CompanySource[] }, src: CompanySource): void {
+  if (group.sources.some((s) => s.url === src.url)) return;
+  group.sources.push(src);
+}
+
 function coerceCategories(raw: string): JDCategory[] {
   return raw
     .split(/[,，、\s/]+/)
@@ -105,16 +111,19 @@ export function parseResearchText(name: string, text: string): CompanyResearchDr
       inSrc = true;
       const inline = line.replace(/^.*信息源[:：]?/, '').trim();
       const p = inline ? parseSourceLine(inline) : null;
-      if (p) cur.sources.push(p);
+      if (p) pushSource(cur, p);
       continue;
     }
 
-    if (inSrc) {
+    // 任何带 URL 的行都归为信息源，避免链接（含 grounding 引用）堆进正文
+    if (/https?:\/\//.test(line)) {
       const p = parseSourceLine(line);
-      if (p) cur.sources.push(p);
-    } else {
-      cur.body.push(line);
+      if (p) pushSource(cur, p);
+      continue;
     }
+
+    if (inSrc) continue; // 信息源段内的无链接行（空行/续行）忽略
+    cur.body.push(line);
   }
 
   const dims = emptyDimensions().map((d) => {
