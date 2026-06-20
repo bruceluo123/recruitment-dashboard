@@ -5,15 +5,17 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { JDCategoryTabs } from '@/components/jd-library/JDCategoryTabs';
 import { CompanyTable } from './CompanyTable';
 import { CompanyDetailPanel } from './CompanyDetailPanel';
+import { CompanyResearchDialog } from './CompanyResearchDialog';
 import { useCompanyStore, useFilteredCompanies, useCompanyCategoryCounts } from '@/store/company-store';
 import { hasResearch } from '@/types/company';
-import { Building2, Search, Plus, Trash2 } from 'lucide-react';
+import { Building2, Search, Plus, Trash2, Sparkles } from 'lucide-react';
 
 export function CompanyLibraryPage() {
   const [mounted, setMounted] = useState(false);
   const [viewId, setViewId] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [researchOpen, setResearchOpen] = useState(false);
 
   const companies = useCompanyStore((s) => s.companies);
   const filter = useCompanyStore((s) => s.filter);
@@ -79,7 +81,10 @@ export function CompanyLibraryPage() {
             placeholder="搜索公司名 / 行业 / 研究内容..."
             className="w-full h-10 pl-9 pr-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 transition-all" />
         </div>
-        <button onClick={handleAdd} className="h-10 px-4 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2">
+        <button onClick={() => setResearchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
+          <Sparkles className="w-4 h-4" />调研公司
+        </button>
+        <button onClick={handleAdd} className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2">
           <Plus className="w-4 h-4" />添加公司
         </button>
       </div>
@@ -115,6 +120,8 @@ export function CompanyLibraryPage() {
             description={companies.length === 0 ? '点击"添加公司"手动录入，或用公司研究 skill 按 11 维度自动写入' : '尝试调整筛选条件'} />
         )}
       </GlassPanel>
+
+      <CompanyResearchDialog isOpen={researchOpen} onClose={() => setResearchOpen(false)} onDone={(id) => setViewId(id)} />
 
       <CompanyDetailPanel company={viewTarget} isOpen={!!viewId} onClose={() => setViewId(null)} />
 
