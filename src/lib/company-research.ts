@@ -40,9 +40,25 @@ function coerceCategories(raw: string): JDCategory[] {
 }
 
 /**
+ * 判断一行是否为「维度标题」（如 "1. 公司基本盘："）。
+ * 关键：必须把维度标题和「信息源」下的编号列表项（"1. 标题 - https://..."）区分开，
+ * 否则源行会被当成维度 1/2/... 覆盖掉真正的维度正文。
+ * 规则：顶格（最多 2 个前导空格）、编号 1..11、且本行不含 URL。
+ */
+function matchDimHeader(line: string): { key: number; rest: string } | null {
+  if (/https?:\/\//.test(line)) return null; // 带链接 → 是信息源行，不是维度标题
+  const m = line.match(/^[ \t]{0,2}(1[01]|[1-9])[.)、]\s*(.*)$/);
+  if (!m) return null;
+  const key = Number(m[1]);
+  if (key < 1 || key > 11) return null;
+  return { key, rest: m[2].trim() };
+}
+
+/**
  * 解析 Gemini 按 skill 格式产出的纯文本，拆成结构化的 11 维 + 头部字段。
- * 头部支持「行业：」「方向：」「一句话：/备注：」；正文按「N. 维度名」分块，
- * 每块内「信息源」之后的行解析为 sources。容错：缺失维度补「未找到公开信息」。
+ * 头部支持「行业：」「方向：」「一句话：/备注：」；正文按「N. 维度名」逐行分组，
+ * 「信息源」之后的行解析为 sources（编号列表项不会被误判为维度）。
+ * 容错：缺失维度补「未找到公开信息」。
  */
 export function parseResearchText(name: string, text: string): CompanyResearchDraft {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -51,62 +67,64 @@ export function parseResearchText(name: string, text: string): CompanyResearchDr
   let summary: string | undefined;
   let categories: JDCategory[] = [];
 
-  // 头部：在第一个维度标题出现前，提取 行业/方向/一句话
-  let bodyStart = 0;
+  // 找到第一个维度标题的位置，之前都视作头部
+  let firstDimIdx = lines.length;
   for (let i = 0; i < lines.length; i++) {
+    if (matchDimHeader(lines[i])) { firstDimIdx = i; break; }
+  }
+
+  for (let i = 0; i < firstDimIdx; i++) {
     const l = lines[i].trim();
-    if (/^\s*1[.)、]\s*公司基本盘/.test(lines[i]) || /^\s*1[.)、]\s/.test(lines[i])) { bodyStart = i; break; }
     const indM = l.match(/^行业[:：]\s*(.+)$/);
     if (indM) industry = indM[1].trim();
     const dirM = l.match(/^(?:方向|分类)[:：]\s*(.+)$/);
     if (dirM) categories = coerceCategories(dirM[1]);
     const sumM = l.match(/^(?:一句话|概述|备注)[:：]\s*(.+)$/);
     if (sumM) summary = sumM[1].trim();
-    bodyStart = i + 1;
   }
 
-  const bodyText = lines.slice(bodyStart).join('\n');
+  // 逐行分组：维度标题开启新组；组内遇到「信息源」后切到 sources 模式
+  interface Group { body: string[]; sources: CompanySource[] }
+  const parsedByKey = new Map<number, Group>();
+  let cur: Group | null = null;
+  let inSrc = false;
 
-  // 按「N. 」行切块（1..11）
-  const chunks = bodyText.split(/\n(?=\s*(?:1[01]|[1-9])[.)、]\s)/);
-
-  const base = emptyDimensions();
-  const parsedByKey = new Map<number, { body: string; sources: CompanySource[] }>();
-
-  for (const chunk of chunks) {
-    const cl = chunk.split('\n');
-    const headerIdx = cl.findIndex((l) => /^\s*(?:1[01]|[1-9])[.)、]\s/.test(l));
-    if (headerIdx === -1) continue;
-    const keyM = cl[headerIdx].match(/^\s*(\d+)[.)、]/);
-    const key = keyM ? Number(keyM[1]) : NaN;
-    if (!Number.isInteger(key) || key < 1 || key > 11) continue;
-
-    const after = cl.slice(headerIdx + 1);
-    const srcIdx = after.findIndex((l) => /信息源/.test(l));
-    const bodyLines = srcIdx === -1 ? after : after.slice(0, srcIdx);
-    const body = bodyLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-
-    const sources: CompanySource[] = [];
-    if (srcIdx !== -1) {
-      // 同行可能是 "└── 信息源：标题 - url"，先尝试解析该行剩余
-      const firstSrcInline = after[srcIdx].replace(/.*信息源[:：]?/, '').trim();
-      const firstParsed = firstSrcInline ? parseSourceLine(firstSrcInline) : null;
-      if (firstParsed) sources.push(firstParsed);
-      for (const l of after.slice(srcIdx + 1)) {
-        const p = parseSourceLine(l);
-        if (p) sources.push(p);
-      }
+  for (let i = firstDimIdx; i < lines.length; i++) {
+    const line = lines[i];
+    const header = matchDimHeader(line);
+    if (header) {
+      cur = { body: [], sources: [] };
+      parsedByKey.set(header.key, cur);
+      inSrc = false;
+      if (header.rest && !/信息源/.test(header.rest)) cur.body.push(header.rest);
+      continue;
     }
-    parsedByKey.set(key, { body, sources: sources.slice(0, 5) });
+    if (!cur) continue;
+
+    if (/信息源/.test(line)) {
+      inSrc = true;
+      const inline = line.replace(/^.*信息源[:：]?/, '').trim();
+      const p = inline ? parseSourceLine(inline) : null;
+      if (p) cur.sources.push(p);
+      continue;
+    }
+
+    if (inSrc) {
+      const p = parseSourceLine(line);
+      if (p) cur.sources.push(p);
+    } else {
+      cur.body.push(line);
+    }
   }
 
-  const dims = base.map((d) => {
+  const dims = emptyDimensions().map((d) => {
     const got = parsedByKey.get(d.key);
+    const body = got ? got.body.join('\n').replace(/\n{3,}/g, '\n\n').trim() : '';
     return {
       key: d.key,
       title: d.title,
-      body: got && got.body ? got.body : '未找到公开信息',
-      sources: got ? got.sources : [],
+      body: body || '未找到公开信息',
+      sources: got ? got.sources.slice(0, 5) : [],
     };
   });
 
