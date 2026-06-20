@@ -7,10 +7,12 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useTalentStore } from '@/store/talent-store';
 import { useRepushStore, type RepushItem } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
+import { useCompanyStore } from '@/store/company-store';
 import type { JD } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
 import type { TodoItem } from '@/types/todo';
+import type { Company } from '@/types/company';
 
 // Check if JDs are mock data (all IDs start with "jd-00")
 function isMockData(jds: JD[]): boolean {
@@ -42,6 +44,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const talents = useTalentStore((s) => s.talents);
   const repushItems = useRepushStore((s) => s.items);
   const todos = useTodoStore((s) => s.todos);
+  const companies = useCompanyStore((s) => s.companies);
   const skipPush = useRef(true);
 
   // 各类型「上一次 id 集合」，用于检测本地删除并写墓碑（删除才能跨端传播）
@@ -50,6 +53,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const prevTalents = useRef<string[]>([]);
   const prevRepush = useRef<string[]>([]);
   const prevTodos = useRef<string[]>([]);
+  const prevCompanies = useRef<string[]>([]);
 
   useEffect(() => {
     startSync((type, data) => {
@@ -90,6 +94,10 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       if (type === 'todos') {
         const d = data as TodoItem[];
         if (shouldApply(d, useTodoStore.getState().todos.length)) useTodoStore.setState({ todos: d });
+      }
+      if (type === 'companies') {
+        const d = data as Company[];
+        if (shouldApply(d, useCompanyStore.getState().companies.length)) useCompanyStore.setState({ companies: d });
       }
       setTimeout(() => { skipPush.current = false; }, 1000);
     });
@@ -141,6 +149,15 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     if (removed.length) syncDelete('todos', removed);
     syncPush('todos', todos);
   }, [todos]);
+
+  useEffect(() => {
+    const next = idsOf(companies);
+    const removed = removedIds(prevCompanies.current, next);
+    prevCompanies.current = next;
+    if (skipPush.current) return;
+    if (removed.length) syncDelete('companies', removed);
+    syncPush('companies', companies);
+  }, [companies]);
 
   return <>{children}</>;
 }

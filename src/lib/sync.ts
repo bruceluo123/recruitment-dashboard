@@ -5,7 +5,7 @@
 const KV_URL = 'https://positive-mongrel-70521.upstash.io';
 const KV_TOKEN = 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
 
-type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos';
+type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
 type ChangeHandler = (type: DataType, data: unknown[], version: number) => void;
 
 interface Item { id?: string }
@@ -18,11 +18,12 @@ const KV_KEYS: Record<DataType, string> = {
   talents: 'recruit:talents',
   repush: 'recruit:repush',
   todos: 'recruit:todos',
+  companies: 'recruit:companies',
 };
 const TOMB_KEY = 'recruit:tombstones';
 const TOMB_TTL = 60 * 24 * 60 * 60 * 1000; // 墓碑保留 60 天后清理，避免无限增长
 
-const ALL_TYPES: DataType[] = ['jds', 'candidates', 'talents', 'repush', 'todos'];
+const ALL_TYPES: DataType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies'];
 
 let remoteVersion = 0;
 let tombstones: Tombstones = {};
@@ -83,16 +84,17 @@ async function fetchTombstones(): Promise<Tombstones> {
 
 async function fetchRemote(): Promise<{ data: Record<DataType, unknown[]>; version: number } | null> {
   try {
-    const [rawJd, rawCand, rawTalent, rawRepush, rawTodos, rawVer, rawTomb] = await Promise.all([
+    const [rawJd, rawCand, rawTalent, rawRepush, rawTodos, rawCompanies, rawVer, rawTomb] = await Promise.all([
       kvCmd('get', KV_KEYS.jds),
       kvCmd('get', KV_KEYS.candidates),
       kvCmd('get', KV_KEYS.talents),
       kvCmd('get', KV_KEYS.repush),
       kvCmd('get', KV_KEYS.todos),
+      kvCmd('get', KV_KEYS.companies),
       kvCmd('get', 'recruit:version'),
       kvCmd('get', TOMB_KEY),
     ]);
-    if (!rawJd && !rawCand && !rawTalent && !rawRepush && !rawTodos) return null;
+    if (!rawJd && !rawCand && !rawTalent && !rawRepush && !rawTodos && !rawCompanies) return null;
     tombstones = (safeParse(rawTomb) as Tombstones) || {};
     return {
       data: {
@@ -101,6 +103,7 @@ async function fetchRemote(): Promise<{ data: Record<DataType, unknown[]>; versi
         talents: (safeParse(rawTalent) as unknown[]) || [],
         repush: (safeParse(rawRepush) as unknown[]) || [],
         todos: (safeParse(rawTodos) as unknown[]) || [],
+        companies: (safeParse(rawCompanies) as unknown[]) || [],
       },
       version: parseInt(rawVer || '0') || 0,
     };

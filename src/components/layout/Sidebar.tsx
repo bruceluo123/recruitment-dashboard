@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui-store';
-import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings, Users, Flame, Send, ListTodo } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings, Users, Flame, Send, ListTodo, Building2 } from 'lucide-react';
 
 const menuItems = [
   { href: '/', label: '推荐中心', icon: LayoutDashboard },
@@ -12,6 +12,7 @@ const menuItems = [
   { href: '/hot-hiring', label: '热招看板', icon: Flame },
   { href: '/jd-library', label: 'JD 库', icon: Briefcase },
   { href: '/talent-pool', label: '人才库', icon: Users },
+  { href: '/companies', label: '公司库', icon: Building2 },
   { href: '/resume-matching', label: '简历匹配', icon: FileSearch },
   { href: '/interview-calendar', label: '面试日历', icon: CalendarDays },
 ];

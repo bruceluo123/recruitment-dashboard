@@ -2,15 +2,21 @@
 import { cn, formatSalary, formatDate } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, JD_STATUS_LABELS, JD_STATUS_COLORS, type JD, type JDCategory, type JDStatus, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users } from 'lucide-react';
+import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users, ArrowRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useJDStore } from '@/store/jd-store';
+import { useCompanyStore } from '@/store/company-store';
+import { hasResearch } from '@/types/company';
 
 interface JDDetailPanelProps { jd: JD | null; isOpen: boolean; onClose: () => void; }
 
 export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const deleteJD = useJDStore((s) => s.deleteJD);
   const updateJD = useJDStore((s) => s.updateJD);
+  const companies = useCompanyStore((s) => s.companies);
+  const createBlankCompany = useCompanyStore((s) => s.createBlankCompany);
+  const updateCompany = useCompanyStore((s) => s.updateCompany);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -30,6 +36,18 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   });
 
   if (!jd) return null;
+
+  // 关联公司：用编制组织 / 服务单位 / 部门名去公司库匹配（同名即认定为同一家）
+  const orgName = (jd.organization || jd.serviceUnit || jd.department || '').trim();
+  const matchedCompany = orgName
+    ? companies.find((c) => c.name.trim() === orgName) || null
+    : null;
+
+  const handleCreateCompany = () => {
+    if (!orgName) return;
+    const id = createBlankCompany();
+    updateCompany(id, { name: orgName, relatedReqKeys: jd.reqKey ? [jd.reqKey] : [] });
+  };
 
   const startEdit = () => {
     setForm({
@@ -285,6 +303,43 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
               </ul>
             )}
           </GlassPanel>
+
+          {/* 关联公司研究 */}
+          {!editing && orgName && (
+            <GlassPanel padding="md">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-3">
+                <Building2 className="w-4 h-4 text-indigo-500" />公司研究
+                <span className="text-xs font-normal text-gray-400">{orgName}</span>
+              </h3>
+              {matchedCompany ? (
+                <div className="space-y-3">
+                  {hasResearch(matchedCompany) ? (
+                    <div className="space-y-2">
+                      {matchedCompany.dims.filter((d) => d.body.trim()).slice(0, 3).map((d) => (
+                        <div key={d.key} className="text-sm">
+                          <p className="text-xs font-medium text-gray-500 mb-0.5">{d.key}. {d.title}</p>
+                          <p className="text-gray-600 line-clamp-2 whitespace-pre-line">{d.body}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">该公司已建档，但还没有研究内容。</p>
+                  )}
+                  <Link href="/companies" className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+                    在公司库查看完整 11 维度<ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-gray-400">公司库暂无「{orgName}」</p>
+                  <button onClick={handleCreateCompany}
+                    className="h-9 px-3 rounded-lg bg-indigo-500 text-white text-xs font-medium hover:bg-indigo-600 transition-all whitespace-nowrap">
+                    建档到公司库
+                  </button>
+                </div>
+              )}
+            </GlassPanel>
+          )}
 
           {/* Action Buttons */}
           {!editing && (
