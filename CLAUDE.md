@@ -123,6 +123,27 @@ interface Candidate {
 2. **数据恢复**: 之前多次迁移导致用户 localStorage 数据丢失。KV 中有 33 条可恢复数据但存在编码损坏。
 3. **导入识别**: AI 解析依赖 DeepSeek API，网络不稳定时降级为列解析。
 
+## Session 日志
+
+> 每次长任务结束后，Claude 必须在此追加一条记录（100字内）。
+> 格式：`- [日期] 做了什么 | 卡点 | 下一步`
+
+<!-- SESSION_LOG_START -->
+<!-- SESSION_LOG_END -->
+
+## 代码规范快查
+
+> 新功能开发前必读，避免 agent 重新推断约定。
+
+- **数据修改**：必须通过 Zustand store，禁止直接操作 localStorage
+- **新增分类**：同步更新 3 处 → `types/jd.ts`(JDCategory) + `jd-store.ts`(CATEGORY_KEYWORDS) + `JDCategoryTabs.tsx`(CAT_TAB_COLORS)
+- **新增 JD 字段**：同步更新 `SyncProvider.tsx` 数据规范化逻辑
+- **薪资**：优先用 `salaryText`（自由文本），`salaryRange` 做结构化备用
+- **ID 规则**：mock 数据 ID 以 `jd-00` 开头，KV 同步时会自动跳过
+- **AI 解析阈值**：JD 正文 > 200 字走 DeepSeek，≤ 200 字走列解析
+- **环境变量**：KV tokens 只在 Vercel 项目设置中，不写代码里
+- **部署**：push master 自动触发，无需手动 deploy
+
 ## 常用命令
 
 ```bash
