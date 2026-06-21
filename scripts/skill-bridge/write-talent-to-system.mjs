@@ -169,6 +169,22 @@ async function main() {
     email: clean(payload.email),
     phone: clean(payload.phone),
     links: buildLinks(payload.links),
+    // 飞书表对齐补充字段
+    recruiter: clean(payload.recruiter),
+    firstContactAt: clean(payload.firstContactAt),
+    lastContactAt: clean(payload.lastContactAt),
+    workIntent: clean(payload.workIntent),
+    projectIntent: clean(payload.projectIntent),
+    monthlySalary: clean(payload.monthlySalary),
+    annualSalary: clean(payload.annualSalary),
+    bachelorGradYear: clean(payload.bachelorGradYear),
+    level: clean(payload.level),
+    wechatStatus: clean(payload.wechatStatus),
+    outreachStatus: clean(payload.outreachStatus),
+    friendTrack: clean(payload.friendTrack),
+    account: clean(payload.account),
+    onboardInfo: clean(payload.onboardInfo),
+    techAccount: clean(payload.techAccount),
   };
 
   // 简历正文：写入独立 KV 文字键，并在列表项标记已扫描 + 字数
@@ -181,7 +197,15 @@ async function main() {
 
   let action;
   if (idx !== -1) {
-    list[idx] = { ...list[idx], ...fields, id: targetId, updatedAt: now };
+    // 增量更新：只覆盖本次提供了值的字段，未提供（undefined）的保留原值，避免抹掉已有数据。
+    // categories 仅在本次给了非空数组时才覆盖。
+    const patch = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === undefined) continue;
+      if (k === 'categories' && (!Array.isArray(v) || v.length === 0)) continue;
+      patch[k] = v;
+    }
+    list[idx] = { ...list[idx], ...patch, id: targetId, updatedAt: now };
     action = '更新';
   } else {
     list.unshift({ id: targetId, createdAt: now, updatedAt: now, ...fields });

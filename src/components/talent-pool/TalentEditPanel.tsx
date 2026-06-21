@@ -38,6 +38,22 @@ interface EditForm {
   scholar: string;
   openreview: string;
   homepage: string;
+  // 飞书表对齐补充字段
+  recruiter: string;
+  firstContactAt: string;
+  lastContactAt: string;
+  workIntent: string;
+  projectIntent: string;
+  monthlySalary: string;
+  annualSalary: string;
+  bachelorGradYear: string;
+  level: string;
+  wechatStatus: string;
+  outreachStatus: string;
+  friendTrack: string;
+  account: string;
+  onboardInfo: string;
+  techAccount: string;
 }
 
 const EMPTY: EditForm = {
@@ -45,6 +61,9 @@ const EMPTY: EditForm = {
   company: '', department: '', techDirection: '', eduLevel: '', school: '', major: '', gradYear: '',
   location: '', prevCompanies: '', email: '', phone: '',
   maimai: '', linkedin: '', github: '', scholar: '', openreview: '', homepage: '',
+  recruiter: '', firstContactAt: '', lastContactAt: '', workIntent: '', projectIntent: '',
+  monthlySalary: '', annualSalary: '', bachelorGradYear: '', level: '', wechatStatus: '',
+  outreachStatus: '', friendTrack: '', account: '', onboardInfo: '', techAccount: '',
 };
 
 export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProps) {
@@ -80,6 +99,21 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
         scholar: talent.links?.scholar || '',
         openreview: talent.links?.openreview || '',
         homepage: talent.links?.homepage || '',
+        recruiter: talent.recruiter || '',
+        firstContactAt: talent.firstContactAt || '',
+        lastContactAt: talent.lastContactAt || '',
+        workIntent: talent.workIntent || '',
+        projectIntent: talent.projectIntent || '',
+        monthlySalary: talent.monthlySalary || '',
+        annualSalary: talent.annualSalary || '',
+        bachelorGradYear: talent.bachelorGradYear || '',
+        level: talent.level || '',
+        wechatStatus: talent.wechatStatus || '',
+        outreachStatus: talent.outreachStatus || '',
+        friendTrack: talent.friendTrack || '',
+        account: talent.account || '',
+        onboardInfo: talent.onboardInfo || '',
+        techAccount: talent.techAccount || '',
       });
       setUploadError('');
     }
@@ -146,6 +180,21 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
       email: t(form.email),
       phone: t(form.phone),
       links: hasLinks ? links : undefined,
+      recruiter: t(form.recruiter),
+      firstContactAt: t(form.firstContactAt),
+      lastContactAt: t(form.lastContactAt),
+      workIntent: t(form.workIntent),
+      projectIntent: t(form.projectIntent),
+      monthlySalary: t(form.monthlySalary),
+      annualSalary: t(form.annualSalary),
+      bachelorGradYear: t(form.bachelorGradYear),
+      level: t(form.level),
+      wechatStatus: t(form.wechatStatus),
+      outreachStatus: t(form.outreachStatus),
+      friendTrack: t(form.friendTrack),
+      account: t(form.account),
+      onboardInfo: t(form.onboardInfo),
+      techAccount: t(form.techAccount),
     });
     onClose();
   };
@@ -269,6 +318,39 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
               ))}
             </div>
           </div>
+
+          <details className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-medium text-gray-500 select-none">招聘流程 / 沟通信息（对齐飞书表，可选）</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ['recruiter', '招聘顾问'], ['level', '级别（P8/L6…）'], ['account', '所属账号'],
+                  ['firstContactAt', '首次沟通时间'], ['lastContactAt', '最新沟通时间'], ['bachelorGradYear', '本科毕业时间'],
+                  ['workIntent', '工作意愿度'], ['projectIntent', '项目意愿度'], ['onboardInfo', '入职时间及公司类型'],
+                  ['monthlySalary', '月薪'], ['annualSalary', '年薪'], ['techAccount', '技术账号/领英状态'],
+                ] as [keyof EditForm, string][]).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-[11px] text-gray-400 mb-1">{label}</label>
+                    <input value={form[key] as string}
+                      onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                      className="w-full h-9 px-3 rounded-lg bg-white border border-gray-200 text-xs focus:outline-none focus:border-indigo-300" />
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ['wechatStatus', '批量加微信'], ['outreachStatus', '站内信/邮件'], ['friendTrack', '添加好友轨迹'],
+                ] as [keyof EditForm, string][]).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-[11px] text-gray-400 mb-1">{label}</label>
+                    <input value={form[key] as string}
+                      onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                      className="w-full h-9 px-3 rounded-lg bg-white border border-gray-200 text-xs focus:outline-none focus:border-indigo-300" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </details>
 
           <div>
             <label className="block text-xs text-gray-500 mb-1">简历链接</label>
