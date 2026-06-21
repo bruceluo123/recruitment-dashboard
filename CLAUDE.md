@@ -129,6 +129,7 @@ interface Candidate {
 > 格式：`- [日期] 做了什么 | 卡点 | 下一步`
 
 <!-- SESSION_LOG_START -->
+- [2026-06-21] 人才库全字段对齐飞书31列（Tier3补全）；修复增量更新数据丢失bug；浏览器端「导出飞书格式」xlsx按钮；KV→飞书多维表格写入脚本（lark-cli base +record-batch-create）；桥接脚本resume上传失败改为warn不中断 | Vercel国内访问不通导致简历文件无法上传，xhs-explore skill脚本未安装无法抓小红书 | 下次：xhs skill安装；飞书多维表去重更新逻辑
 <!-- SESSION_LOG_END -->
 
 ## 代码规范快查
