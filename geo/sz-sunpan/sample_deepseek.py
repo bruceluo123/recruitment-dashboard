@@ -102,8 +102,8 @@ def main():
         for fut in as_completed(futs):
             i, r = fut.result()
             results[i] = r
-            mark = "✅BRAND" if r["brand_present"] else "—"
-            print(f"  [{r['id']}] {mark}  竞品{len(r['competitors'])}: {r['q'][:24]}...")
+            mark = "HIT " if r["brand_present"] else "miss"
+            print(f"  [{r['id']}] {mark}  competitors={len(r['competitors'])}")
 
     json.dump(results, open(OUT_JSON, "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
