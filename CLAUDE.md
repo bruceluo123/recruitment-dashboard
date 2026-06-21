@@ -130,6 +130,7 @@ interface Candidate {
 
 <!-- SESSION_LOG_START -->
 - [2026-06-21] 人才库全字段对齐飞书31列（Tier3补全）；修复增量更新数据丢失bug；浏览器端「导出飞书格式」xlsx按钮；KV→飞书多维表格写入脚本（lark-cli base +record-batch-create）；桥接脚本resume上传失败改为warn不中断 | Vercel国内访问不通导致简历文件无法上传，xhs-explore skill脚本未安装无法抓小红书 | 下次：xhs skill安装；飞书多维表去重更新逻辑
+- [2026-06-21] 安装 agent-reach v1.5.0，配通 10/13 平台（YouTube/GitHub/Twitter/小红书/Reddit/B站/V2EX/RSS/网页/小宇宙）；Twitter cookie + Groq key 已配；OpenCLI v1.8.4 更新并接通；LinkedIn 改用 Exa 替代；CLAUDE.md 新增 Session 日志和代码规范快查节 | LinkedIn Chromium 太重装失败 | 下次：LinkedIn 有需要再考虑其他方案
 <!-- SESSION_LOG_END -->
 
 ## 代码规范快查
