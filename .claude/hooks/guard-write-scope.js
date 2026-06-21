@@ -9,6 +9,8 @@ const ROOT = path.resolve('D:\\projects\\recruitment-dashboard');
 // 白名单：允许写入的项目目录之外的其他目录（如 Obsidian 知识库，供 daily-input 等技能写入）。
 const ALLOWLIST = [
   path.resolve('D:\\wiki\\个人知识库'),
+  path.resolve('D:\\projects\\zimeiti-workstation'),
+  path.resolve('D:\\projects\\kb-graph-site'),
 ];
 
 function isUnder(parent, child) {
