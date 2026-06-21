@@ -6,6 +6,16 @@ const path = require('path');
 
 const ROOT = path.resolve('D:\\projects\\recruitment-dashboard');
 
+// 白名单：允许写入的项目目录之外的其他目录（如 Obsidian 知识库，供 daily-input 等技能写入）。
+const ALLOWLIST = [
+  path.resolve('D:\\wiki\\个人知识库'),
+];
+
+function isUnder(parent, child) {
+  const rel = path.relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 let data = '';
 process.stdin.on('data', (c) => (data += c));
 process.stdin.on('end', () => {
@@ -21,13 +31,14 @@ process.stdin.on('end', () => {
   if (!target) process.exit(0); // 没有路径字段（如批量编辑无单一路径）则放行
 
   const abs = path.resolve(ROOT, target); // target 为绝对路径时 resolve 直接返回它
-  const rel = path.relative(ROOT, abs);
-  const inside = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  const inside = isUnder(ROOT, abs) || ALLOWLIST.some((dir) => isUnder(dir, abs));
 
   if (!inside) {
     console.error(
-      `[隔离] 已拦截越界写入。本项目会话仅允许修改：\n  ${ROOT}\n目标文件在范围之外：\n  ${abs}\n` +
-        `如确需跨目录编辑，请在另一个会话中操作，或临时移除 .claude/settings.json 里的此 PreToolUse 钩子。`
+      `[隔离] 已拦截越界写入。本项目会话仅允许修改：\n  ${ROOT}\n` +
+        `白名单目录：\n${ALLOWLIST.map((d) => '  ' + d).join('\n')}\n` +
+        `目标文件在范围之外：\n  ${abs}\n` +
+        `如确需跨目录编辑，请把目录加入 guard-write-scope.js 的 ALLOWLIST，或在另一个会话中操作。`
     );
     process.exit(2);
   }
