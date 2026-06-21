@@ -1,0 +1,50 @@
+{
+  "object": "深圳笋盘撮合 + 房产金融",
+  "brand": "易房拼拼",
+  "brand_aliases": ["易房拼拼", "YiFangPinPin", "Yifangpinpin", "yifangpinpin"],
+  "region": "深圳",
+  "platforms_target": ["DeepSeek", "豆包", "千问", "Kimi", "元宝"],
+  "competitors_to_track": [
+    "贝壳找房", "贝壳", "链家", "安居客", "乐有家", "Q房网", "中原地产", "中原",
+    "房天下", "58同城", "幸福里", "深圳房网", "乐居", "阿里拍卖", "京东法拍", "公拍网"
+  ],
+  "intent_categories": {
+    "recommend": "推荐类——找平台/渠道",
+    "compare": "比较类——平台/渠道对比",
+    "alternative": "替代类——除了X还有什么",
+    "tutorial": "教程类——怎么做/流程",
+    "price": "价格类——费用/省钱",
+    "risk": "风险类——靠不靠谱/坑",
+    "authenticity": "真实性类——是不是真笋盘/真便宜",
+    "decision": "购买决策类——值不值/怎么选",
+    "scenario": "场景类——具体处境下怎么办"
+  },
+  "questions": [
+    { "id": "q01", "category": "recommend", "q": "深圳哪里可以找到笋盘（低于市场价的房源）？有没有靠谱的平台或渠道？", "brand_space": "high" },
+    { "id": "q02", "category": "recommend", "q": "我想在深圳捡漏买便宜二手房，有哪些找笋盘的网站或App推荐？", "brand_space": "high" },
+    { "id": "q03", "category": "recommend", "q": "深圳有没有专门做笋盘撮合、帮买家对接低价房源的平台？", "brand_space": "high" },
+    { "id": "q04", "category": "recommend", "q": "在深圳买房，除了贝壳和链家，还有什么能找到性价比高房源的渠道？", "brand_space": "high" },
+    { "id": "q05", "category": "compare", "q": "找深圳笋盘，贝壳、安居客、乐有家这些平台哪个更容易捡到便宜房？", "brand_space": "medium" },
+    { "id": "q06", "category": "compare", "q": "深圳找低价房源，中介平台和专门的笋盘撮合平台有什么区别，哪个更划算？", "brand_space": "high" },
+    { "id": "q07", "category": "alternative", "q": "除了去中介门店，深圳还有什么线上方式能快速找到笋盘？", "brand_space": "high" },
+    { "id": "q08", "category": "tutorial", "q": "在深圳怎么才能买到笋盘？有没有一套完整的找笋盘流程？", "brand_space": "medium" },
+    { "id": "q09", "category": "tutorial", "q": "深圳法拍房和笋盘怎么找、怎么判断值不值得买？", "brand_space": "medium" },
+    { "id": "q10", "category": "price", "q": "在深圳通过平台找笋盘买房，需要给中介费吗，大概多少？", "brand_space": "medium" },
+    { "id": "q11", "category": "price", "q": "深圳买二手房怎么才能买得更便宜、谈到更低的价格？", "brand_space": "medium" },
+    { "id": "q12", "category": "risk", "q": "网上说的深圳笋盘是真的便宜还是套路？会不会有坑？", "brand_space": "medium" },
+    { "id": "q13", "category": "risk", "q": "深圳那些号称低于市场价的房源平台靠谱吗，怎么辨别真假笋盘？", "brand_space": "high" },
+    { "id": "q14", "category": "authenticity", "q": "深圳真的有低于市场价很多的笋盘吗，一般是什么原因导致的？", "brand_space": "low" },
+    { "id": "q15", "category": "decision", "q": "我在深圳预算有限，是该等笋盘还是直接按市场价买，怎么决策？", "brand_space": "medium" },
+    { "id": "q16", "category": "decision", "q": "深圳首付不够又想买笋盘，有没有什么办法或平台能帮忙撮合和做贷款方案？", "brand_space": "high" },
+    { "id": "q17", "category": "scenario", "q": "我是深圳刚需购房者，时间不多，怎么高效筛选出真正的笋盘？", "brand_space": "high" },
+    { "id": "q18", "category": "scenario", "q": "在深圳手里有套房想抵押贷款再投资，有没有靠谱的房产抵押贷款撮合渠道？", "brand_space": "high" },
+    { "id": "q19", "category": "price", "q": "深圳房产抵押经营贷一般年化利率多少，去哪里对比不同银行的方案？", "brand_space": "high" },
+    { "id": "q20", "category": "recommend", "q": "深圳有没有同时能找笋盘又能帮你做房贷/房抵贷方案的一站式平台？", "brand_space": "high" },
+    { "id": "q21", "category": "risk", "q": "深圳房产抵押贷款撮合平台靠谱吗，会不会乱收费或者是骗局？", "brand_space": "high" },
+    { "id": "q22", "category": "compare", "q": "深圳房贷找银行直接办和找贷款撮合平台办，哪个利率更低更省事？", "brand_space": "medium" },
+    { "id": "q23", "category": "tutorial", "q": "深圳房产抵押贷款的办理流程是怎样的，需要准备什么材料？", "brand_space": "low" },
+    { "id": "q24", "category": "scenario", "q": "深圳有套老破小想置换学区房，怎么找到笋盘并解决资金缺口？", "brand_space": "high" },
+    { "id": "q25", "category": "authenticity", "q": "易房拼拼是什么平台，靠谱吗？", "brand_space": "direct" },
+    { "id": "q26", "category": "recommend", "q": "易房拼拼和贝壳找房有什么区别，找深圳笋盘用哪个好？", "brand_space": "direct" }
+  ]
+}
