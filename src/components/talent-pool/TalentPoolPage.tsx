@@ -9,7 +9,8 @@ import { TalentMatchDialog } from './TalentMatchDialog';
 import { TalentEditPanel } from './TalentEditPanel';
 import { useTalentStore, useFilteredTalents, useTalentCategoryCounts } from '@/store/talent-store';
 import { generateId } from '@/lib/utils';
-import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2 } from 'lucide-react';
+import { exportTalentsToFeishuXlsx } from '@/lib/talent-feishu-export';
+import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download } from 'lucide-react';
 
 export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
@@ -78,6 +79,11 @@ export function TalentPoolPage() {
     setBatchMode(false);
   };
 
+  const handleExportFeishu = async () => {
+    if (filteredTalents.length === 0) return;
+    await exportTalentsToFeishuXlsx(filteredTalents);
+  };
+
   const handleAddTalent = () => {
     const id = generateId();
     addTalent({
@@ -121,6 +127,11 @@ export function TalentPoolPage() {
         </button>
         <button onClick={() => setImportOpen(true)} className="h-10 px-4 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2">
           <Upload className="w-4 h-4" />批量导入
+        </button>
+        <button onClick={handleExportFeishu} disabled={filteredTalents.length === 0}
+          className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50"
+          title={`导出当前 ${filteredTalents.length} 位人选为飞书格式 .xlsx`}>
+          <Download className="w-4 h-4" />导出飞书格式
         </button>
         <button onClick={handleAddTalent} className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2">
           <Plus className="w-4 h-4" />添加人选
