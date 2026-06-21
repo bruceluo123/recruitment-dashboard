@@ -131,9 +131,18 @@ async function main() {
   let resumeFileName = clean(payload.resumeFileName);
   const resumeFilePath = clean(payload.resumeFilePath);
   if (!resumeUrl && resumeFilePath) {
-    const up = await uploadResume(resumeFilePath);
-    resumeUrl = up.url;
-    resumeFileName = resumeFileName || up.fileName;
+    try {
+      const up = await uploadResume(resumeFilePath);
+      resumeUrl = up.url;
+      resumeFileName = resumeFileName || up.fileName;
+    } catch (err) {
+      // 上传失败（如本机连不上 Vercel）不应中断整条录入：跳过文件，其余字段照常写入
+      console.warn(`⚠️ 简历文件上传失败，已跳过（其余信息照常录入）：${err.message}`);
+      if (!resumeFileName && resumeFilePath) {
+        const path = await import('node:path');
+        resumeFileName = path.basename(resumeFilePath);
+      }
+    }
   }
 
   const prevCompanies = Array.isArray(payload.prevCompanies)
