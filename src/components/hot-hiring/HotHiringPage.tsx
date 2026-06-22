@@ -5,7 +5,7 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
   AlertTriangle, Megaphone, X, Copy, Check,
-  Loader2, ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
 import type { JDCategory } from '@/types/jd';
@@ -18,6 +18,7 @@ import {
   JD_CATEGORY_LABELS,
   getPrimaryCategory,
 } from '@/types/jd';
+
 import type { JD } from '@/types/jd';
 import {
   buildAdCopy, adVariantLabel, getCategoryEmoji,
@@ -30,8 +31,6 @@ function parseGap(gap?: string): number {
   const m = gap.match(/\d+/);
   return m ? parseInt(m[0], 10) : 0;
 }
-
-interface HotRow { jd: JD; gap: number; }
 
 interface UrgentGroup {
   priority: 'P0' | 'P1';
@@ -255,90 +254,6 @@ function GroupCard({ group, checked, onToggle, onOpen }: GroupCardProps) {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── ExpeditedPasteDialog ─────────────────────────────────────────────────────
-
-function filterExpeditedRows(rows: string[][]): string[][] {
-  const header = rows[0];
-  const idx = header.findIndex((h) => h.trim() === '加急');
-  if (idx === -1) return [];
-  const kept = rows.slice(1).filter((r) => {
-    const v = (r[idx] || '').trim().toLowerCase();
-    return v !== '' && !['0', '否', 'no', 'false', 'n', '-'].includes(v);
-  });
-  return kept.length ? [header, ...kept] : [];
-}
-
-function ExpeditedPasteDialog({ onClose }: { onClose: () => void }) {
-  const [pasteText, setPasteText] = useState('');
-  const [result, setResult] = useState<JDImportResult | null>(null);
-  const isImporting = useJDStore((s) => s.isImporting);
-  const importFromExcel = useJDStore((s) => s.importFromExcel);
-
-  const handleImport = async () => {
-    setResult(null);
-    const rows = parsePastedTable(pasteText);
-    if (rows.length < 2) {
-      setResult({ success: 0, failed: 1, errors: ['没有可识别的加急清单，请在需求面板全选复制带 ❗ 标记的岗位再粘贴'] });
-      return;
-    }
-    const expeditedRows = filterExpeditedRows(rows);
-    if (expeditedRows.length < 2) {
-      setResult({ success: 0, failed: 1, errors: ['粘贴内容里没有带 ❗ 标记的加急岗位，请确认复制的是加急清单'] });
-      return;
-    }
-    try {
-      setResult(await importFromExcel(await pastedRowsToFile(expeditedRows)));
-    } catch (err) {
-      setResult({ success: 0, failed: 1, errors: [(err as Error).message || '粘贴内容解析失败'] });
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={isImporting ? undefined : onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-            <Flame className="w-4 h-4 text-red-600" />粘贴加急清单
-          </h3>
-          {!isImporting && (
-            <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
-              <X className="w-5 h-5" />
-            </button>
-          )}
-        </div>
-        <div className="px-5 py-4 space-y-3">
-          <textarea
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            rows={8}
-            placeholder="在需求面板里选中加急岗位（带 ❗ 标记）整页全选 Ctrl+A，Ctrl+C 复制，然后在此处 Ctrl+V 粘贴。已存在的岗位会被点亮为加急，不会重复创建。"
-            className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-xs font-mono leading-relaxed focus:outline-none focus:border-red-300 transition-all resize-y"
-          />
-          <button
-            onClick={handleImport}
-            disabled={!pasteText.trim() || isImporting}
-            className="w-full h-10 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardPaste className="w-4 h-4" />}
-            {isImporting ? '解析中...' : '解析并标记加急'}
-          </button>
-          {result && !isImporting && (
-            <div className={cn('p-3 rounded-xl border text-sm', result.failed === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200')}>
-              <div className="flex items-center gap-2">
-                {result.failed === 0 ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-amber-500" />}
-                <span className="font-medium text-gray-800">导入 {result.success} 条{result.failed > 0 && `，失败 ${result.failed} 条`}</span>
-              </div>
-              {result.errors.length > 0 && (
-                <ul className="mt-2 space-y-0.5">{result.errors.slice(0, 5).map((e, i) => <li key={i} className="text-xs text-red-500">{e}</li>)}</ul>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
