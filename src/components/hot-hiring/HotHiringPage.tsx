@@ -3,37 +3,71 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Flame, AlertTriangle, Megaphone, X, Copy, Check, ClipboardPaste, Loader2 } from 'lucide-react';
+import {
+  Flame, AlertTriangle, Megaphone, X, Copy, Check,
+  ClipboardPaste, Loader2, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
 import { parsePastedTable, pastedRowsToFile } from '@/lib/panel-paste';
-import type { JDImportResult } from '@/types/jd';
+import type { JDImportResult, JDCategory } from '@/types/jd';
 import {
   PRIORITY_COLORS,
   isUrgentPriority,
   priorityRank,
   JD_STATUS_COLORS,
   JD_STATUS_LABELS,
+  JD_CATEGORY_LABELS,
+  getPrimaryCategory,
 } from '@/types/jd';
 import type { JD } from '@/types/jd';
-import { buildAdCopy, adVariantLabel, type AdSegment, type AdVariant } from '@/lib/ad-copy';
+import {
+  buildAdCopy, adVariantLabel, getCategoryEmoji,
+  type AdSegment, type AdVariant,
+} from '@/lib/ad-copy';
 import { cn } from '@/lib/utils';
 
-/** 把缺口文本（"3"、"5人"、"急招2"）解析为数字，无法解析时为 0。 */
 function parseGap(gap?: string): number {
   if (!gap) return 0;
   const m = gap.match(/\d+/);
   return m ? parseInt(m[0], 10) : 0;
 }
 
-interface HotRow {
-  jd: JD;
-  gap: number;
+interface HotRow { jd: JD; gap: number; }
+
+interface UrgentGroup {
+  priority: 'P0' | 'P1';
+  cat: JDCategory;
+  jds: JD[];
+  key: string;
+}
+
+function buildUrgentGroups(jds: JD[]): UrgentGroup[] {
+  const groups: UrgentGroup[] = [];
+  for (const priority of ['P0', 'P1'] as const) {
+    const pJds = jds.filter((j) => j.priority === priority);
+    const catMap = new Map<JDCategory, JD[]>();
+    for (const jd of pJds) {
+      const cat = getPrimaryCategory(jd);
+      if (!catMap.has(cat)) catMap.set(cat, []);
+      catMap.get(cat)!.push(jd);
+    }
+    const sorted = Array.from(catMap.entries()).sort((a, b) => {
+      if (a[0] === 'ai') return -1;
+      if (b[0] === 'ai') return 1;
+      return b[1].length - a[1].length;
+    });
+    for (const [cat, list] of sorted) {
+      groups.push({ priority, cat, jds: list, key: `${priority}:${cat}` });
+    }
+  }
+  return groups;
 }
 
 export function HotHiringPage() {
   const [mounted, setMounted] = useState(false);
   const [adVariant, setAdVariant] = useState<AdVariant | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
   const selectJD = useJDStore((s) => s.selectJD);
@@ -43,7 +77,6 @@ export function HotHiringPage() {
 
   const rows: HotRow[] = jds.map((jd) => ({ jd, gap: parseGap(jd.gap) }));
 
-  // 急招：优先级 P0 / P1，P0 在前，其次按缺口降序
   const urgent = rows
     .filter(({ jd }) => isUrgentPriority(jd.priority))
     .sort((a, b) => {
@@ -51,13 +84,33 @@ export function HotHiringPage() {
       return r !== 0 ? r : b.gap - a.gap;
     });
 
-  // 加急：源表 ❗ 标记的岗位，P0 在前，其次按缺口降序
   const expedited = rows
     .filter(({ jd }) => jd.expedited)
     .sort((a, b) => {
       const r = priorityRank(a.jd.priority) - priorityRank(b.jd.priority);
       return r !== 0 ? r : b.gap - a.gap;
     });
+
+  const urgentGroups = buildUrgentGroups(urgent.map((r) => r.jd));
+  const p0Groups = urgentGroups.filter((g) => g.priority === 'P0');
+  const p1Groups = urgentGroups.filter((g) => g.priority === 'P1');
+
+  const selectedJDs = urgentGroups
+    .filter((g) => selectedGroups.has(g.key))
+    .flatMap((g) => g.jds);
+
+  const toggleGroup = (key: string) =>
+    setSelectedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+
+  const selectAllP0 = () =>
+    setSelectedGroups((prev) => new Set([...Array.from(prev), ...p0Groups.map((g) => g.key)]));
+  const selectAllP1 = () =>
+    setSelectedGroups((prev) => new Set([...Array.from(prev), ...p1Groups.map((g) => g.key)]));
+  const clearSelection = () => setSelectedGroups(new Set());
 
   const handleOpenJD = (id: string) => { selectJD(id); router.push('/jd-library'); };
 
@@ -71,44 +124,106 @@ export function HotHiringPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* 急招 */}
+        {/* 急招 — 分类分组 + 勾选生成 */}
         <GlassPanel>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-red-500" />急招 · P0 / P1
             </h3>
-            <div className="flex items-center gap-2">
-              {urgent.length > 0 && (
-                <>
-                  <button
-                    onClick={() => setAdVariant('maimanfen')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors"
-                  >
-                    <Megaphone className="w-3.5 h-3.5" />麦满分文案
-                  </button>
-                  <button
-                    onClick={() => setAdVariant('tieniu')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 text-xs font-medium transition-colors"
-                  >
-                    <Megaphone className="w-3.5 h-3.5" />铁牛文案
-                  </button>
-                </>
-              )}
-              <span className="text-xs text-gray-400">共 {urgent.length} 个</span>
-            </div>
+            <span className="text-xs text-gray-400">共 {urgent.length} 个</span>
           </div>
+
           {urgent.length > 0 ? (
-            <div className="space-y-2">
-              {urgent.map(({ jd, gap }) => (
-                <HotJDRow key={jd.id} jd={jd} gap={gap} onOpen={handleOpenJD} showPriority />
-              ))}
-            </div>
+            <>
+              {/* 快捷选择 + 文案生成 */}
+              <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                {p0Groups.length > 0 && (
+                  <button
+                    onClick={selectAllP0}
+                    className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-medium transition-colors"
+                  >全选 P0</button>
+                )}
+                {p1Groups.length > 0 && (
+                  <button
+                    onClick={selectAllP1}
+                    className="text-xs px-2 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-medium transition-colors"
+                  >全选 P1</button>
+                )}
+                {selectedGroups.size > 0 && (
+                  <button
+                    onClick={clearSelection}
+                    className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                  >清空</button>
+                )}
+                <div className="flex-1" />
+                {selectedGroups.size > 0 ? (
+                  <>
+                    <button
+                      onClick={() => setAdVariant('maimanfen')}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors"
+                    >
+                      <Megaphone className="w-3.5 h-3.5" />麦满分
+                    </button>
+                    <button
+                      onClick={() => setAdVariant('tieniu')}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 text-xs font-medium transition-colors"
+                    >
+                      <Megaphone className="w-3.5 h-3.5" />铁牛
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-gray-400">勾选分类后生成文案</span>
+                )}
+              </div>
+
+              {selectedGroups.size > 0 && (
+                <p className="text-xs text-indigo-500 mb-2.5">
+                  已选 {selectedGroups.size} 个分类 · {selectedJDs.length} 个岗位
+                </p>
+              )}
+
+              {/* P0 分类块 */}
+              {p0Groups.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-bold text-red-500 mb-1.5 px-0.5">P0 急招</p>
+                  <div className="space-y-1.5">
+                    {p0Groups.map((group) => (
+                      <GroupCard
+                        key={group.key}
+                        group={group}
+                        checked={selectedGroups.has(group.key)}
+                        onToggle={() => toggleGroup(group.key)}
+                        onOpen={handleOpenJD}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* P1 分类块 */}
+              {p1Groups.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-amber-500 mb-1.5 px-0.5">P1 急招</p>
+                  <div className="space-y-1.5">
+                    {p1Groups.map((group) => (
+                      <GroupCard
+                        key={group.key}
+                        group={group}
+                        checked={selectedGroups.has(group.key)}
+                        onToggle={() => toggleGroup(group.key)}
+                        onOpen={handleOpenJD}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <EmptyState icon={AlertTriangle} title="暂无急招岗位" description="源表「优先级」列标记 P0 / P1 后将在此展示" />
           )}
         </GlassPanel>
 
-        {/* 加急 */}
+        {/* 加急 · ❗ 标记 — 不变 */}
         <GlassPanel>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
@@ -137,7 +252,7 @@ export function HotHiringPage() {
       </div>
 
       {adVariant && (
-        <AdCopyDialog jds={urgent.map((r) => r.jd)} variant={adVariant} onClose={() => setAdVariant(null)} />
+        <AdCopyDialog jds={selectedJDs} variant={adVariant} onClose={() => setAdVariant(null)} />
       )}
 
       {pasteOpen && <ExpeditedPasteDialog onClose={() => setPasteOpen(false)} />}
@@ -145,8 +260,77 @@ export function HotHiringPage() {
   );
 }
 
-/** 只保留带 ❗ 加急标记的行（含表头）。
- * 表头里找「加急」列，仅留下该列为真值的数据行；无加急列时返回空（视为没有加急岗位）。 */
+// ─── GroupCard ────────────────────────────────────────────────────────────────
+
+interface GroupCardProps {
+  group: UrgentGroup;
+  checked: boolean;
+  onToggle: () => void;
+  onOpen: (id: string) => void;
+}
+
+function GroupCard({ group, checked, onToggle, onOpen }: GroupCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const emoji = getCategoryEmoji(group.cat);
+  const label = JD_CATEGORY_LABELS[group.cat] ?? group.cat;
+
+  return (
+    <div className={cn(
+      'rounded-xl border transition-all',
+      checked ? 'border-indigo-200 bg-indigo-50/40' : 'border-gray-100 hover:border-gray-200',
+    )}>
+      {/* Row header — click = toggle selection */}
+      <div
+        className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer"
+        onClick={onToggle}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="w-4 h-4 accent-indigo-500 cursor-pointer shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        />
+        <span className="text-base leading-none">{emoji}</span>
+        <span className="text-sm font-medium text-gray-700 flex-1">{label}类</span>
+        <span className={cn(
+          'text-xs px-1.5 py-0.5 rounded-md font-medium shrink-0',
+          group.priority === 'P0'
+            ? 'bg-red-100 text-red-600'
+            : 'bg-amber-100 text-amber-600',
+        )}>
+          {group.jds.length} 个
+        </span>
+        {/* Expand/collapse toggle — stops propagation so it doesn't toggle checkbox */}
+        <button
+          className="p-0.5 rounded-md hover:bg-gray-100 text-gray-400 shrink-0"
+          onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+          aria-label={expanded ? '收起' : '展开'}
+        >
+          {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
+      {/* Expanded JD list */}
+      {expanded && (
+        <div className="border-t border-gray-100 px-2 py-1.5 space-y-1">
+          {group.jds.map((jd) => (
+            <HotJDRow
+              key={jd.id}
+              jd={jd}
+              gap={parseGap(jd.gap)}
+              onOpen={onOpen}
+              showPriority={false}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ExpeditedPasteDialog ─────────────────────────────────────────────────────
+
 function filterExpeditedRows(rows: string[][]): string[][] {
   const header = rows[0];
   const idx = header.findIndex((h) => h.trim() === '加急');
@@ -171,7 +355,6 @@ function ExpeditedPasteDialog({ onClose }: { onClose: () => void }) {
       setResult({ success: 0, failed: 1, errors: ['没有可识别的加急清单，请在需求面板全选复制带 ❗ 标记的岗位再粘贴'] });
       return;
     }
-    // 此入口专属「加急」：只保留带 ❗ 标记的岗位，整页粘贴也只会点亮加急岗位，不污染 JD 库
     const expeditedRows = filterExpeditedRows(rows);
     if (expeditedRows.length < 2) {
       setResult({ success: 0, failed: 1, errors: ['粘贴内容里没有带 ❗ 标记的加急岗位，请确认复制的是加急清单'] });
@@ -230,6 +413,8 @@ function ExpeditedPasteDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── AdCopyDialog ─────────────────────────────────────────────────────────────
+
 interface AdCopyDialogProps {
   jds: JD[];
   variant: AdVariant;
@@ -266,19 +451,14 @@ function AdCopyDialog({ jds, variant, onClose }: AdCopyDialogProps) {
   );
 }
 
-interface AdSectionProps {
-  label: string;
-  segments: AdSegment[];
-}
+interface AdSectionProps { label: string; segments: AdSegment[]; }
 
 function AdSection({ label, segments }: AdSectionProps) {
   if (segments.length === 0) return null;
   return (
     <div className="space-y-3">
       <h4 className="text-sm font-semibold text-gray-700">{label} 急招（{segments.length} 段）</h4>
-      {segments.map((seg, i) => (
-        <AdSegmentCard key={i} segment={seg} />
-      ))}
+      {segments.map((seg, i) => <AdSegmentCard key={i} segment={seg} />)}
     </div>
   );
 }
@@ -312,6 +492,8 @@ function AdSegmentCard({ segment }: { segment: AdSegment }) {
     </div>
   );
 }
+
+// ─── HotJDRow ─────────────────────────────────────────────────────────────────
 
 interface HotJDRowProps {
   jd: JD;

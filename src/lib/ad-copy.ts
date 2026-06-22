@@ -57,6 +57,11 @@ export function adVariantLabel(variant: AdVariant): string {
   return VARIANTS[variant].label;
 }
 
+/** 供 UI 读取分类 emoji */
+export function getCategoryEmoji(cat: JDCategory): string {
+  return CATEGORY_EMOJI[cat] || '💼';
+}
+
 /** 远程/居家类地点不在文案中展示。 */
 function isRemoteLocation(loc?: string): boolean {
   if (!loc) return true;
