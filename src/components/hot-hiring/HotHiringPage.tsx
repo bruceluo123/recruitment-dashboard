@@ -4,12 +4,11 @@ import { useRouter } from 'next/navigation';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
-  Flame, AlertTriangle, Megaphone, X, Copy, Check,
-  ClipboardPaste, Loader2, ChevronDown, ChevronUp,
+  AlertTriangle, Megaphone, X, Copy, Check,
+  Loader2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
-import { parsePastedTable, pastedRowsToFile } from '@/lib/panel-paste';
-import type { JDImportResult, JDCategory } from '@/types/jd';
+import type { JDCategory } from '@/types/jd';
 import {
   PRIORITY_COLORS,
   isUrgentPriority,
@@ -66,7 +65,6 @@ function buildUrgentGroups(jds: JD[]): UrgentGroup[] {
 export function HotHiringPage() {
   const [mounted, setMounted] = useState(false);
   const [adVariant, setAdVariant] = useState<AdVariant | null>(null);
-  const [pasteOpen, setPasteOpen] = useState(false);
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
@@ -75,23 +73,14 @@ export function HotHiringPage() {
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
-  const rows: HotRow[] = jds.map((jd) => ({ jd, gap: parseGap(jd.gap) }));
-
-  const urgent = rows
-    .filter(({ jd }) => isUrgentPriority(jd.priority))
+  const urgent = jds
+    .filter((jd) => isUrgentPriority(jd.priority))
     .sort((a, b) => {
-      const r = priorityRank(a.jd.priority) - priorityRank(b.jd.priority);
-      return r !== 0 ? r : b.gap - a.gap;
+      const r = priorityRank(a.priority) - priorityRank(b.priority);
+      return r !== 0 ? r : parseGap(b.gap) - parseGap(a.gap);
     });
 
-  const expedited = rows
-    .filter(({ jd }) => jd.expedited)
-    .sort((a, b) => {
-      const r = priorityRank(a.jd.priority) - priorityRank(b.jd.priority);
-      return r !== 0 ? r : b.gap - a.gap;
-    });
-
-  const urgentGroups = buildUrgentGroups(urgent.map((r) => r.jd));
+  const urgentGroups = buildUrgentGroups(urgent);
   const p0Groups = urgentGroups.filter((g) => g.priority === 'P0');
   const p1Groups = urgentGroups.filter((g) => g.priority === 'P1');
 
@@ -119,134 +108,77 @@ export function HotHiringPage() {
       <div>
         <h2 className="text-2xl font-bold text-gray-800">热招看板</h2>
         <p className="text-sm text-gray-500 mt-1">
-          急招 {urgent.length} 个（P0/P1）· 加急 {expedited.length} 个（❗ 标记）
+          P0 急招 {p0Groups.reduce((s, g) => s + g.jds.length, 0)} 个 · P1 急招 {p1Groups.reduce((s, g) => s + g.jds.length, 0)} 个
         </p>
       </div>
 
+      {/* 快捷选择 + 文案生成 — 横跨两列 */}
+      <GlassPanel>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {p0Groups.length > 0 && (
+            <button onClick={selectAllP0} className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-medium transition-colors">全选 P0</button>
+          )}
+          {p1Groups.length > 0 && (
+            <button onClick={selectAllP1} className="text-xs px-2 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-medium transition-colors">全选 P1</button>
+          )}
+          {selectedGroups.size > 0 && (
+            <button onClick={clearSelection} className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors">清空</button>
+          )}
+          {selectedGroups.size > 0 && (
+            <span className="text-xs text-indigo-500 ml-1">已选 {selectedGroups.size} 个分类 · {selectedJDs.length} 个岗位</span>
+          )}
+          <div className="flex-1" />
+          {selectedGroups.size > 0 ? (
+            <>
+              <button onClick={() => setAdVariant('maimanfen')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors">
+                <Megaphone className="w-3.5 h-3.5" />麦满分
+              </button>
+              <button onClick={() => setAdVariant('tieniu')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 text-xs font-medium transition-colors">
+                <Megaphone className="w-3.5 h-3.5" />铁牛
+              </button>
+            </>
+          ) : (
+            <span className="text-xs text-gray-400">勾选分类后生成文案</span>
+          )}
+        </div>
+      </GlassPanel>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* 急招 — 分类分组 + 勾选生成 */}
+        {/* P0 */}
         <GlassPanel>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-500" />急招 · P0 / P1
+              <AlertTriangle className="w-4 h-4 text-red-500" />P0 急招
             </h3>
-            <span className="text-xs text-gray-400">共 {urgent.length} 个</span>
+            <span className="text-xs text-gray-400">共 {p0Groups.reduce((s, g) => s + g.jds.length, 0)} 个</span>
           </div>
-
-          {urgent.length > 0 ? (
-            <>
-              {/* 快捷选择 + 文案生成 */}
-              <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-                {p0Groups.length > 0 && (
-                  <button
-                    onClick={selectAllP0}
-                    className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-medium transition-colors"
-                  >全选 P0</button>
-                )}
-                {p1Groups.length > 0 && (
-                  <button
-                    onClick={selectAllP1}
-                    className="text-xs px-2 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-medium transition-colors"
-                  >全选 P1</button>
-                )}
-                {selectedGroups.size > 0 && (
-                  <button
-                    onClick={clearSelection}
-                    className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
-                  >清空</button>
-                )}
-                <div className="flex-1" />
-                {selectedGroups.size > 0 ? (
-                  <>
-                    <button
-                      onClick={() => setAdVariant('maimanfen')}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors"
-                    >
-                      <Megaphone className="w-3.5 h-3.5" />麦满分
-                    </button>
-                    <button
-                      onClick={() => setAdVariant('tieniu')}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 text-xs font-medium transition-colors"
-                    >
-                      <Megaphone className="w-3.5 h-3.5" />铁牛
-                    </button>
-                  </>
-                ) : (
-                  <span className="text-xs text-gray-400">勾选分类后生成文案</span>
-                )}
-              </div>
-
-              {selectedGroups.size > 0 && (
-                <p className="text-xs text-indigo-500 mb-2.5">
-                  已选 {selectedGroups.size} 个分类 · {selectedJDs.length} 个岗位
-                </p>
-              )}
-
-              {/* P0 分类块 */}
-              {p0Groups.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-xs font-bold text-red-500 mb-1.5 px-0.5">P0 急招</p>
-                  <div className="space-y-1.5">
-                    {p0Groups.map((group) => (
-                      <GroupCard
-                        key={group.key}
-                        group={group}
-                        checked={selectedGroups.has(group.key)}
-                        onToggle={() => toggleGroup(group.key)}
-                        onOpen={handleOpenJD}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* P1 分类块 */}
-              {p1Groups.length > 0 && (
-                <div>
-                  <p className="text-xs font-bold text-amber-500 mb-1.5 px-0.5">P1 急招</p>
-                  <div className="space-y-1.5">
-                    {p1Groups.map((group) => (
-                      <GroupCard
-                        key={group.key}
-                        group={group}
-                        checked={selectedGroups.has(group.key)}
-                        onToggle={() => toggleGroup(group.key)}
-                        onOpen={handleOpenJD}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <EmptyState icon={AlertTriangle} title="暂无急招岗位" description="源表「优先级」列标记 P0 / P1 后将在此展示" />
-          )}
-        </GlassPanel>
-
-        {/* 加急 · ❗ 标记 — 不变 */}
-        <GlassPanel>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-              <Flame className="w-4 h-4 text-red-600" />加急 · ❗ 标记
-            </h3>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPasteOpen(true)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors"
-              >
-                <ClipboardPaste className="w-3.5 h-3.5" />粘贴加急清单
-              </button>
-              <span className="text-xs text-gray-400">共 {expedited.length} 个</span>
-            </div>
-          </div>
-          {expedited.length > 0 ? (
-            <div className="space-y-2">
-              {expedited.map(({ jd, gap }) => (
-                <HotJDRow key={jd.id} jd={jd} gap={gap} onOpen={handleOpenJD} showPriority expedited />
+          {p0Groups.length > 0 ? (
+            <div className="space-y-1.5">
+              {p0Groups.map((group) => (
+                <GroupCard key={group.key} group={group} checked={selectedGroups.has(group.key)} onToggle={() => toggleGroup(group.key)} onOpen={handleOpenJD} />
               ))}
             </div>
           ) : (
-            <EmptyState icon={Flame} title="暂无加急岗位" description="粘贴需求面板「加急」清单（带 ❗ 标记）后将在此展示" />
+            <EmptyState icon={AlertTriangle} title="暂无 P0 岗位" description="源表「优先级」列标记 P0 后将在此展示" />
+          )}
+        </GlassPanel>
+
+        {/* P1 */}
+        <GlassPanel>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />P1 急招
+            </h3>
+            <span className="text-xs text-gray-400">共 {p1Groups.reduce((s, g) => s + g.jds.length, 0)} 个</span>
+          </div>
+          {p1Groups.length > 0 ? (
+            <div className="space-y-1.5">
+              {p1Groups.map((group) => (
+                <GroupCard key={group.key} group={group} checked={selectedGroups.has(group.key)} onToggle={() => toggleGroup(group.key)} onOpen={handleOpenJD} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={AlertTriangle} title="暂无 P1 岗位" description="源表「优先级」列标记 P1 后将在此展示" />
           )}
         </GlassPanel>
       </div>
@@ -254,8 +186,6 @@ export function HotHiringPage() {
       {adVariant && (
         <AdCopyDialog jds={selectedJDs} variant={adVariant} onClose={() => setAdVariant(null)} />
       )}
-
-      {pasteOpen && <ExpeditedPasteDialog onClose={() => setPasteOpen(false)} />}
     </div>
   );
 }
