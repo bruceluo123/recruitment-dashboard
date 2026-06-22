@@ -216,6 +216,51 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
               {result.errors.length > 0 && (
                 <ul className="space-y-0.5 mt-2">{result.errors.slice(0, 5).map((e, i) => <li key={i} className={`text-xs ${result.failed > 0 ? 'text-red-500' : 'text-gray-500'}`}>{e}</li>)}</ul>
               )}
+              {/* Diff summary — only shown in replace mode */}
+              {(result.added?.length || result.removed?.length || result.changed?.length) ? (
+                <div className="mt-3 pt-3 border-t border-green-200 space-y-2.5">
+                  {result.added && result.added.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-green-700 mb-1">🟢 新增 {result.added.length} 个岗位</p>
+                      <ul className="space-y-0.5 pl-2">
+                        {result.added.slice(0, 5).map((d, i) => (
+                          <li key={i} className="text-xs text-gray-600">· {d.title}{d.reqKey ? <span className="text-gray-400 ml-1">({d.reqKey})</span> : null}</li>
+                        ))}
+                        {result.added.length > 5 && <li className="text-xs text-gray-400">...还有 {result.added.length - 5} 个</li>}
+                      </ul>
+                    </div>
+                  )}
+                  {result.removed && result.removed.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-red-600 mb-1">🔴 移除 {result.removed.length} 个岗位</p>
+                      <ul className="space-y-0.5 pl-2">
+                        {result.removed.slice(0, 5).map((d, i) => (
+                          <li key={i} className="text-xs text-gray-600">· {d.title}{d.reqKey ? <span className="text-gray-400 ml-1">({d.reqKey})</span> : null}</li>
+                        ))}
+                        {result.removed.length > 5 && <li className="text-xs text-gray-400">...还有 {result.removed.length - 5} 个</li>}
+                      </ul>
+                    </div>
+                  )}
+                  {result.changed && result.changed.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-amber-600 mb-1">🟡 异动 {result.changed.length} 个岗位</p>
+                      <ul className="space-y-0.5 pl-2">
+                        {result.changed.slice(0, 8).map((d, i) => (
+                          <li key={i} className="text-xs text-gray-600">
+                            · {d.title}
+                            {d.changes && d.changes.length > 0 && (
+                              <span className="text-amber-600 ml-1">— {d.changes.join('，')}</span>
+                            )}
+                          </li>
+                        ))}
+                        {result.changed.length > 8 && <li className="text-xs text-gray-400">...还有 {result.changed.length - 8} 个</li>}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : result.replaced !== undefined && (
+                <p className="mt-2 text-xs text-gray-400">与上次相比无岗位新增、移除或异动。</p>
+              )}
             </div>
           )}
         </div>

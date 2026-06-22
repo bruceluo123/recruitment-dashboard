@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { JD, JDFilter, JDCategory, JDImportResult, JDStatus } from '@/types/jd';
+import type { JD, JDFilter, JDCategory, JDImportResult, JDDiffItem, JDStatus } from '@/types/jd';
 import { hasCategory, parsePriority } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_STATUS_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
@@ -298,6 +298,32 @@ export const useJDStore = create<JDStore>()(
                 requirements: hasReq ? jd.requirements : old.requirements,
               };
             });
+            // 计算新增 / 移除 / 异动 diff（在写入前用旧数据对比）
+            const prevJds = get().jds;
+            const newByKey = new Map(enriched.map((j) => [getJDKey(j), j]));
+
+            result.added = enriched
+              .filter((j) => !oldByKey.has(getJDKey(j)))
+              .map((j) => ({ title: j.title, reqKey: j.reqKey }));
+
+            result.removed = prevJds
+              .filter((j) => !newByKey.has(getJDKey(j)))
+              .map((j) => ({ title: j.title, reqKey: j.reqKey }));
+
+            result.changed = enriched
+              .filter((j) => oldByKey.has(getJDKey(j)))
+              .reduce<JDDiffItem[]>((acc, j) => {
+                const old = oldByKey.get(getJDKey(j))!;
+                const diffs: string[] = [];
+                if (old.status !== j.status) diffs.push(`状态 ${JD_STATUS_LABELS[old.status]}→${JD_STATUS_LABELS[j.status]}`);
+                if ((old.headcount ?? '') !== (j.headcount ?? '')) diffs.push(`HC ${old.headcount || '-'}→${j.headcount || '-'}`);
+                if ((old.gap ?? '') !== (j.gap ?? '')) diffs.push(`缺口 ${old.gap || '-'}→${j.gap || '-'}`);
+                if ((old.priority ?? '') !== (j.priority ?? '')) diffs.push(`优先级 ${old.priority || '-'}→${j.priority || '-'}`);
+                if ((old.odc ?? '') !== (j.odc ?? '')) diffs.push(`对接人`);
+                if (diffs.length) acc.push({ title: j.title, reqKey: j.reqKey, changes: diffs });
+                return acc;
+              }, []);
+
             useJDStore.setState({ jds: enriched });
             result.success = enriched.length;
             result.failed = 0;
