@@ -376,10 +376,16 @@ export function useFilteredTalents(): Talent[] {
 }
 
 export function useTalentCategoryCounts(): { id: JDCategory | 'all'; label: string; count: number }[] {
-  const { talents } = useTalentStore();
-  const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: talents.length }];
+  const { talents, filter } = useTalentStore();
+  const view = (filter as TalentFilter & { archiveView?: 'active' | 'all' | 'archived' }).archiveView || 'active';
+  const pool = talents.filter((t) => {
+    if (view === 'active' && t.archived) return false;
+    if (view === 'archived' && !t.archived) return false;
+    return true;
+  });
+  const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: pool.length }];
   for (const cat of ALL_CATEGORIES) {
-    const count = talents.filter((t) => (t.categories || []).includes(cat)).length;
+    const count = pool.filter((t) => (t.categories || []).includes(cat)).length;
     if (count > 0) entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count });
   }
   return entries;
