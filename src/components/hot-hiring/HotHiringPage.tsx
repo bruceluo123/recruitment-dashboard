@@ -129,11 +129,11 @@ export function HotHiringPage() {
           <div className="flex-1" />
           {selectedGroups.size > 0 ? (
             <>
-              <button onClick={() => setAdVariant('maimanfen')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium transition-colors">
-                <Megaphone className="w-3.5 h-3.5" />麦满分
+              <button onClick={() => setAdVariant('maimanfen')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 text-sm font-semibold shadow-sm transition-colors">
+                <Megaphone className="w-4 h-4" />生成麦满分文案
               </button>
-              <button onClick={() => setAdVariant('tieniu')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 text-xs font-medium transition-colors">
-                <Megaphone className="w-3.5 h-3.5" />铁牛
+              <button onClick={() => setAdVariant('tieniu')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 text-sm font-semibold shadow-sm transition-colors">
+                <Megaphone className="w-4 h-4" />生成铁牛文案
               </button>
             </>
           ) : (
