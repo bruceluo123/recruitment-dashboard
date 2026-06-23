@@ -35,7 +35,8 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
     const data = await pdfParse(buffer);
     pdfText = data.text || '';
     numPages = data.numpages || 1;
-  } catch {
+  } catch (e) {
+    console.error('[resume-text] pdf-parse failed:', (e as Error).message);
     pdfText = '';
   }
 
