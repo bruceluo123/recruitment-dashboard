@@ -141,6 +141,17 @@ export async function matchJDToTalents(
     name: t.name,
     jobTitle: t.jobTitle,
     resumeText: textMap.get(t.id) || '',
+    // 结构化字段：无简历正文时作为主要匹配依据
+    company: t.company,
+    prevCompanies: t.prevCompanies,
+    techDirection: t.techDirection,
+    level: t.level,
+    eduLevel: t.eduLevel,
+    school: t.school,
+    major: t.major,
+    location: t.location,
+    workIntent: t.workIntent,
+    monthlySalary: t.monthlySalary,
   }));
 
   const prompt = buildTalentMatchPrompt(jd, briefs);

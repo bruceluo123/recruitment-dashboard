@@ -53,6 +53,11 @@ export interface Talent {
   onboardInfo?: string;      // 入职时间及公司类型（飞书 AB）
   techAccount?: string;      // jerry技术账号/领英账号状态（飞书 AC）
 
+  // —— 归档与推荐中心迁移字段 ——
+  archived?: boolean;        // true = 旧档人才，匹配时默认跳过；false/undefined = 活跃
+  organization?: string;     // 推荐编制组织/序列（从推荐中心迁移）
+  approvalNo?: string;       // 批据号（从推荐中心迁移）
+
   createdAt: string;
   updatedAt: string;
 }

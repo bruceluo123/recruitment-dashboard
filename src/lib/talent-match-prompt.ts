@@ -7,10 +7,21 @@ function clip(text: string, max: number): string {
 
 /** 候选人精简档案：喂给 AI 的单条候选人 */
 export interface CandidateBrief {
-  index: number;     // 1-based，对应返回的 candIndex
+  index: number;       // 1-based，对应返回的 candIndex
   name: string;
   jobTitle: string;
-  resumeText: string; // 已扫描的简历正文（可能为空）
+  resumeText: string;  // 已扫描的简历正文（可能为空）
+  // 结构化字段（无简历正文时作为主要匹配依据）
+  company?: string;
+  prevCompanies?: string[];
+  techDirection?: string;
+  level?: string;
+  eduLevel?: string;
+  school?: string;
+  major?: string;
+  location?: string;
+  workIntent?: string;
+  monthlySalary?: string;
 }
 
 const SCORING_RUBRIC = `## 评分维度（0-100）
@@ -40,11 +51,28 @@ function buildJDBlock(jd: MatchJDInput): string {
 
 function buildCandidateList(cands: CandidateBrief[]): string {
   return cands.map((c) => {
-    const resume = c.resumeText ? clip(c.resumeText, 1200) : '（无简历正文）';
-    return `### 候选人-${c.index}
-- 姓名：${c.name || '未知'}
-- 当前岗位：${c.jobTitle || '未知'}
-- 简历：${resume}`;
+    const lines: string[] = [
+      `### 候选人-${c.index}`,
+      `- 姓名：${c.name || '未知'}`,
+      `- 当前岗位：${c.jobTitle || '未知'}`,
+    ];
+    // 有结构化字段时展示，无论是否有简历正文
+    if (c.company) lines.push(`- 当前公司：${c.company}`);
+    if (c.prevCompanies?.length) lines.push(`- 历史公司：${c.prevCompanies.join('、')}`);
+    if (c.techDirection) lines.push(`- 技术方向：${c.techDirection}`);
+    if (c.level) lines.push(`- 职级：${c.level}`);
+    const edu = [c.eduLevel, c.school, c.major].filter(Boolean).join(' · ');
+    if (edu) lines.push(`- 学历：${edu}`);
+    if (c.location) lines.push(`- 所在地：${c.location}`);
+    if (c.workIntent) lines.push(`- 求职意向：${c.workIntent}`);
+    if (c.monthlySalary) lines.push(`- 薪资期望：${c.monthlySalary}`);
+
+    if (c.resumeText) {
+      lines.push(`- 简历摘要：${clip(c.resumeText, 1000)}`);
+    } else {
+      lines.push('- 简历：（无简历正文，以上结构化信息为匹配依据）');
+    }
+    return lines.join('\n');
   }).join('\n\n');
 }
 

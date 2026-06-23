@@ -6,6 +6,7 @@ import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
 import { generateId } from '@/lib/utils';
 import { classifyTitleCategories } from '@/lib/talent-extract';
 import { detectCategories } from '@/lib/jd-parse-core';
+import { extractTalentFieldsBatch } from '@/lib/talent-field-extract';
 
 export interface TalentImportProgress {
   current: number; total: number; percent: number;
@@ -19,10 +20,10 @@ export interface TalentScanProgress {
 
 export interface TalentScanResult { scanned: number; failed: number; errors: string[]; }
 
-/** 从文件名解析姓名与岗位，格式约定为「姓名-岗位.ext」，分隔符支持 - _ －。 */
+/** 从文件名解析姓名与岗位，格式约定为「姓名+岗位.ext」，分隔符支持 + - _ －。 */
 function parseFileName(fileName: string): { name: string; jobTitle: string } {
   const base = fileName.replace(/\.(pdf|docx?|PDF|DOCX?)$/i, '').trim();
-  const sep = base.search(/[-_－]/);
+  const sep = base.search(/[+\-_－]/);
   if (sep === -1) return { name: base, jobTitle: '' };
   return {
     name: base.slice(0, sep).trim(),
@@ -53,6 +54,8 @@ interface TalentStore {
   deleteTalentBatch: (ids: string[]) => void;
   undoDeleteTalent: () => void;
   clearAllTalents: () => void;
+  archiveAll: () => void;
+  setArchived: (id: string, archived: boolean) => void;
   importFromFiles: (files: File[]) => Promise<TalentImportResult>;
 }
 
@@ -120,6 +123,12 @@ export const useTalentStore = create<TalentStore>()(
         return { talents: [s.lastDeletedTalent, ...s.talents], lastDeletedTalent: null };
       }),
       clearAllTalents: () => set({ talents: [], lastDeletedTalent: null }),
+      archiveAll: () => set((s) => ({
+        talents: s.talents.map((t) => ({ ...t, archived: true, updatedAt: new Date().toISOString() })),
+      })),
+      setArchived: (id, archived) => set((s) => ({
+        talents: s.talents.map((t) => t.id === id ? { ...t, archived, updatedAt: new Date().toISOString() } : t),
+      })),
 
       // 批量扫描未识别的简历：拉取 Blob → 提取文字 → 存入 KV，并在本地记录 hasResumeText/resumeChars。
       // 跳过无简历链接或已扫描过的人选。并发 6（文字型走快路径），可中途取消。
@@ -202,6 +211,30 @@ export const useTalentStore = create<TalentStore>()(
               });
             }
           }
+
+          // 分类完成后，提取结构化字段（company/techDirection/level/school 等）供逆向匹配使用
+          if (!signal.aborted) {
+            const freshTalents = get().talents;
+            const fieldMap = await extractTalentFieldsBatch(
+              freshTalents.filter((t) => pending.some((p) => p.id === t.id)),
+              signal,
+            );
+            fieldMap.forEach((fields, talentId) => {
+              const update: Partial<import('@/types/talent').Talent> = {};
+              if (fields.company) update.company = fields.company;
+              if (fields.prevCompanies?.length) update.prevCompanies = fields.prevCompanies;
+              if (fields.techDirection) update.techDirection = fields.techDirection;
+              if (fields.level) update.level = fields.level;
+              if (fields.eduLevel) update.eduLevel = fields.eduLevel;
+              if (fields.school) update.school = fields.school;
+              if (fields.major) update.major = fields.major;
+              if (fields.gradYear) update.gradYear = fields.gradYear;
+              if (fields.location) update.location = fields.location;
+              if (fields.workIntent) update.workIntent = fields.workIntent;
+              if (fields.monthlySalary) update.monthlySalary = fields.monthlySalary;
+              if (Object.keys(update).length) get().updateTalent(talentId, update);
+            });
+          }
         } finally {
           // 无论成功/异常/停止都复位，避免按钮永久卡在「扫描中」
           scanAbort = null;
@@ -246,30 +279,60 @@ export const useTalentStore = create<TalentStore>()(
           return { success: 0, failed: 0, errors: ['已取消导入'] };
         }
 
-        // 组装人选记录（关键词分类，待「扫描识别」时再用 AI 精修）
-        const batch: Talent[] = parsed.map((p) => {
-          const kw = detectCategories(p.jobTitle);
-          return {
-            id: generateId(),
-            name: p.name,
-            jobTitle: p.jobTitle,
-            categories: kw.length ? kw : ['operations'],
-            resumeUrl: p.up?.downloadUrl || undefined,
-            resumeFileName: p.up?.fileName || p.fileName,
-            tg: '',
-            notes: '',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-        });
-        result.success = batch.length;
+        // 按姓名匹配已有人选：找到则更新简历链接，找不到则新建
+        const now = new Date().toISOString();
+        const existingTalents = get().talents;
+        const updates: Array<{ id: string; partial: Partial<Talent> }> = [];
+        const newBatch: Talent[] = [];
+
+        for (const p of parsed) {
+          if (!p.up) { result.failed++; continue; }
+          // 按姓名（精确）匹配已有人选，取第一个匹配
+          const existing = existingTalents.find(
+            (t) => t.name.trim() === p.name.trim() && p.name.trim().length > 0,
+          );
+          if (existing) {
+            updates.push({
+              id: existing.id,
+              partial: {
+                resumeUrl: p.up.downloadUrl,
+                resumeFileName: p.up.fileName || p.fileName,
+                // 若原来已扫描过文本，重新上传后重置，待下次扫描
+                hasResumeText: false,
+                resumeChars: undefined,
+                updatedAt: now,
+              },
+            });
+          } else {
+            const kw = detectCategories(p.jobTitle);
+            newBatch.push({
+              id: generateId(),
+              name: p.name,
+              jobTitle: p.jobTitle,
+              categories: kw.length ? kw : ['operations'],
+              resumeUrl: p.up.downloadUrl || undefined,
+              resumeFileName: p.up.fileName || p.fileName,
+              tg: '',
+              notes: '',
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+        result.success = updates.length + newBatch.length;
 
         importAbort = null;
-        set((s) => ({
-          talents: [...batch, ...s.talents],
-          isImporting: false,
-          importProgress: { current: files.length, total: files.length, percent: 100, status: 'done' },
-        }));
+        set((s) => {
+          const merged = s.talents.map((t) => {
+            const upd = updates.find((u) => u.id === t.id);
+            return upd ? { ...t, ...upd.partial } : t;
+          });
+          return {
+            talents: [...newBatch, ...merged],
+            isImporting: false,
+            importProgress: { current: files.length, total: files.length, percent: 100, status: 'done' },
+          };
+        });
         return result;
       },
     }),
@@ -292,12 +355,18 @@ export const useTalentStore = create<TalentStore>()(
 export function useFilteredTalents(): Talent[] {
   const { talents, filter } = useTalentStore();
   return talents.filter((t) => {
+    // 归档视图：archived=true 只看归档；默认只看活跃（未归档）
+    const view = (filter as TalentFilter & { archiveView?: 'active' | 'all' | 'archived' }).archiveView || 'active';
+    if (view === 'active' && t.archived) return false;
+    if (view === 'archived' && !t.archived) return false;
+
     if (filter.category !== 'all' && !(t.categories || []).includes(filter.category)) return false;
     if (filter.search) {
       const q = filter.search.toLowerCase();
       const haystack = [
         t.name, t.jobTitle, t.tg, t.notes,
         t.company, t.department, t.techDirection, t.school, t.major, t.location,
+        t.organization, t.approvalNo,
         ...(t.prevCompanies || []),
       ].filter(Boolean).join(' ').toLowerCase();
       if (!haystack.includes(q)) return false;

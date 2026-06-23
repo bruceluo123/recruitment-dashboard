@@ -10,7 +10,7 @@ import { TalentEditPanel } from './TalentEditPanel';
 import { useTalentStore, useFilteredTalents, useTalentCategoryCounts } from '@/store/talent-store';
 import { generateId } from '@/lib/utils';
 import { exportTalentsToFeishuXlsx } from '@/lib/talent-feishu-export';
-import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download } from 'lucide-react';
+import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download, Archive } from 'lucide-react';
 
 export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
@@ -21,10 +21,13 @@ export function TalentPoolPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [scanErrors, setScanErrors] = useState<string[]>([]);
   const [scanSummary, setScanSummary] = useState<{ scanned: number; failed: number } | null>(null);
+  const [archiveView, setArchiveView] = useState<'active' | 'all' | 'archived'>('active');
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
 
   const talents = useTalentStore((s) => s.talents);
   const filter = useTalentStore((s) => s.filter);
   const setFilter = useTalentStore((s) => s.setFilter);
+  const archiveAll = useTalentStore((s) => s.archiveAll);
   const addTalent = useTalentStore((s) => s.addTalent);
   const deleteTalent = useTalentStore((s) => s.deleteTalent);
   const deleteTalentBatch = useTalentStore((s) => s.deleteTalentBatch);
@@ -37,11 +40,15 @@ export function TalentPoolPage() {
   const filteredTalents = useFilteredTalents();
   const categories = useTalentCategoryCounts();
 
-  const withResumeCount = talents.filter((t) => t.resumeUrl).length;
-  const scannedCount = talents.filter((t) => t.resumeUrl && t.hasResumeText).length;
+  const activeTalents = talents.filter((t) => !t.archived);
+  const archivedCount = talents.filter((t) => t.archived).length;
+  const withResumeCount = activeTalents.filter((t) => t.resumeUrl).length;
+  const scannedCount = activeTalents.filter((t) => t.resumeUrl && t.hasResumeText).length;
   const unscannedCount = withResumeCount - scannedCount;
-  const noResumeCount = talents.length - withResumeCount;
+  const noResumeCount = activeTalents.length - withResumeCount;
 
+  // 把 archiveView 同步进 filter（useFilteredTalents 会读它）
+  useEffect(() => { setFilter({ archiveView } as Parameters<typeof setFilter>[0]); }, [archiveView, setFilter]);
   useEffect(() => setMounted(true), []);
   useEffect(() => {
     if (!lastDeletedTalent) return;
@@ -95,16 +102,35 @@ export function TalentPoolPage() {
 
   return (
     <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-800">人才库</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          共 {talents.length} 位人选
-          <span className="text-gray-400"> · 已扫描 {scannedCount}</span>
-          {unscannedCount > 0 && <span className="text-amber-600"> · 待扫描 {unscannedCount}</span>}
-          {noResumeCount > 0 && <span className="text-gray-400"> · 无简历 {noResumeCount}</span>}
-          {' · '}
-          <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button>
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">人才库</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            活跃 {activeTalents.length} 位
+            {archivedCount > 0 && <span className="text-gray-400"> · 归档 {archivedCount} 位</span>}
+            <span className="text-gray-400"> · 已扫描 {scannedCount}</span>
+            {unscannedCount > 0 && <span className="text-amber-600"> · 待扫描 {unscannedCount}</span>}
+            {noResumeCount > 0 && <span className="text-gray-400"> · 无简历 {noResumeCount}</span>}
+            {' · '}
+            <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button>
+          </p>
+        </div>
+        {/* 视图切换 + 归档全部 */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="inline-flex rounded-xl border border-gray-200 p-0.5 bg-gray-50 text-sm">
+            {(['active', 'all', 'archived'] as const).map((v) => (
+              <button key={v} onClick={() => setArchiveView(v)}
+                className={`px-3 h-8 rounded-lg font-medium transition-all ${archiveView === v ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {v === 'active' ? '活跃' : v === 'all' ? '全部' : '归档'}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setArchiveConfirm(true)} disabled={activeTalents.length === 0}
+            className="h-9 px-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-600 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700 transition-all flex items-center gap-1.5 disabled:opacity-40"
+            title="把当前所有活跃人才标记为归档（不删除数据）">
+            <Archive className="w-3.5 h-3.5" />归档全部旧人才
+          </button>
+        </div>
       </div>
 
       <JDCategoryTabs categories={categories} activeCategory={filter.category} onCategoryChange={(cat) => setFilter({ category: cat })} />
@@ -205,6 +231,31 @@ export function TalentPoolPage() {
       <TalentEditPanel talent={editTarget} isOpen={!!editId} onClose={() => setEditId(null)} />
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       <TalentMatchDialog isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
+
+      {/* 归档确认弹窗 */}
+      {archiveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30" onClick={() => setArchiveConfirm(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl border border-gray-200 p-6 max-w-sm w-full space-y-4 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <Archive className="w-5 h-5 text-amber-500" />
+              <h3 className="text-base font-semibold text-gray-800">归档全部旧人才</h3>
+            </div>
+            <p className="text-sm text-gray-600">
+              将当前 <span className="font-medium text-gray-800">{activeTalents.length}</span> 位活跃人才全部标记为归档。
+              <br />数据不会删除，随时可在「归档」视图查看或恢复。
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setArchiveConfirm(false)}
+                className="h-9 px-4 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-all">取消</button>
+              <button onClick={() => { archiveAll(); setArchiveConfirm(false); setArchiveView('archived'); }}
+                className="h-9 px-4 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-all flex items-center gap-2">
+                <Archive className="w-4 h-4" />确认归档
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {lastDeletedTalent && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
