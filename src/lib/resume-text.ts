@@ -30,37 +30,47 @@ function isTextLayerSparse(text: string, numPages: number): boolean {
 async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
   let pdfText = '';
   let numPages = 1;
+  let pdfParseError = '';
   try {
     const pdfParse = (await import('pdf-parse-debugging-disabled')).default;
     const data = await pdfParse(buffer);
     pdfText = data.text || '';
     numPages = data.numpages || 1;
   } catch (e) {
-    console.error('[resume-text] pdf-parse failed:', (e as Error).message);
+    pdfParseError = (e as Error).message || 'unknown';
+    console.error('[resume-text] pdf-parse failed:', pdfParseError);
     pdfText = '';
   }
 
   const geminiKey = process.env.GEMINI_API_KEY;
   // 文字型简历（文字层充足）直接用 pdf-parse 结果，跳过 OCR —— 这是绝大多数、且最快的路径。
   // 仅图片型/扫描型（文字层稀疏）才调用 Gemini 视觉识别。
+  let ocrError = '';
   if (isTextLayerSparse(pdfText, numPages) && geminiKey) {
     try {
       const ocrText = await extractPdfTextViaGemini(buffer, geminiKey);
       if (meaningfulLength(ocrText) > meaningfulLength(pdfText)) {
         return { text: clipForStorage(ocrText), source: 'gemini-ocr' };
       }
-    } catch {
+    } catch (e) {
+      ocrError = (e as Error).message || 'unknown';
+      console.error('[resume-text] gemini ocr failed:', ocrError);
       // OCR 失败 → 回退到 pdf-parse 结果
     }
   }
 
   if (meaningfulLength(pdfText) > 0) return { text: clipForStorage(pdfText), source: 'pdf-text' };
 
-  return {
-    error: geminiKey
-      ? 'PDF 解析失败，请尝试上传 DOCX 格式或复制粘贴简历文本'
-      : '该 PDF 为图片型（扫描件），暂无法识别。请配置 GEMINI_API_KEY 启用图片识别，或上传 DOCX / 粘贴文本',
-  };
+  if (!geminiKey) {
+    return { error: '该 PDF 为图片型（扫描件），暂无法识别。请配置 GEMINI_API_KEY 启用图片识别，或上传 DOCX / 粘贴文本' };
+  }
+  if (pdfParseError && ocrError) {
+    return { error: `PDF 解析失败（pdf-parse: ${pdfParseError.slice(0, 60)}；OCR: ${ocrError.slice(0, 60)}）` };
+  }
+  if (ocrError) {
+    return { error: `图片型 PDF，OCR 识别失败（${ocrError.slice(0, 80)}）。请上传 DOCX 或粘贴简历文本` };
+  }
+  return { error: 'PDF 无可识别文字，请尝试上传 DOCX 格式或复制粘贴简历文本' };
 }
 
 /** 从文件 buffer 提取简历正文。支持 PDF / DOC / DOCX。 */
