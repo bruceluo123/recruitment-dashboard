@@ -267,8 +267,14 @@ interface AdCopyDialogProps {
 }
 
 function AdCopyDialog({ jds, variant, onClose }: AdCopyDialogProps) {
-  const p0Segments = buildAdCopy(jds.filter((jd) => jd.priority === 'P0'), 'P0', variant);
-  const p1Segments = buildAdCopy(jds.filter((jd) => jd.priority === 'P1'), 'P1', variant);
+  // P0 排前、P1 排后，合并成一份文案
+  const sorted = [
+    ...jds.filter((j) => j.priority === 'P0'),
+    ...jds.filter((j) => j.priority === 'P1'),
+    ...jds.filter((j) => j.priority !== 'P0' && j.priority !== 'P1'),
+  ];
+  // perSegment=9999 让所有岗位合成一整段不切割
+  const segments = buildAdCopy(sorted, '急招', variant, 9999);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
@@ -285,28 +291,16 @@ function AdCopyDialog({ jds, variant, onClose }: AdCopyDialogProps) {
           </button>
         </div>
         <div className="overflow-y-auto px-5 py-4 space-y-5">
-          <AdSection label="P0" segments={p0Segments} />
-          <AdSection label="P1" segments={p1Segments} />
-          {p0Segments.length === 0 && p1Segments.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-6">暂无 P0 / P1 急招岗位</p>
-          )}
+          {segments.length > 0
+            ? segments.map((seg, i) => <AdSegmentCard key={i} segment={seg} />)
+            : <p className="text-sm text-gray-400 text-center py-6">请先勾选至少一个分类</p>
+          }
         </div>
       </div>
     </div>
   );
 }
 
-interface AdSectionProps { label: string; segments: AdSegment[]; }
-
-function AdSection({ label, segments }: AdSectionProps) {
-  if (segments.length === 0) return null;
-  return (
-    <div className="space-y-3">
-      <h4 className="text-sm font-semibold text-gray-700">{label} 急招（{segments.length} 段）</h4>
-      {segments.map((seg, i) => <AdSegmentCard key={i} segment={seg} />)}
-    </div>
-  );
-}
 
 function AdSegmentCard({ segment }: { segment: AdSegment }) {
   const [copied, setCopied] = useState(false);
