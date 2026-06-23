@@ -8,9 +8,11 @@ import { TalentImportDialog } from './TalentImportDialog';
 import { TalentMatchDialog } from './TalentMatchDialog';
 import { TalentEditPanel } from './TalentEditPanel';
 import { useTalentStore, useFilteredTalents, useTalentCategoryCounts } from '@/store/talent-store';
+import { useRepushStore } from '@/store/repush-store';
 import { generateId } from '@/lib/utils';
+import { detectCategories } from '@/lib/jd-parse-core';
 import { exportTalentsToFeishuXlsx } from '@/lib/talent-feishu-export';
-import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download, Archive } from 'lucide-react';
+import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download, Archive, UserPlus } from 'lucide-react';
 
 export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
@@ -28,6 +30,8 @@ export function TalentPoolPage() {
   const filter = useTalentStore((s) => s.filter);
   const setFilter = useTalentStore((s) => s.setFilter);
   const archiveAll = useTalentStore((s) => s.archiveAll);
+  const repushItems = useRepushStore((s) => s.items);
+  const repushColumnNames = useRepushStore((s) => s.columnNames);
   const addTalent = useTalentStore((s) => s.addTalent);
   const deleteTalent = useTalentStore((s) => s.deleteTalent);
   const deleteTalentBatch = useTalentStore((s) => s.deleteTalentBatch);
@@ -84,6 +88,52 @@ export function TalentPoolPage() {
     deleteTalentBatch(selectedIds);
     setSelectedIds([]);
     setBatchMode(false);
+  };
+
+  const handleImportFromRecommendation = () => {
+    const existingTalents = useTalentStore.getState().talents;
+    const now = new Date().toISOString();
+    let created = 0;
+    let updated = 0;
+
+    for (const item of repushItems) {
+      const name = (item.candidateName || '').trim();
+      if (!name) continue;
+      const jobTitle = (item.jdTitle || '').trim();
+      const existing = existingTalents.find((t) => t.name === name);
+      const recruiter = item.contactPerson?.trim() || repushColumnNames[item.column] || undefined;
+      const cats = detectCategories(jobTitle);
+
+      if (existing) {
+        useTalentStore.getState().updateTalent(existing.id, {
+          jobTitle: jobTitle || existing.jobTitle,
+          organization: item.organization?.trim() || existing.organization,
+          department: item.department?.trim() || existing.department,
+          phone: item.contact?.trim() || existing.phone,
+          recruiter: recruiter || existing.recruiter,
+          archived: false,
+        });
+        updated++;
+      } else {
+        useTalentStore.getState().addTalent({
+          id: generateId(),
+          name,
+          jobTitle,
+          categories: cats.length ? cats : ['operations'],
+          organization: item.organization?.trim() || undefined,
+          department: item.department?.trim() || undefined,
+          phone: item.contact?.trim() || undefined,
+          recruiter,
+          archived: false,
+          tg: '',
+          notes: '',
+          createdAt: now,
+          updatedAt: now,
+        });
+        created++;
+      }
+    }
+    alert(`导入完成：新建 ${created} 位，更新 ${updated} 位`);
   };
 
   const handleExportFeishu = async () => {
@@ -153,6 +203,11 @@ export function TalentPoolPage() {
         </button>
         <button onClick={() => setImportOpen(true)} className="h-10 px-4 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2">
           <Upload className="w-4 h-4" />批量导入
+        </button>
+        <button onClick={handleImportFromRecommendation} disabled={repushItems.length === 0}
+          className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2 disabled:opacity-40"
+          title={`从推荐中心导入全部 ${repushItems.length} 条推荐记录`}>
+          <UserPlus className="w-4 h-4" />从推荐中心导入
         </button>
         <button onClick={handleExportFeishu} disabled={filteredTalents.length === 0}
           className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50"
