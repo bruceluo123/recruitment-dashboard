@@ -31,6 +31,7 @@ interface JDStore {
   isImporting: boolean;
   importCancelled: boolean;
   importProgress: ImportProgress;
+  lastImportDiff: (JDImportResult & { date: string }) | null;
   cancelImport: () => void;
   selectJD: (id: string | null) => void;
   setFilter: (partial: Partial<JDFilter>) => void;
@@ -57,6 +58,7 @@ export const useJDStore = create<JDStore>()(
       isImporting: false,
       importCancelled: false,
       importProgress: { current: 0, total: 0, percent: 0, status: 'idle' },
+      lastImportDiff: null,
       cancelImport: () => set({ importCancelled: true }),
 
       selectJD: (id) => set({ selectedJdId: id }),
@@ -330,6 +332,8 @@ export const useJDStore = create<JDStore>()(
             result.errors = [];
             result.replaced = enriched.length;
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
+            // 持久化今日增改，供工具栏"今日增改"按钮调取
+            set({ lastImportDiff: { ...result, date: new Date().toISOString() } });
           } else {
             // 每日面板新行常缺职责/要求。合并前先从库中同岗位回填内容，
             // 否则「岗位身份变了（旧无 REQ-Key、新有 REQ-Key）」时会新增一条空壳 JD。

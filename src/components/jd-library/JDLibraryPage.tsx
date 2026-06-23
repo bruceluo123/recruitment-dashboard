@@ -8,14 +8,16 @@ import { JDDetailPanel } from './JDDetailPanel';
 import { JDImportDialog } from './JDImportDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store';
-import { Briefcase, Sparkles, Trash2, X } from 'lucide-react';
+import { Briefcase, Sparkles, Trash2, X, Bell } from 'lucide-react';
 import { generateId } from '@/lib/utils';
-import type { JDCategory } from '@/types/jd';
+import type { JDCategory, JDImportResult } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const lastImportDiff = useJDStore((s) => s.lastImportDiff);
   const [addOpen, setAddOpen] = useState(false);
   const [activeOnly, setActiveOnly] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
@@ -208,6 +210,7 @@ export function JDLibraryPage() {
         onImportClick={() => setImportOpen(true)} onAddClick={() => setAddOpen(true)}
         activeOnly={activeOnly} onActiveOnlyChange={setActiveOnly}
         batchMode={batchMode} onBatchModeChange={handleBatchModeChange}
+        hasDiff={!!lastImportDiff} onDiffClick={() => setDiffOpen(true)}
       />
 
       {batchMode && (
@@ -252,6 +255,7 @@ export function JDLibraryPage() {
 
       <JDDetailPanel jd={selectedJd} isOpen={!!selectedJdId} onClose={() => selectJD(null)} />
       <JDImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
+      {diffOpen && lastImportDiff && <ImportDiffDialog diff={lastImportDiff} onClose={() => setDiffOpen(false)} />}
 
       {/* Undo delete toast */}
       {lastDeletedJD && (
@@ -441,6 +445,89 @@ function extractSection(text: string, startKeys: string[], endKeys: string[]): s
     .map((line) => line.replace(/^[\d]+[.、]\s*/, '').replace(/^[-•·]\s*/, '').trim())
     .filter(Boolean)
     .join('\n');
+}
+
+// ─── ImportDiffDialog ──────────────────────────────────────────────────────────
+
+function ImportDiffDialog({ diff, onClose }: { diff: JDImportResult & { date: string }; onClose: () => void }) {
+  const dateLabel = (() => {
+    const d = new Date(diff.date);
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  })();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <Bell className="w-4 h-4 text-indigo-500" />今日增改 · {dateLabel}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="overflow-y-auto px-5 py-4 space-y-5 text-sm">
+          {/* 总览 */}
+          <p className="text-gray-500 text-xs">
+            已覆盖：岗位库现为 <span className="font-semibold text-gray-800">{diff.replaced}</span> 个岗位
+          </p>
+
+          {/* 新增 */}
+          {diff.added && diff.added.length > 0 && (
+            <div>
+              <p className="font-semibold text-green-700 mb-2">🟢 新增 {diff.added.length} 个岗位</p>
+              <ul className="space-y-1 pl-1">
+                {diff.added.map((d, i) => (
+                  <li key={i} className="text-xs text-gray-700">
+                    · {d.title}
+                    {d.reqKey && <span className="text-gray-400 ml-1">({d.reqKey})</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 移除 */}
+          {diff.removed && diff.removed.length > 0 && (
+            <div>
+              <p className="font-semibold text-red-600 mb-2">🔴 移除 {diff.removed.length} 个岗位</p>
+              <ul className="space-y-1 pl-1">
+                {diff.removed.map((d, i) => (
+                  <li key={i} className="text-xs text-gray-700">
+                    · {d.title}
+                    {d.reqKey && <span className="text-gray-400 ml-1">({d.reqKey})</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 异动 */}
+          {diff.changed && diff.changed.length > 0 && (
+            <div>
+              <p className="font-semibold text-amber-600 mb-2">🟡 异动 {diff.changed.length} 个岗位</p>
+              <ul className="space-y-1 pl-1">
+                {diff.changed.map((d, i) => (
+                  <li key={i} className="text-xs text-gray-700">
+                    · {d.title}
+                    {d.changes && d.changes.length > 0 && (
+                      <span className="text-amber-600 ml-1">— {d.changes.join('，')}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!diff.added?.length && !diff.removed?.length && !diff.changed?.length && (
+            <p className="text-gray-400 text-center py-4">本次覆盖与上次相比无变化。</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function parseSalary(s: string): { min: number; max: number; currency: string } {

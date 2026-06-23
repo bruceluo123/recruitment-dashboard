@@ -1,14 +1,15 @@
 'use client';
-import { Search, Upload, SlidersHorizontal, Plus, CheckSquare } from 'lucide-react';
+import { Search, Upload, SlidersHorizontal, Plus, CheckSquare, Bell } from 'lucide-react';
 
 interface JDSearchBarProps {
   search: string; onSearchChange: (value: string) => void;
   onImportClick: () => void; onAddClick: () => void;
   activeOnly: boolean; onActiveOnlyChange: (v: boolean) => void;
   batchMode: boolean; onBatchModeChange: (v: boolean) => void;
+  hasDiff?: boolean; onDiffClick?: () => void;
 }
 
-export function JDSearchBar({ search, onSearchChange, onImportClick, onAddClick, activeOnly, onActiveOnlyChange, batchMode, onBatchModeChange }: JDSearchBarProps) {
+export function JDSearchBar({ search, onSearchChange, onImportClick, onAddClick, activeOnly, onActiveOnlyChange, batchMode, onBatchModeChange, hasDiff, onDiffClick }: JDSearchBarProps) {
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <div className="relative flex-1 min-w-[200px] max-w-md">
@@ -27,6 +28,17 @@ export function JDSearchBar({ search, onSearchChange, onImportClick, onAddClick,
       <button onClick={onImportClick} className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-2">
         <Upload className="w-4 h-4" />批量导入
       </button>
+      {onDiffClick && (
+        <button
+          onClick={onDiffClick}
+          className="relative h-10 px-4 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-2"
+        >
+          <Bell className="w-4 h-4" />今日增改
+          {hasDiff && (
+            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500" />
+          )}
+        </button>
+      )}
     </div>
   );
 }
