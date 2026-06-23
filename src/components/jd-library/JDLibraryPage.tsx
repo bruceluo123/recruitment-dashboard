@@ -255,7 +255,7 @@ export function JDLibraryPage() {
 
       <JDDetailPanel jd={selectedJd} isOpen={!!selectedJdId} onClose={() => selectJD(null)} />
       <JDImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
-      {diffOpen && lastImportDiff && <ImportDiffDialog diff={lastImportDiff} onClose={() => setDiffOpen(false)} />}
+      {diffOpen && <ImportDiffDialog diff={lastImportDiff ?? null} onClose={() => setDiffOpen(false)} />}
 
       {/* Undo delete toast */}
       {lastDeletedJD && (
@@ -449,11 +449,11 @@ function extractSection(text: string, startKeys: string[], endKeys: string[]): s
 
 // ─── ImportDiffDialog ──────────────────────────────────────────────────────────
 
-function ImportDiffDialog({ diff, onClose }: { diff: JDImportResult & { date: string }; onClose: () => void }) {
-  const dateLabel = (() => {
+function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: string }) | null; onClose: () => void }) {
+  const dateLabel = diff ? (() => {
     const d = new Date(diff.date);
     return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  })();
+  })() : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
@@ -463,12 +463,18 @@ function ImportDiffDialog({ diff, onClose }: { diff: JDImportResult & { date: st
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-            <Bell className="w-4 h-4 text-indigo-500" />今日增改 · {dateLabel}
+            <Bell className="w-4 h-4 text-indigo-500" />今日增改{dateLabel ? ` · ${dateLabel}` : ''}
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="overflow-y-auto px-5 py-4 space-y-5 text-sm">
+          {!diff ? (
+            <div className="py-8 text-center">
+              <p className="text-gray-500 text-sm">暂无增改记录</p>
+              <p className="text-gray-400 text-xs mt-1">下次批量导入时开启「覆盖模式」，完成后此处将自动保存完整增改明细。</p>
+            </div>
+          ) : (<>
           {/* 总览 */}
           <p className="text-gray-500 text-xs">
             已覆盖：岗位库现为 <span className="font-semibold text-gray-800">{diff.replaced}</span> 个岗位
@@ -524,6 +530,7 @@ function ImportDiffDialog({ diff, onClose }: { diff: JDImportResult & { date: st
           {!diff.added?.length && !diff.removed?.length && !diff.changed?.length && (
             <p className="text-gray-400 text-center py-4">本次覆盖与上次相比无变化。</p>
           )}
+          </>)}
         </div>
       </div>
     </div>
