@@ -1,9 +1,9 @@
 // 用 Gemini 视觉模型从 PDF 中提取全文（含图片型/扫描型页面）。
-// DeepSeek 是纯文本模型无视觉能力，图片型简历必须走此路径。
+// 使用 Gemini Files API 上传后引用 URI，避免 inline_data 大小限制导致的 503。
 // 需要环境变量 GEMINI_API_KEY（Google AI Studio 免费申请）。
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
 
 // 用于匹配的「大概」提取：只要关键信息要点，不逐字照抄全文 → 输出更短、生成更快。
 const EXTRACT_PROMPT = [
@@ -12,56 +12,117 @@ const EXTRACT_PROMPT = [
   '中英文照原样保留。只输出提取到的要点，不要任何解释或标题。',
 ].join('');
 
-// 「大概」即可：输出上限收紧，缩短生成时间（OCR 是扫描的主要耗时来源）
 const OCR_MAX_OUTPUT_TOKENS = 2048;
 
-interface GeminiPart {
-  text?: string;
-}
-interface GeminiCandidate {
-  content?: { parts?: GeminiPart[] };
-}
+interface GeminiPart { text?: string; }
+interface GeminiCandidate { content?: { parts?: GeminiPart[] }; }
 interface GeminiResponse {
   candidates?: GeminiCandidate[];
   error?: { message?: string };
 }
+interface FileUploadResponse {
+  file?: { uri?: string; name?: string };
+  error?: { message?: string };
+}
+
+/** 把 PDF 上传到 Gemini Files API，返回 { uri, name }。 */
+async function uploadToFilesApi(
+  buffer: Buffer,
+  apiKey: string,
+): Promise<{ uri: string; name: string }> {
+  const BOUNDARY = `resumeboundary${Date.now()}`;
+  const metaPart = JSON.stringify({ file: { display_name: 'resume.pdf' } });
+
+  // 手动拼接 multipart/related 请求体
+  const encoder = new TextEncoder();
+  const metaHeader = `--${BOUNDARY}\r\nContent-Type: application/json; charset=utf-8\r\n\r\n`;
+  const fileHeader = `\r\n--${BOUNDARY}\r\nContent-Type: application/pdf\r\n\r\n`;
+  const footer = `\r\n--${BOUNDARY}--`;
+
+  const body = Buffer.concat([
+    Buffer.from(metaHeader),
+    encoder.encode(metaPart),
+    Buffer.from(fileHeader),
+    buffer,
+    Buffer.from(footer),
+  ]);
+
+  const res = await fetch(
+    `${GEMINI_BASE}/upload/v1beta/files?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/related; boundary=${BOUNDARY}`,
+        'X-Goog-Upload-Protocol': 'multipart',
+      },
+      body,
+    },
+  );
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Gemini Files upload ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as FileUploadResponse;
+  if (data.error?.message) throw new Error(`Gemini Files upload: ${data.error.message}`);
+  if (!data.file?.uri) throw new Error('Gemini Files upload: 未返回 file URI');
+
+  return { uri: data.file.uri, name: data.file.name ?? '' };
+}
+
+/** 上传完成后删除文件（best-effort，失败不影响主流程）。 */
+async function deleteFile(fileName: string, apiKey: string): Promise<void> {
+  if (!fileName) return;
+  await fetch(`${GEMINI_BASE}/v1beta/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {});
+}
 
 /**
- * 把 PDF 原始字节交给 Gemini，返回识别出的全文。
+ * 把 PDF 原始字节交给 Gemini Files API，返回识别出的全文。
  * 失败时抛出带可读信息的 Error，由调用方决定回退策略。
  */
 export async function extractPdfTextViaGemini(buffer: Buffer, apiKey: string): Promise<string> {
-  const base64 = buffer.toString('base64');
+  // 1. 上传文件
+  const { uri, name } = await uploadToFilesApi(buffer, apiKey);
 
-  const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { inline_data: { mime_type: 'application/pdf', data: base64 } },
-            { text: EXTRACT_PROMPT },
+  // 2. 调用 generateContent，引用 file_data URI
+  try {
+    const res = await fetch(
+      `${GEMINI_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { file_data: { mime_type: 'application/pdf', file_uri: uri } },
+                { text: EXTRACT_PROMPT },
+              ],
+            },
           ],
-        },
-      ],
-      generationConfig: { temperature: 0, maxOutputTokens: OCR_MAX_OUTPUT_TOKENS },
-    }),
-  });
+          generationConfig: { temperature: 0, maxOutputTokens: OCR_MAX_OUTPUT_TOKENS },
+        }),
+      },
+    );
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Gemini OCR ${res.status}: ${errText.slice(0, 300)}`);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Gemini OCR ${res.status}: ${errText.slice(0, 300)}`);
+    }
+
+    const data = (await res.json()) as GeminiResponse;
+    if (data.error?.message) throw new Error(`Gemini OCR: ${data.error.message}`);
+
+    const text = (data.candidates?.[0]?.content?.parts ?? [])
+      .map((p) => p.text ?? '')
+      .join('')
+      .trim();
+
+    if (!text) throw new Error('Gemini OCR 返回空文本');
+    return text;
+  } finally {
+    // 3. 无论成功失败都删除上传的临时文件
+    await deleteFile(name, apiKey);
   }
-
-  const data = (await res.json()) as GeminiResponse;
-  if (data.error?.message) throw new Error(`Gemini OCR: ${data.error.message}`);
-
-  const text = (data.candidates?.[0]?.content?.parts ?? [])
-    .map((p) => p.text ?? '')
-    .join('')
-    .trim();
-
-  if (!text) throw new Error('Gemini OCR 返回空文本');
-  return text;
 }
