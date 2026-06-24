@@ -486,9 +486,13 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
               <p className="font-semibold text-green-700 mb-2">🟢 新增 {diff.added.length} 个岗位</p>
               <ul className="space-y-1 pl-1">
                 {diff.added.map((d, i) => (
-                  <li key={i} className="text-xs text-gray-700">
-                    · {d.title}
-                    {d.reqKey && <span className="text-gray-400 ml-1">({d.reqKey})</span>}
+                  <li key={i} className="text-xs text-gray-700 flex items-baseline gap-1.5">
+                    <span>· {d.title}</span>
+                    {(d.organization || d.department) && (
+                      <span className="text-gray-400 shrink-0">
+                        {[d.organization, d.department].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -501,9 +505,13 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
               <p className="font-semibold text-red-600 mb-2">🔴 移除 {diff.removed.length} 个岗位</p>
               <ul className="space-y-1 pl-1">
                 {diff.removed.map((d, i) => (
-                  <li key={i} className="text-xs text-gray-700">
-                    · {d.title}
-                    {d.reqKey && <span className="text-gray-400 ml-1">({d.reqKey})</span>}
+                  <li key={i} className="text-xs text-gray-700 flex items-baseline gap-1.5">
+                    <span>· {d.title}</span>
+                    {(d.organization || d.department) && (
+                      <span className="text-gray-400 shrink-0">
+                        {[d.organization, d.department].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

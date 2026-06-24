@@ -306,11 +306,11 @@ export const useJDStore = create<JDStore>()(
 
             result.added = enriched
               .filter((j) => !oldByKey.has(getJDKey(j)))
-              .map((j) => ({ title: j.title, reqKey: j.reqKey }));
+              .map((j) => ({ title: j.title, reqKey: j.reqKey, organization: j.organization, department: j.department }));
 
             result.removed = prevJds
               .filter((j) => !newByKey.has(getJDKey(j)))
-              .map((j) => ({ title: j.title, reqKey: j.reqKey }));
+              .map((j) => ({ title: j.title, reqKey: j.reqKey, organization: j.organization, department: j.department }));
 
             result.changed = enriched
               .filter((j) => oldByKey.has(getJDKey(j)))
@@ -322,7 +322,7 @@ export const useJDStore = create<JDStore>()(
                 if ((old.gap ?? '') !== (j.gap ?? '')) diffs.push(`缺口 ${old.gap || '-'}→${j.gap || '-'}`);
                 if ((old.priority ?? '') !== (j.priority ?? '')) diffs.push(`优先级 ${old.priority || '-'}→${j.priority || '-'}`);
                 if ((old.odc ?? '') !== (j.odc ?? '')) diffs.push(`对接人`);
-                if (diffs.length) acc.push({ title: j.title, reqKey: j.reqKey, changes: diffs });
+                if (diffs.length) acc.push({ title: j.title, reqKey: j.reqKey, organization: j.organization, department: j.department, changes: diffs });
                 return acc;
               }, []);
 

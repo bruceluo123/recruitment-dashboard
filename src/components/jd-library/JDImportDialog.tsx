@@ -224,7 +224,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
                       <p className="text-xs font-semibold text-green-700 mb-1">🟢 新增 {result.added.length} 个岗位</p>
                       <ul className="space-y-0.5 pl-2">
                         {result.added.slice(0, 5).map((d, i) => (
-                          <li key={i} className="text-xs text-gray-600">· {d.title}{d.reqKey ? <span className="text-gray-400 ml-1">({d.reqKey})</span> : null}</li>
+                          <li key={i} className="text-xs text-gray-600">· {d.title}{(d.organization || d.department) ? <span className="text-gray-400 ml-1">{[d.organization, d.department].filter(Boolean).join(' · ')}</span> : null}</li>
                         ))}
                         {result.added.length > 5 && <li className="text-xs text-gray-400">...还有 {result.added.length - 5} 个</li>}
                       </ul>
@@ -235,7 +235,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
                       <p className="text-xs font-semibold text-red-600 mb-1">🔴 移除 {result.removed.length} 个岗位</p>
                       <ul className="space-y-0.5 pl-2">
                         {result.removed.slice(0, 5).map((d, i) => (
-                          <li key={i} className="text-xs text-gray-600">· {d.title}{d.reqKey ? <span className="text-gray-400 ml-1">({d.reqKey})</span> : null}</li>
+                          <li key={i} className="text-xs text-gray-600">· {d.title}{(d.organization || d.department) ? <span className="text-gray-400 ml-1">{[d.organization, d.department].filter(Boolean).join(' · ')}</span> : null}</li>
                         ))}
                         {result.removed.length > 5 && <li className="text-xs text-gray-400">...还有 {result.removed.length - 5} 个</li>}
                       </ul>
