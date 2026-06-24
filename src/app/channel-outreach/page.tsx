@@ -121,17 +121,10 @@ function Pulse({ width = 'w-full' }: { width?: string }) {
 function Header({
   activeTab,
   setActiveTab,
-  apiKey,
-  onApiKeyChange,
 }: {
   activeTab: Tab
   setActiveTab: (t: Tab) => void
-  apiKey: string
-  onApiKeyChange: (k: string) => void
 }) {
-  const [showPopover, setShowPopover] = useState(false)
-  const [tempKey, setTempKey] = useState(apiKey)
-
   const tabs: { id: Tab; label: string }[] = [
     { id: 'customers', label: '客户库' },
     { id: 'scripts', label: 'AI 话术生成' },
@@ -164,51 +157,11 @@ function Header({
           </nav>
         </div>
 
-        {/* Right: API key + User */}
+        {/* Right: Powered by + User */}
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <button
-              onClick={() => { setTempKey(apiKey); setShowPopover(!showPopover) }}
-              className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                apiKey
-                  ? 'border-emerald-400/60 text-emerald-300 hover:bg-emerald-500/10'
-                  : 'border-amber-400/60 text-amber-300 hover:bg-amber-500/10'
-              }`}
-            >
-              {apiKey ? '✓ API Key 已配置' : '⚙ 配置 API Key'}
-            </button>
-
-            {showPopover && (
-              <div className="absolute right-0 top-10 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 p-4 text-gray-800">
-                <div className="text-sm font-semibold mb-1">Anthropic API Key</div>
-                <p className="text-xs text-gray-400 leading-relaxed mb-3">
-                  仅用于「AI 话术生成」，存储于页面内存，刷新即清空。
-                </p>
-                <input
-                  type="password"
-                  value={tempKey}
-                  onChange={(e) => setTempKey(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (onApiKeyChange(tempKey), setShowPopover(false))}
-                  placeholder="sk-ant-..."
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { onApiKeyChange(tempKey); setShowPopover(false) }}
-                    className="flex-1 bg-[#3B82F6] text-white text-xs py-2 rounded-lg font-semibold hover:bg-blue-600 transition-colors"
-                  >
-                    保存
-                  </button>
-                  <button
-                    onClick={() => setShowPopover(false)}
-                    className="flex-1 bg-gray-100 text-gray-500 text-xs py-2 rounded-lg font-medium hover:bg-gray-200 transition-colors"
-                  >
-                    取消
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <span className="text-xs text-blue-300/70 px-2 py-1 rounded border border-blue-400/20">
+            ⚡ Powered by DeepSeek
+          </span>
 
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold select-none">
@@ -390,10 +343,8 @@ function buildPrompt(
 
 function ScriptGenerator({
   initialCustomer,
-  apiKey,
 }: {
   initialCustomer: Customer | null
-  apiKey: string
 }) {
   const [companyName, setCompanyName] = useState(initialCustomer?.companyName ?? '')
   const [platform, setPlatform] = useState<Platform>(initialCustomer?.platform ?? 'Amazon')
@@ -423,10 +374,6 @@ function ScriptGenerator({
       setError('请填写公司名称')
       return
     }
-    if (!apiKey) {
-      setError('请先点击右上角「配置 API Key」按钮填入 Anthropic API Key')
-      return
-    }
 
     setApiStatus('loading')
     setError('')
@@ -435,12 +382,8 @@ function ScriptGenerator({
     try {
       const res = await fetch('/api/claude', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
           max_tokens: 1000,
           messages: [{ role: 'user', content: buildPrompt(companyName, platform, category, salesVolume, painPoint) }],
         }),
@@ -449,10 +392,11 @@ function ScriptGenerator({
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data?.error?.message ?? `请求失败 (${res.status})`)
+        throw new Error(data?.error ?? `请求失败 (${res.status})`)
       }
 
-      const text: string = data.content?.[0]?.text ?? ''
+      // DeepSeek 返回 OpenAI 兼容格式：choices[0].message.content
+      const text: string = data.choices?.[0]?.message?.content ?? ''
       const match = text.match(/\{[\s\S]*\}/)
       if (!match) throw new Error('AI 返回格式异常，请重试')
 
@@ -634,7 +578,7 @@ function ScriptGenerator({
                 <p className="text-sm text-gray-700 leading-relaxed">{scripts[key]}</p>
               )}
               {apiStatus === 'error' && (
-                <p className="text-sm text-red-400 leading-relaxed">生成失败，请检查 API Key 后重试</p>
+                <p className="text-sm text-red-400 leading-relaxed">生成失败，请稍后重试</p>
               )}
             </div>
 
@@ -818,7 +762,6 @@ export default function ChannelOutreachPage() {
   const [activeTab, setActiveTab] = useState<Tab>('customers')
   const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [apiKey, setApiKey] = useState('')
 
   const handleGenerateScript = (customer: Customer) => {
     setSelectedCustomer(customer)
@@ -828,19 +771,14 @@ export default function ChannelOutreachPage() {
   return (
     // fixed inset-0 z-[9999] overrides the dashboard AppShell for this route
     <div className="fixed inset-0 bg-[#F8FAFC] z-[9999] flex flex-col overflow-hidden">
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        apiKey={apiKey}
-        onApiKeyChange={setApiKey}
-      />
+      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
       <main className="flex-1 overflow-y-auto">
         {activeTab === 'customers' && (
           <CustomerTable customers={customers} onGenerateScript={handleGenerateScript} />
         )}
         {activeTab === 'scripts' && (
-          <ScriptGenerator initialCustomer={selectedCustomer} apiKey={apiKey} />
+          <ScriptGenerator initialCustomer={selectedCustomer} />
         )}
         {activeTab === 'kanban' && (
           <KanbanBoard customers={customers} setCustomers={setCustomers} />
