@@ -1,34 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions'
+
 /**
- * Anthropic API 代理路由
- * 优先使用环境变量 ANTHROPIC_API_KEY，允许客户端通过 x-api-key header 传入备用 key（仅用于演示）
+ * 话术生成代理路由 — 转发到 DeepSeek API（OpenAI 兼容格式）
+ * 接收：{ messages: [...], max_tokens?: number }
+ * 返回：DeepSeek 原始响应（choices[0].message.content 为生成内容）
  */
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY || req.headers.get('x-api-key') || ''
+  const apiKey = process.env.DEEPSEEK_API_KEY
 
   if (!apiKey) {
     return NextResponse.json(
-      { error: { message: 'API key 未配置，请在页面右上角配置 Anthropic API Key 或设置环境变量 ANTHROPIC_API_KEY' } },
-      { status: 401 }
+      { error: 'DEEPSEEK_API_KEY 未配置，请在 Vercel 环境变量或 .env.local 中设置' },
+      { status: 500 }
     )
   }
 
-  let body: unknown
+  let body: { messages?: unknown; max_tokens?: number }
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ error: { message: '请求体格式错误' } }, { status: 400 })
+    return NextResponse.json({ error: '请求体格式错误' }, { status: 400 })
   }
 
-  const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+  const upstream = await fetch(DEEPSEEK_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      model: 'deepseek-chat',
+      messages: body.messages,
+      temperature: 0.7,
+      max_tokens: body.max_tokens ?? 1000,
+    }),
   })
 
   const data = await upstream.json()
