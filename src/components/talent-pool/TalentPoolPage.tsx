@@ -7,17 +7,19 @@ import { TalentTable } from './TalentTable';
 import { TalentImportDialog } from './TalentImportDialog';
 import { TalentMatchDialog } from './TalentMatchDialog';
 import { TalentEditPanel } from './TalentEditPanel';
+import { TalentEnrichDialog } from './TalentEnrichDialog';
 import { useTalentStore, useFilteredTalents, useTalentCategoryCounts } from '@/store/talent-store';
 import { useRepushStore } from '@/store/repush-store';
 import { generateId } from '@/lib/utils';
 import { detectCategories } from '@/lib/jd-parse-core';
 import { exportTalentsToFeishuXlsx } from '@/lib/talent-feishu-export';
-import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download, Archive, UserPlus } from 'lucide-react';
+import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download, Archive, UserPlus, Wand2 } from 'lucide-react';
 
 export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [matchOpen, setMatchOpen] = useState(false);
+  const [enrichOpen, setEnrichOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -204,6 +206,9 @@ export function TalentPoolPage() {
         <button onClick={() => setImportOpen(true)} className="h-10 px-4 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2">
           <Upload className="w-4 h-4" />批量导入
         </button>
+        <button onClick={() => setEnrichOpen(true)} className="h-10 px-4 rounded-xl bg-white border border-purple-200 text-purple-600 text-sm font-medium hover:bg-purple-50 transition-all flex items-center gap-2">
+          <Wand2 className="w-4 h-4" />充实档案
+        </button>
         <button onClick={handleImportFromRecommendation} disabled={repushItems.length === 0}
           className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2 disabled:opacity-40"
           title={`从推荐中心导入全部 ${repushItems.length} 条推荐记录`}>
@@ -286,6 +291,7 @@ export function TalentPoolPage() {
       <TalentEditPanel talent={editTarget} isOpen={!!editId} onClose={() => setEditId(null)} />
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       <TalentMatchDialog isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
+      <TalentEnrichDialog isOpen={enrichOpen} onClose={() => setEnrichOpen(false)} />
 
       {/* 归档确认弹窗 */}
       {archiveConfirm && (
