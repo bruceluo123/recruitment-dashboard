@@ -49,6 +49,7 @@ export interface JD {
   responsibilities: string[];
   requirements: string[];
   preferredQualifications?: string[];
+  notes?: string;               // 备注说明（源表"备注说明"列）
   salaryRange: SalaryRange;
   salaryText?: string;
   location?: string;

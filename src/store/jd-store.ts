@@ -159,7 +159,7 @@ export const useJDStore = create<JDStore>()(
             set({ isImporting: false });
             return { success: 0, failed: rows.length, errors: ['未找到岗位名称列，请使用表头：岗位名称 / 职位名称 / 岗位 / 职位 / title / job_title'] };
           }
-          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, contentCols } = cols;
+          const { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, notesCol, contentCols } = cols;
 
           const total = rows.length;
           set({ importProgress: { current: 0, total, percent: 0, status: 'parsing' } });
@@ -228,6 +228,7 @@ export const useJDStore = create<JDStore>()(
                 const priority = priorityCol ? parsePriority(String(row[priorityCol] || '').trim()) : undefined;
                 const odc = odcCol ? String(row[odcCol] || '').trim() : '';
                 const requester = requesterCol ? String(row[requesterCol] || '').trim() : '';
+                const notes = notesCol ? String(row[notesCol] || '').trim() : '';
                 const reqKey = cols.reqKeyCol ? String(row[cols.reqKeyCol] || '').trim() : '';
                 const expedited = cols.expeditedCol ? !!String(row[cols.expeditedCol] || '').trim() : false;
 
@@ -255,6 +256,7 @@ export const useJDStore = create<JDStore>()(
                   requester: requester || undefined,
                   reqKey: reqKey || undefined,
                   expedited: expedited || undefined,
+                  notes: notes || undefined,
                   categories: detectCategories(title),
                   responsibilities: stripContactMeta(responsibilities),
                   requirements: stripContactMeta(requirements),
@@ -322,6 +324,7 @@ export const useJDStore = create<JDStore>()(
                 if ((old.gap ?? '') !== (j.gap ?? '')) diffs.push(`缺口 ${old.gap || '-'}→${j.gap || '-'}`);
                 if ((old.priority ?? '') !== (j.priority ?? '')) diffs.push(`优先级 ${old.priority || '-'}→${j.priority || '-'}`);
                 if ((old.odc ?? '') !== (j.odc ?? '')) diffs.push(`对接人`);
+                if ((old.notes ?? '') !== (j.notes ?? '')) diffs.push(`备注`);
                 if (diffs.length) acc.push({ title: j.title, reqKey: j.reqKey, organization: j.organization, department: j.department, changes: diffs });
                 return acc;
               }, []);

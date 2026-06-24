@@ -26,6 +26,7 @@ export const CONTACT_KEYS = ['简历对接人', '花名'];
 export const ODC_KEYS = ['对应的odc', '对接odc', 'odc'];
 // 需求发起人——提出该需求的业务方（独立于简历对接人，单独成列展示）。
 export const REQUESTER_KEYS = ['需求发起人', '发起人', '需求方'];
+export const NOTES_KEYS = ['备注说明', '备注', 'notes', 'remark', 'remarks', '说明'];
 export const SKIP_KEYS = ['已到岗', '已发offer', '待入职', '提需日期', '期望到岗日期', '期望到岗'];
 // 联系人/来源等元数据列：不识别为岗位内容（如"来源表格""对应的ODC""对应的SSC""对接人""联系方式"）
 export const META_KEYS = ['来源表格', '对应的odc', '对应的ssc', 'odc', 'ssc', '对接人', '联系人', '联系方式', 'tg', 'telegram'];
@@ -380,6 +381,7 @@ export interface ColumnMap {
   requesterCol: string | null;
   reqKeyCol: string | null;
   expeditedCol: string | null;
+  notesCol: string | null;
   contentCols: string[];
 }
 
@@ -400,16 +402,17 @@ export function analyzeColumns(headers: string[]): ColumnMap | null {
   const requesterCol = findColumnByKeywords(headers, REQUESTER_KEYS);
   const reqKeyCol = findColumnByKeywords(headers, REQ_KEY_KEYS);
   const expeditedCol = findColumnByKeywords(headers, EXPEDITED_KEYS);
+  const notesCol = findColumnByKeywords(headers, NOTES_KEYS);
   const skipCols = headers.filter((h) => matchesAnyKeyword(h, SKIP_KEYS));
   const metaCols = headers.filter((h) => matchesAnyKeyword(h, META_KEYS));
 
   const knownCols = new Set<string>(
-    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, reqKeyCol, expeditedCol, ...skipCols, ...metaCols]
+    [titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, reqKeyCol, expeditedCol, notesCol, ...skipCols, ...metaCols]
       .filter((x): x is string => x !== null)
   );
   const contentCols = headers.filter((h) => !knownCols.has(h));
 
-  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, reqKeyCol, expeditedCol, contentCols };
+  return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, reqKeyCol, expeditedCol, notesCol, contentCols };
 }
 
 /** Build a JD from a row using deterministic column parsing (no AI).
@@ -432,6 +435,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   const requester = cols.requesterCol ? String(row[cols.requesterCol] || '').trim() : '';
   const reqKey = cols.reqKeyCol ? String(row[cols.reqKeyCol] || '').trim() : '';
   const expedited = cols.expeditedCol ? isTruthyFlag(String(row[cols.expeditedCol] || '')) : false;
+  const notes = cols.notesCol ? String(row[cols.notesCol] || '').trim() : '';
 
   const title = rawTitleCell;
   const rawSalary = cols.salaryCol ? String(row[cols.salaryCol] || '').trim() : '';
@@ -466,6 +470,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     requester: requester || undefined,
     reqKey: reqKey || undefined,
     expedited: expedited || undefined,
+    notes: notes || undefined,
     categories: detectCategories(title),
     responsibilities: stripContactMeta(split.responsibilities),
     requirements: stripContactMeta(split.requirements),

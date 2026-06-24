@@ -2,7 +2,7 @@
 import { cn, formatSalary, formatDate } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, JD_STATUS_LABELS, JD_STATUS_COLORS, type JD, type JDCategory, type JDStatus, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users, ArrowRight } from 'lucide-react';
+import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users, ArrowRight, StickyNote } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useJDStore } from '@/store/jd-store';
@@ -245,6 +245,16 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
               </>
             )}
           </div>
+
+          {/* 备注说明 */}
+          {jd.notes && (
+            <GlassPanel padding="md">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-2">
+                <StickyNote className="w-4 h-4 text-amber-500" />备注说明
+              </h3>
+              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{jd.notes}</p>
+            </GlassPanel>
+          )}
 
           {/* AI Analysis */}
           {showAI && (
