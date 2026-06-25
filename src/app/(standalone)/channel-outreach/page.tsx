@@ -769,8 +769,7 @@ export default function ChannelOutreachPage() {
   }
 
   return (
-    // fixed inset-0 z-[9999] overrides the dashboard AppShell for this route
-    <div className="fixed inset-0 bg-[#F8FAFC] z-[9999] flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
       <main className="flex-1 overflow-y-auto">
