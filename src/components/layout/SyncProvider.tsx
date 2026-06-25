@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded } from '@/lib/sync';
+import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded, pushWeeklyAdded } from '@/lib/sync';
 import { stripContactMeta } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
@@ -8,7 +8,7 @@ import { useTalentStore } from '@/store/talent-store';
 import { useRepushStore, type RepushItem } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { useCompanyStore } from '@/store/company-store';
-import type { JD, JDImportResult, WeeklyAdded } from '@/types/jd';
+import type { JD, JDImportResult, JDDiffItem, WeeklyAdded } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
 import type { TodoItem } from '@/types/todo';
@@ -165,14 +165,14 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       try {
         const [remoteDiff, remoteWeekly] = await Promise.all([fetchImportDiff(), fetchWeeklyAdded()]);
         // 今日增改
-        const rd = remoteDiff as ({ date: string } & Record<string, unknown>) | null;
+        const rd = remoteDiff as ({ date: string; added?: JDDiffItem[] } & Record<string, unknown>) | null;
         if (rd?.date) {
           const local = useJDStore.getState().lastImportDiff;
           if (new Date(rd.date).getTime() > (local ? new Date(local.date).getTime() : 0)) {
             useJDStore.setState({ lastImportDiff: rd as unknown as (JDImportResult & { date: string }) });
           }
         }
-        // 本周新增：同 weekKey 取更新时间更晚的；不同 weekKey 取更新的那个
+        // 本周新增：优先用远端 weeklyAdded；若 KV 中 weeklyAdded 为空则从 lastImportDiff.added 补充
         const rw = remoteWeekly as WeeklyAdded | null;
         if (rw?.weekKey) {
           const local = useJDStore.getState().weeklyAdded;
@@ -189,6 +189,19 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             } else {
               useJDStore.setState({ weeklyAdded: rw });
             }
+          }
+        } else if (rd?.added?.length && rd.date) {
+          // KV 中 weeklyAdded 为空：从 lastImportDiff.added 直接补充
+          const diffDate = new Date(rd.date);
+          const day = diffDate.getDay();
+          const mon = new Date(diffDate);
+          mon.setDate(diffDate.getDate() + (day === 0 ? -6 : 1 - day));
+          const weekKey = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
+          const localWeekly = useJDStore.getState().weeklyAdded;
+          if (!localWeekly?.items?.length) {
+            const newWeekly: WeeklyAdded = { weekKey, items: rd.added!, lastUpdated: rd.date };
+            useJDStore.setState({ weeklyAdded: newWeekly });
+            pushWeeklyAdded(newWeekly).catch(() => {});
           }
         }
       } catch {}
