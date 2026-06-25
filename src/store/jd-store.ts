@@ -403,6 +403,21 @@ export const useJDStore = create<JDStore>()(
         void isImporting; void importCancelled; void importProgress; void cancelImport;
         return rest;
       },
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        // 若 weeklyAdded 为空但 lastImportDiff 有数据，则自动补充（首次部署兼容）
+        if (!state.weeklyAdded && state.lastImportDiff?.added?.length && state.lastImportDiff.date) {
+          const d = new Date(state.lastImportDiff.date);
+          const day = d.getDay();
+          const mon = new Date(d);
+          mon.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+          const weekKey = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
+          const weekly: WeeklyAdded = { weekKey, items: state.lastImportDiff.added, lastUpdated: state.lastImportDiff.date };
+          state.weeklyAdded = weekly;
+          // 异步写入 KV，让其他端也能拿到
+          pushWeeklyAdded(weekly).catch(() => {});
+        }
+      },
       migrate: (old: unknown) => {
         const state = old as { jds?: Array<Record<string, unknown>> };
         const jds = state.jds || [];
