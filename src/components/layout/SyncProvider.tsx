@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { startSync, syncPush, syncDelete, fetchImportDiff } from '@/lib/sync';
+import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded } from '@/lib/sync';
 import { stripContactMeta } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
@@ -8,7 +8,7 @@ import { useTalentStore } from '@/store/talent-store';
 import { useRepushStore, type RepushItem } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { useCompanyStore } from '@/store/company-store';
-import type { JD, JDImportResult } from '@/types/jd';
+import type { JD, JDImportResult, WeeklyAdded } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
 import type { TodoItem } from '@/types/todo';
@@ -159,22 +159,42 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     syncPush('companies', companies);
   }, [companies]);
 
-  // 轮询今日增改 diff：远端比本地更新时同步过来（让啵啵等其他用户看到导入方的增改记录）
+  // 轮询今日增改 diff 和本周新增：远端比本地更新时同步过来
   useEffect(() => {
-    const checkDiff = async () => {
+    const checkRemoteState = async () => {
       try {
-        const remote = await fetchImportDiff() as ({ date: string } & Record<string, unknown>) | null;
-        if (!remote?.date) return;
-        const local = useJDStore.getState().lastImportDiff;
-        const remoteTs = new Date(remote.date).getTime();
-        const localTs = local ? new Date(local.date).getTime() : 0;
-        if (remoteTs > localTs) {
-          useJDStore.setState({ lastImportDiff: remote as unknown as (JDImportResult & { date: string }) });
+        const [remoteDiff, remoteWeekly] = await Promise.all([fetchImportDiff(), fetchWeeklyAdded()]);
+        // 今日增改
+        const rd = remoteDiff as ({ date: string } & Record<string, unknown>) | null;
+        if (rd?.date) {
+          const local = useJDStore.getState().lastImportDiff;
+          if (new Date(rd.date).getTime() > (local ? new Date(local.date).getTime() : 0)) {
+            useJDStore.setState({ lastImportDiff: rd as unknown as (JDImportResult & { date: string }) });
+          }
+        }
+        // 本周新增：同 weekKey 取更新时间更晚的；不同 weekKey 取更新的那个
+        const rw = remoteWeekly as WeeklyAdded | null;
+        if (rw?.weekKey) {
+          const local = useJDStore.getState().weeklyAdded;
+          const remoteTs = new Date(rw.lastUpdated).getTime();
+          const localTs = local ? new Date(local.lastUpdated).getTime() : 0;
+          if (!local || rw.weekKey > local.weekKey || (rw.weekKey === local.weekKey && remoteTs > localTs)) {
+            // 同 weekKey 时合并 items（取并集），不同 weekKey 时直接替换
+            if (local && rw.weekKey === local.weekKey) {
+              const existingKeys = new Set(local.items.map((i) => i.reqKey || i.title));
+              const toAdd = rw.items.filter((i) => !existingKeys.has(i.reqKey || i.title));
+              if (toAdd.length > 0) {
+                useJDStore.setState({ weeklyAdded: { ...rw, items: [...local.items, ...toAdd] } });
+              }
+            } else {
+              useJDStore.setState({ weeklyAdded: rw });
+            }
+          }
         }
       } catch {}
     };
-    checkDiff();
-    const t = setInterval(checkDiff, 10000);
+    checkRemoteState();
+    const t = setInterval(checkRemoteState, 10000);
     return () => clearInterval(t);
   }, []);
 

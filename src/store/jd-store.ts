@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { JD, JDFilter, JDCategory, JDImportResult, JDDiffItem, JDStatus } from '@/types/jd';
+import type { JD, JDFilter, JDCategory, JDImportResult, JDDiffItem, JDStatus, WeeklyAdded } from '@/types/jd';
 import { hasCategory, parsePriority } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_STATUS_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
-import { pushImportDiff } from '@/lib/sync';
+import { pushImportDiff, pushWeeklyAdded } from '@/lib/sync';
 import {
   analyzeColumns,
   cleanJDNumbering,
@@ -33,6 +33,7 @@ interface JDStore {
   importCancelled: boolean;
   importProgress: ImportProgress;
   lastImportDiff: (JDImportResult & { date: string }) | null;
+  weeklyAdded: WeeklyAdded | null;
   cancelImport: () => void;
   selectJD: (id: string | null) => void;
   setFilter: (partial: Partial<JDFilter>) => void;
@@ -60,6 +61,7 @@ export const useJDStore = create<JDStore>()(
       importCancelled: false,
       importProgress: { current: 0, total: 0, percent: 0, status: 'idle' },
       lastImportDiff: null,
+      weeklyAdded: null,
       cancelImport: () => set({ importCancelled: true }),
 
       selectJD: (id) => set({ selectedJdId: id }),
@@ -338,8 +340,21 @@ export const useJDStore = create<JDStore>()(
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
             // 持久化今日增改，供工具栏"今日增改"按钮调取；同时推送到 KV 供其他用户查看
             const importDiff = { ...result, date: new Date().toISOString() };
-            set({ lastImportDiff: importDiff });
+            // 累计本周新增：新 diff.added 追加到本周列表（按周一日期重置）
+            const weekKey = getMondayKey();
+            const prev = get().weeklyAdded;
+            const baseItems = prev?.weekKey === weekKey ? prev.items : [];
+            const newItems = result.added ?? [];
+            const existingKeys = new Set(baseItems.map((i) => i.reqKey || i.title));
+            const toAdd = newItems.filter((i) => !existingKeys.has(i.reqKey || i.title));
+            const updatedWeekly: WeeklyAdded = {
+              weekKey,
+              items: [...baseItems, ...toAdd],
+              lastUpdated: new Date().toISOString(),
+            };
+            set({ lastImportDiff: importDiff, weeklyAdded: updatedWeekly });
             pushImportDiff(importDiff).catch(() => {});
+            pushWeeklyAdded(updatedWeekly).catch(() => {});
           } else {
             // 每日面板新行常缺职责/要求。合并前先从库中同岗位回填内容，
             // 否则「岗位身份变了（旧无 REQ-Key、新有 REQ-Key）」时会新增一条空壳 JD。
@@ -426,6 +441,16 @@ export const useJDStore = create<JDStore>()(
     },
   ),
 );
+
+/** 返回本周周一的日期字符串，如 "2026-06-22"，用作本周新增的 weekKey */
+function getMondayKey(): string {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() + diffToMon);
+  return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
+}
 
 function formatExportList(items: string[]): string {
   return items.map((item, index) => `${index + 1}. ${item}`).join('\n');

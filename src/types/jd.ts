@@ -111,6 +111,8 @@ export function hasCategory(jd: { categories?: JDCategory[]; category?: JDCatego
 }
 export interface JDDiffItem { title: string; reqKey?: string; organization?: string; department?: string; changes?: string[]; }
 export interface JDImportResult { success: number; failed: number; errors: string[]; skipped?: number; replaced?: number; added?: JDDiffItem[]; removed?: JDDiffItem[]; changed?: JDDiffItem[]; }
+/** 本周新增累计：每次覆盖导入时将 diff.added 追加进来，周一自动重置 */
+export interface WeeklyAdded { weekKey: string; items: JDDiffItem[]; lastUpdated: string; }
 
 export const JD_CATEGORY_LABELS: Record<JDCategory, string> = {
   frontend: '前端',

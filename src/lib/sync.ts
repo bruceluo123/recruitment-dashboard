@@ -200,6 +200,19 @@ export async function fetchImportDiff(): Promise<unknown | null> {
   return safeParse(await kvCmd('get', 'recruit:last-import-diff'));
 }
 
+/** 把本周新增累计写入 KV */
+export async function pushWeeklyAdded(data: unknown): Promise<void> {
+  await kvCmd('set', 'recruit:weekly-added', JSON.stringify(data));
+  const rawV = await kvCmd('get', 'recruit:version');
+  const v = (parseInt(rawV || '0') || 0) + 1;
+  await kvCmd('set', 'recruit:version', String(v));
+}
+
+/** 从 KV 拉取本周新增累计 */
+export async function fetchWeeklyAdded(): Promise<unknown | null> {
+  return safeParse(await kvCmd('get', 'recruit:weekly-added'));
+}
+
 function safeParse(raw: string | null): unknown {
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }

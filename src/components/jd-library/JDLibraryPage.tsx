@@ -10,16 +10,17 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store';
 import { Briefcase, Sparkles, Trash2, X, Bell } from 'lucide-react';
 import { generateId } from '@/lib/utils';
-import type { JDCategory, JDImportResult, JDDiffItem, JD } from '@/types/jd';
+import type { JDCategory, JDImportResult, JDDiffItem, JD, WeeklyAdded } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
+  const [weeklyOpen, setWeeklyOpen] = useState(false);
   const lastImportDiff = useJDStore((s) => s.lastImportDiff);
+  const weeklyAdded = useJDStore((s) => s.weeklyAdded);
   const [addOpen, setAddOpen] = useState(false);
-  const [activeOnly, setActiveOnly] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // Excel 式列筛选：空集合 = 不筛选
@@ -82,8 +83,7 @@ export function JDLibraryPage() {
   const orgOf = (j: typeof jds[number]) => (j.organization || '').trim();
   const svcOf = (j: typeof jds[number]) => (j.serviceUnit || j.department || '').trim();
 
-  const statusFiltered = activeOnly ? filteredJDs.filter((j) => j.status !== 'paused') : filteredJDs;
-  const finalFiltered = statusFiltered.filter((j) =>
+  const finalFiltered = filteredJDs.filter((j) =>
     (orgFilter.size === 0 || orgFilter.has(orgOf(j))) &&
     (serviceFilter.size === 0 || serviceFilter.has(svcOf(j))) &&
     (!gapOnly || (!!j.gap && j.gap !== '0')),
@@ -220,9 +220,9 @@ export function JDLibraryPage() {
       <JDSearchBar
         search={filter.search} onSearchChange={(search) => setFilter({ search })}
         onImportClick={() => setImportOpen(true)} onAddClick={() => setAddOpen(true)}
-        activeOnly={activeOnly} onActiveOnlyChange={setActiveOnly}
         batchMode={batchMode} onBatchModeChange={handleBatchModeChange}
         hasDiff={!!lastImportDiff} onDiffClick={() => setDiffOpen(true)}
+        weeklyCount={weeklyAdded?.items.length ?? 0} onWeeklyClick={() => setWeeklyOpen(true)}
       />
 
       {batchMode && (
@@ -269,6 +269,7 @@ export function JDLibraryPage() {
       <JDDetailPanel jd={selectedJd} isOpen={!!selectedJdId} onClose={() => selectJD(null)} />
       <JDImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       {diffOpen && <ImportDiffDialog diff={lastImportDiff ?? null} onClose={() => setDiffOpen(false)} />}
+      {weeklyOpen && <WeeklyAddedDialog weekly={weeklyAdded} onClose={() => setWeeklyOpen(false)} />}
 
       {/* Undo delete toast */}
       {lastDeletedJD && (
@@ -622,6 +623,142 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
             <p className="text-gray-400 text-center py-4">本次覆盖与上次相比无变化。</p>
           )}
           </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── WeeklyAddedDialog ──────────────────────────────────────────────────────────
+
+function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; onClose: () => void }) {
+  const jds = useJDStore((s) => s.jds);
+  const [previewJd, setPreviewJd] = useState<JD | null>(null);
+
+  const weekLabel = weekly ? (() => {
+    const mon = new Date(weekly.weekKey);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    const fmt = (d: Date) => `${d.getMonth() + 1}月${d.getDate()}日`;
+    return `${fmt(mon)}—${fmt(sun)}`;
+  })() : null;
+
+  const findJd = (item: JDDiffItem): JD | undefined => {
+    if (item.reqKey) {
+      const byKey = jds.find((j) => j.reqKey === item.reqKey);
+      if (byKey) return byKey;
+    }
+    return jds.find((j) => j.title.trim() === item.title.trim());
+  };
+
+  const handleItemClick = (item: JDDiffItem) => {
+    const found = findJd(item);
+    if (!found) return;
+    setPreviewJd((prev) => (prev?.id === found.id ? null : found));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="fixed inset-0 bg-black/20" onClick={onClose} />
+
+      {/* JD detail preview panel (left) */}
+      {previewJd && (
+        <div className="relative z-10 w-[360px] h-full bg-white border-r border-gray-100 shadow-xl flex flex-col overflow-hidden animate-fade-in">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`px-2 py-0.5 rounded-md text-xs font-medium shrink-0 ${JD_CATEGORY_COLORS[previewJd.categories[0]]}`}>
+                {JD_CATEGORY_LABELS[previewJd.categories[0]]}
+              </span>
+              <h4 className="text-sm font-semibold text-gray-800 truncate">{previewJd.title}</h4>
+            </div>
+            <button onClick={() => setPreviewJd(null)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0 ml-2">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+              {previewJd.organization && <span>🏢 {previewJd.organization}</span>}
+              {(previewJd.serviceUnit || previewJd.department) && <span>📍 {previewJd.serviceUnit || previewJd.department}</span>}
+              {previewJd.headcount && <span>HC: <span className="font-medium text-gray-700">{previewJd.headcount}</span></span>}
+              {previewJd.gap && previewJd.gap !== '0' && <span className="text-red-500 font-medium">缺口: {previewJd.gap}</span>}
+              {(previewJd.salaryText || (previewJd.salaryRange.min > 0)) && (
+                <span className="text-green-600 font-medium">
+                  {previewJd.salaryText || `${previewJd.salaryRange.min}K-${previewJd.salaryRange.max}K`}
+                </span>
+              )}
+            </div>
+            {previewJd.responsibilities.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">岗位职责</p>
+                <ul className="space-y-1">
+                  {previewJd.responsibilities.map((r, i) => (
+                    <li key={i} className="text-xs text-gray-600 flex gap-1.5 leading-relaxed">
+                      <span className="text-gray-300 shrink-0 mt-0.5">·</span><span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {previewJd.requirements.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">岗位要求</p>
+                <ul className="space-y-1">
+                  {previewJd.requirements.map((r, i) => (
+                    <li key={i} className="text-xs text-gray-600 flex gap-1.5 leading-relaxed">
+                      <span className="text-gray-300 shrink-0 mt-0.5">·</span><span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {previewJd.notes && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">备注说明</p>
+                <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{previewJd.notes}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Weekly panel (right) */}
+      <div className="relative z-10 w-[300px] h-full bg-white shadow-xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <Bell className="w-4 h-4 text-green-500" />本周新增{weekLabel ? ` · ${weekLabel}` : ''}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-5 py-4 text-sm">
+          {!weekly || weekly.items.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-gray-500 text-sm">本周暂无新增岗位</p>
+              <p className="text-gray-400 text-xs mt-1">每次覆盖导入时，新增的岗位会自动累计到这里。</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-gray-500 text-xs mb-3">本周新增 <span className="font-semibold text-gray-800">{weekly.items.length}</span> 个岗位（点击查看详情）</p>
+              <ul className="space-y-0.5">
+                {weekly.items.map((item) => {
+                  const found = findJd(item);
+                  const isActive = previewJd && found?.id === previewJd.id;
+                  return (
+                    <li
+                      key={item.reqKey || item.title}
+                      onClick={() => handleItemClick(item)}
+                      className={'text-xs text-gray-700 flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors' + (isActive ? ' bg-indigo-50' : '')}
+                    >
+                      <span className="text-green-500 shrink-0">·</span>
+                      <span className="hover:text-indigo-600 transition-colors">{item.title}</span>
+                      {(item.organization || item.department) && (
+                        <span className="text-gray-400 shrink-0">{[item.organization, item.department].filter(Boolean).join(' · ')}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
         </div>
       </div>
     </div>
