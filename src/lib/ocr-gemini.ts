@@ -77,6 +77,19 @@ async function deleteFile(fileName: string, apiKey: string): Promise<void> {
   await fetch(`${GEMINI_BASE}/v1beta/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {});
 }
 
+/** 轮询文件状态直到 ACTIVE（最多等 30s）。大 PDF 上传后需要处理时间。 */
+async function waitForFileActive(fileName: string, apiKey: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const res = await fetch(`${GEMINI_BASE}/v1beta/${fileName}?key=${apiKey}`);
+    if (!res.ok) return; // 查询失败则直接尝试，不阻塞主流程
+    const data = (await res.json()) as { state?: string };
+    if (data.state === 'ACTIVE') return;
+    if (data.state === 'FAILED') throw new Error('Gemini Files 处理失败');
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
 /**
  * 把 PDF 原始字节交给 Gemini Files API，返回识别出的全文。
  * 失败时抛出带可读信息的 Error，由调用方决定回退策略。
@@ -85,7 +98,10 @@ export async function extractPdfTextViaGemini(buffer: Buffer, apiKey: string): P
   // 1. 上传文件
   const { uri, name } = await uploadToFilesApi(buffer, apiKey);
 
-  // 2. 调用 generateContent，引用 file_data URI
+  // 2. 等待文件处理完成（大 PDF 上传后需要几秒才能 ACTIVE）
+  if (name) await waitForFileActive(name, apiKey);
+
+  // 3. 调用 generateContent，引用 file_data URI
   try {
     const res = await fetch(
       `${GEMINI_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
@@ -122,7 +138,7 @@ export async function extractPdfTextViaGemini(buffer: Buffer, apiKey: string): P
     if (!text) throw new Error('Gemini OCR 返回空文本');
     return text;
   } finally {
-    // 3. 无论成功失败都删除上传的临时文件
+    // 4. 无论成功失败都删除上传的临时文件
     await deleteFile(name, apiKey);
   }
 }
