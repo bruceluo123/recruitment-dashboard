@@ -48,6 +48,18 @@ export function JDLibraryPage() {
   const filteredJDs = useFilteredJDs();
   const categories = useCategoryCounts();
 
+  // 今日导入中真正新增的岗位 ID 集合（以 lastImportDiff.added 为准，而非 createdAt）
+  const newJdIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!lastImportDiff?.added?.length) return ids;
+    if (new Date(lastImportDiff.date).toDateString() !== new Date().toDateString()) return ids;
+    lastImportDiff.added.forEach((d) => {
+      const found = jds.find((j) => (d.reqKey && j.reqKey === d.reqKey) || j.title.trim() === d.title.trim());
+      if (found) ids.add(found.id);
+    });
+    return ids;
+  }, [lastImportDiff, jds]);
+
   // 列筛选选项：基于全部岗位去重，保证选项不随筛选缩水
   const orgOptions = useMemo(
     () => Array.from(new Set(jds.map((j) => (j.organization || '').trim()))).sort((a, b) => a.localeCompare(b, 'zh-CN')),
@@ -247,6 +259,7 @@ export function JDLibraryPage() {
             onServiceFilterChange={setServiceFilter}
             gapOnly={gapOnly}
             onGapOnlyToggle={() => setGapOnly((v) => !v)}
+            newJdIds={newJdIds}
           />
         ) : (
           <EmptyState icon={Briefcase} title={jds.length === 0 ? '暂无岗位数据' : '无匹配结果'} description={jds.length === 0 ? '点击"添加岗位"或"批量导入"添加数据' : '尝试调整筛选条件'} />
@@ -525,14 +538,11 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">岗位职责</p>
                 <ul className="space-y-1">
-                  {previewJd.responsibilities.slice(0, 5).map((r, i) => (
+                  {previewJd.responsibilities.map((r, i) => (
                     <li key={i} className="text-xs text-gray-600 flex gap-1.5 leading-relaxed">
                       <span className="text-gray-300 shrink-0 mt-0.5">·</span><span>{r}</span>
                     </li>
                   ))}
-                  {previewJd.responsibilities.length > 5 && (
-                    <li className="text-xs text-gray-400 pl-3">…还有 {previewJd.responsibilities.length - 5} 条</li>
-                  )}
                 </ul>
               </div>
             )}
@@ -540,14 +550,11 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">岗位要求</p>
                 <ul className="space-y-1">
-                  {previewJd.requirements.slice(0, 5).map((r, i) => (
+                  {previewJd.requirements.map((r, i) => (
                     <li key={i} className="text-xs text-gray-600 flex gap-1.5 leading-relaxed">
                       <span className="text-gray-300 shrink-0 mt-0.5">·</span><span>{r}</span>
                     </li>
                   ))}
-                  {previewJd.requirements.length > 5 && (
-                    <li className="text-xs text-gray-400 pl-3">…还有 {previewJd.requirements.length - 5} 条</li>
-                  )}
                 </ul>
               </div>
             )}

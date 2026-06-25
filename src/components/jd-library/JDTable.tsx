@@ -22,12 +22,13 @@ interface JDTableProps {
   onServiceFilterChange?: (next: Set<string>) => void;
   gapOnly?: boolean;
   onGapOnlyToggle?: () => void;
+  newJdIds?: Set<string>;
 }
 
 export function JDTable({
   jds, onSelect, selectedId, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll,
   orgOptions = [], serviceOptions = [], orgFilter, serviceFilter, onOrgFilterChange, onServiceFilterChange,
-  gapOnly = false, onGapOnlyToggle,
+  gapOnly = false, onGapOnlyToggle, newJdIds,
 }: JDTableProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -129,7 +130,7 @@ export function JDTable({
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <div className="flex items-center gap-2 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{jd.title}</p>
-                  {jd.createdAt && new Date(jd.createdAt).toDateString() === new Date().toDateString() && (
+                  {newJdIds?.has(jd.id) && (
                     <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-red-500 text-white shrink-0 leading-none">新</span>
                   )}
                   {isUrgentPriority(jd.priority) && (
