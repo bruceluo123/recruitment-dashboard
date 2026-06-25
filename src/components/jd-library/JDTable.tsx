@@ -129,6 +129,9 @@ export function JDTable({
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
                 <div className="flex items-center gap-2 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{jd.title}</p>
+                  {jd.createdAt && new Date(jd.createdAt).toDateString() === new Date().toDateString() && (
+                    <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-red-500 text-white shrink-0 leading-none">新</span>
+                  )}
                   {isUrgentPriority(jd.priority) && (
                     <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold shrink-0', PRIORITY_COLORS[jd.priority!])}>{jd.priority}</span>
                   )}

@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store';
 import { Briefcase, Sparkles, Trash2, X, Bell } from 'lucide-react';
 import { generateId } from '@/lib/utils';
-import type { JDCategory, JDImportResult } from '@/types/jd';
+import type { JDCategory, JDImportResult, JDDiffItem, JD } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
 
 export function JDLibraryPage() {
@@ -450,87 +450,163 @@ function extractSection(text: string, startKeys: string[], endKeys: string[]): s
 // ─── ImportDiffDialog ──────────────────────────────────────────────────────────
 
 function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: string }) | null; onClose: () => void }) {
+  const jds = useJDStore((s) => s.jds);
+  const [previewJd, setPreviewJd] = useState<JD | null>(null);
+
   const dateLabel = diff ? (() => {
     const d = new Date(diff.date);
     return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   })() : null;
 
+  const findJd = (item: JDDiffItem): JD | undefined => {
+    if (item.reqKey) {
+      const byKey = jds.find((j) => j.reqKey === item.reqKey);
+      if (byKey) return byKey;
+    }
+    return jds.find((j) => j.title.trim() === item.title.trim());
+  };
+
+  const handleItemClick = (item: JDDiffItem) => {
+    const found = findJd(item);
+    if (!found) return;
+    setPreviewJd((prev) => (prev?.id === found.id ? null : found));
+  };
+
+  const renderDiffItem = (item: JDDiffItem, color: string, clickable: boolean) => (
+    <li
+      key={item.reqKey || item.title}
+      onClick={clickable ? () => handleItemClick(item) : undefined}
+      className={clickable ? 'text-xs text-gray-700 flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors' + (previewJd && findJd(item)?.id === previewJd.id ? ' bg-indigo-50' : '') : 'text-xs text-gray-700 flex items-baseline gap-1.5'}
+    >
+      <span className={`shrink-0 ${color}`}>·</span>
+      <span className={clickable ? 'hover:text-indigo-600 transition-colors' : ''}>{item.title}</span>
+      {(item.organization || item.department) && (
+        <span className="text-gray-400 shrink-0">
+          {[item.organization, item.department].filter(Boolean).join(' · ')}
+        </span>
+      )}
+      {item.changes && item.changes.length > 0 && (
+        <span className="text-amber-600 ml-1 shrink-0">— {item.changes.join('，')}</span>
+      )}
+    </li>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="fixed inset-0 bg-black/20" onClick={onClose} />
+
+      {/* JD detail preview panel (left of diff panel) */}
+      {previewJd && (
+        <div className="relative z-10 w-[360px] h-full bg-white border-r border-gray-100 shadow-xl flex flex-col overflow-hidden animate-fade-in">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`px-2 py-0.5 rounded-md text-xs font-medium shrink-0 ${JD_CATEGORY_COLORS[previewJd.categories[0]]}`}>
+                {JD_CATEGORY_LABELS[previewJd.categories[0]]}
+              </span>
+              <h4 className="text-sm font-semibold text-gray-800 truncate">{previewJd.title}</h4>
+            </div>
+            <button onClick={() => setPreviewJd(null)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0 ml-2">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+              {previewJd.organization && <span>🏢 {previewJd.organization}</span>}
+              {(previewJd.serviceUnit || previewJd.department) && <span>📍 {previewJd.serviceUnit || previewJd.department}</span>}
+              {previewJd.headcount && <span>HC: <span className="font-medium text-gray-700">{previewJd.headcount}</span></span>}
+              {previewJd.gap && previewJd.gap !== '0' && <span className="text-red-500 font-medium">缺口: {previewJd.gap}</span>}
+              {(previewJd.salaryText || (previewJd.salaryRange.min > 0)) && (
+                <span className="text-green-600 font-medium">
+                  {previewJd.salaryText || `${previewJd.salaryRange.min}K-${previewJd.salaryRange.max}K`}
+                </span>
+              )}
+            </div>
+            {previewJd.responsibilities.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">岗位职责</p>
+                <ul className="space-y-1">
+                  {previewJd.responsibilities.slice(0, 5).map((r, i) => (
+                    <li key={i} className="text-xs text-gray-600 flex gap-1.5 leading-relaxed">
+                      <span className="text-gray-300 shrink-0 mt-0.5">·</span><span>{r}</span>
+                    </li>
+                  ))}
+                  {previewJd.responsibilities.length > 5 && (
+                    <li className="text-xs text-gray-400 pl-3">…还有 {previewJd.responsibilities.length - 5} 条</li>
+                  )}
+                </ul>
+              </div>
+            )}
+            {previewJd.requirements.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">岗位要求</p>
+                <ul className="space-y-1">
+                  {previewJd.requirements.slice(0, 5).map((r, i) => (
+                    <li key={i} className="text-xs text-gray-600 flex gap-1.5 leading-relaxed">
+                      <span className="text-gray-300 shrink-0 mt-0.5">·</span><span>{r}</span>
+                    </li>
+                  ))}
+                  {previewJd.requirements.length > 5 && (
+                    <li className="text-xs text-gray-400 pl-3">…还有 {previewJd.requirements.length - 5} 条</li>
+                  )}
+                </ul>
+              </div>
+            )}
+            {previewJd.notes && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">备注说明</p>
+                <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{previewJd.notes}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Diff panel (right) */}
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col"
+        className="relative z-10 w-[300px] h-full bg-white shadow-xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
             <Bell className="w-4 h-4 text-indigo-500" />今日增改{dateLabel ? ` · ${dateLabel}` : ''}
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="overflow-y-auto px-5 py-4 space-y-5 text-sm">
+        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-5 text-sm">
           {!diff ? (
             <div className="py-8 text-center">
               <p className="text-gray-500 text-sm">暂无增改记录</p>
               <p className="text-gray-400 text-xs mt-1">下次批量导入时开启「覆盖模式」，完成后此处将自动保存完整增改明细。</p>
             </div>
           ) : (<>
-          {/* 总览 */}
           <p className="text-gray-500 text-xs">
             已覆盖：岗位库现为 <span className="font-semibold text-gray-800">{diff.replaced}</span> 个岗位
           </p>
 
-          {/* 新增 */}
           {diff.added && diff.added.length > 0 && (
             <div>
               <p className="font-semibold text-green-700 mb-2">🟢 新增 {diff.added.length} 个岗位</p>
-              <ul className="space-y-1 pl-1">
-                {diff.added.map((d, i) => (
-                  <li key={i} className="text-xs text-gray-700 flex items-baseline gap-1.5">
-                    <span>· {d.title}</span>
-                    {(d.organization || d.department) && (
-                      <span className="text-gray-400 shrink-0">
-                        {[d.organization, d.department].filter(Boolean).join(' · ')}
-                      </span>
-                    )}
-                  </li>
-                ))}
+              <ul className="space-y-0.5 pl-1">
+                {diff.added.map((d) => renderDiffItem(d, 'text-green-500', true))}
               </ul>
             </div>
           )}
 
-          {/* 移除 */}
           {diff.removed && diff.removed.length > 0 && (
             <div>
               <p className="font-semibold text-red-600 mb-2">🔴 移除 {diff.removed.length} 个岗位</p>
-              <ul className="space-y-1 pl-1">
-                {diff.removed.map((d, i) => (
-                  <li key={i} className="text-xs text-gray-700 flex items-baseline gap-1.5">
-                    <span>· {d.title}</span>
-                    {(d.organization || d.department) && (
-                      <span className="text-gray-400 shrink-0">
-                        {[d.organization, d.department].filter(Boolean).join(' · ')}
-                      </span>
-                    )}
-                  </li>
-                ))}
+              <ul className="space-y-0.5 pl-1">
+                {diff.removed.map((d) => renderDiffItem(d, 'text-red-400', false))}
               </ul>
             </div>
           )}
 
-          {/* 异动 */}
           {diff.changed && diff.changed.length > 0 && (
             <div>
               <p className="font-semibold text-amber-600 mb-2">🟡 异动 {diff.changed.length} 个岗位</p>
-              <ul className="space-y-1 pl-1">
-                {diff.changed.map((d, i) => (
-                  <li key={i} className="text-xs text-gray-700">
-                    · {d.title}
-                    {d.changes && d.changes.length > 0 && (
-                      <span className="text-amber-600 ml-1">— {d.changes.join('，')}</span>
-                    )}
-                  </li>
-                ))}
+              <ul className="space-y-0.5 pl-1">
+                {diff.changed.map((d) => renderDiffItem(d, 'text-amber-500', true))}
               </ul>
             </div>
           )}
