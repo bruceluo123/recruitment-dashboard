@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { startSync, syncPush, syncDelete } from '@/lib/sync';
+import { startSync, syncPush, syncDelete, fetchImportDiff } from '@/lib/sync';
 import { stripContactMeta } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
@@ -8,7 +8,7 @@ import { useTalentStore } from '@/store/talent-store';
 import { useRepushStore, type RepushItem } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { useCompanyStore } from '@/store/company-store';
-import type { JD } from '@/types/jd';
+import type { JD, JDImportResult } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
 import type { TodoItem } from '@/types/todo';
@@ -158,6 +158,25 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     if (removed.length) syncDelete('companies', removed);
     syncPush('companies', companies);
   }, [companies]);
+
+  // 轮询今日增改 diff：远端比本地更新时同步过来（让啵啵等其他用户看到导入方的增改记录）
+  useEffect(() => {
+    const checkDiff = async () => {
+      try {
+        const remote = await fetchImportDiff() as ({ date: string } & Record<string, unknown>) | null;
+        if (!remote?.date) return;
+        const local = useJDStore.getState().lastImportDiff;
+        const remoteTs = new Date(remote.date).getTime();
+        const localTs = local ? new Date(local.date).getTime() : 0;
+        if (remoteTs > localTs) {
+          useJDStore.setState({ lastImportDiff: remote as unknown as (JDImportResult & { date: string }) });
+        }
+      } catch {}
+    };
+    checkDiff();
+    const t = setInterval(checkDiff, 10000);
+    return () => clearInterval(t);
+  }, []);
 
   return <>{children}</>;
 }

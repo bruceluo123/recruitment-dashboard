@@ -6,6 +6,7 @@ import { JD_CATEGORY_LABELS, JD_STATUS_LABELS } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
+import { pushImportDiff } from '@/lib/sync';
 import {
   analyzeColumns,
   cleanJDNumbering,
@@ -292,12 +293,12 @@ export const useJDStore = create<JDStore>()(
             const oldByKey = new Map(get().jds.map((j) => [getJDKey(j), j]));
             const enriched = deduped.jds.map((jd) => {
               const old = oldByKey.get(getJDKey(jd));
-              if (!old) return jd;
+              if (!old) return jd; // 真正新增：保留 createdAt = now，会显示「新」角标
               const hasResp = jd.responsibilities && jd.responsibilities.length > 0;
               const hasReq = jd.requirements && jd.requirements.length > 0;
-              if (hasResp && hasReq) return jd;
               return {
                 ...jd,
+                createdAt: old.createdAt, // 保留原始创建时间，避免覆盖后所有岗位都显示「新」
                 responsibilities: hasResp ? jd.responsibilities : old.responsibilities,
                 requirements: hasReq ? jd.requirements : old.requirements,
               };
@@ -335,8 +336,10 @@ export const useJDStore = create<JDStore>()(
             result.errors = [];
             result.replaced = enriched.length;
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
-            // 持久化今日增改，供工具栏"今日增改"按钮调取
-            set({ lastImportDiff: { ...result, date: new Date().toISOString() } });
+            // 持久化今日增改，供工具栏"今日增改"按钮调取；同时推送到 KV 供其他用户查看
+            const importDiff = { ...result, date: new Date().toISOString() };
+            set({ lastImportDiff: importDiff });
+            pushImportDiff(importDiff).catch(() => {});
           } else {
             // 每日面板新行常缺职责/要求。合并前先从库中同岗位回填内容，
             // 否则「岗位身份变了（旧无 REQ-Key、新有 REQ-Key）」时会新增一条空壳 JD。

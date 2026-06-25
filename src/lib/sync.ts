@@ -186,6 +186,20 @@ export function syncPush(type: DataType, data: unknown[]) {
   schedulePush(type, () => data);
 }
 
+/** 把今日增改 diff 写入 KV，供其他端实时拉取 */
+export async function pushImportDiff(diff: unknown): Promise<void> {
+  await kvCmd('set', 'recruit:last-import-diff', JSON.stringify(diff));
+  // 同时推高 version，让其他端的 10s 轮询感知到变化
+  const rawV = await kvCmd('get', 'recruit:version');
+  const v = (parseInt(rawV || '0') || 0) + 1;
+  await kvCmd('set', 'recruit:version', String(v));
+}
+
+/** 从 KV 拉取最新 lastImportDiff（供 SyncProvider 轮询用） */
+export async function fetchImportDiff(): Promise<unknown | null> {
+  return safeParse(await kvCmd('get', 'recruit:last-import-diff'));
+}
+
 function safeParse(raw: string | null): unknown {
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
