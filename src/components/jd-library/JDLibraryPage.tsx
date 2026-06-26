@@ -50,14 +50,21 @@ export function JDLibraryPage() {
   const filteredJDs = useFilteredJDs();
   const categories = useCategoryCounts();
 
-  // 今日导入中真正新增的岗位 ID 集合（以 lastImportDiff.added 为准，而非 createdAt）
+  // 5 个工作日内新增的岗位 ID 集合（以 createdAt 为准，跳过周末）
   const newJdIds = useMemo(() => {
     const ids = new Set<string>();
-    if (!lastImportDiff?.added?.length) return ids;
-    if (new Date(lastImportDiff.date).toDateString() !== new Date().toDateString()) return ids;
-    lastImportDiff.added.forEach((d) => {
-      const found = jds.find((j) => (d.reqKey && j.reqKey === d.reqKey) || j.title.trim() === d.title.trim());
-      if (found) ids.add(found.id);
+    // 计算 5 个工作日前的零点
+    const threshold = new Date();
+    threshold.setHours(0, 0, 0, 0);
+    let workdays = 0;
+    while (workdays < 5) {
+      threshold.setDate(threshold.getDate() - 1);
+      const d = threshold.getDay();
+      if (d !== 0 && d !== 6) workdays++;
+    }
+    jds.forEach((jd) => {
+      if (jd.id.startsWith('jd-00')) return; // 跳过 mock 数据
+      if (jd.createdAt && new Date(jd.createdAt) >= threshold) ids.add(jd.id);
     });
     return ids;
   }, [lastImportDiff, jds]);
@@ -808,10 +815,25 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
       {/* Weekly panel (right) */}
       <div className="relative z-10 w-[300px] h-full bg-white shadow-xl flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-            <Bell className="w-4 h-4 text-green-500" />本周新增{weekLabel ? ` · ${weekLabel}` : ''}
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2 min-w-0">
+            <Bell className="w-4 h-4 text-green-500 shrink-0" />
+            <span className="truncate">本周新增{weekLabel ? ` · ${weekLabel}` : ''}</span>
           </h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            {weekly && weekly.items.length > 0 && (
+              <button
+                onClick={() => { setCopyMode((v) => !v); setPreviewJd(null); }}
+                className={`flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium transition-all ${
+                  copyMode
+                    ? 'bg-red-500 text-white'
+                    : 'border border-red-200 text-red-500 hover:bg-red-50'
+                }`}
+              >
+                <Megaphone className="w-3.5 h-3.5" />招聘文案
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
+          </div>
         </div>
         <div className="overflow-y-auto flex-1 px-5 py-4 text-sm">
           {!weekly || weekly.items.length === 0 ? (
@@ -844,22 +866,6 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
             </>
           )}
         </div>
-        {/* 招聘文案入口 */}
-        {weekly && weekly.items.length > 0 && (
-          <div className="px-5 py-3 border-t border-gray-100 shrink-0">
-            <button
-              onClick={() => { setCopyMode((v) => !v); setPreviewJd(null); }}
-              className={`w-full flex items-center justify-center gap-2 h-9 rounded-xl text-sm font-medium transition-all ${
-                copyMode
-                  ? 'bg-red-500 text-white hover:bg-red-600'
-                  : 'border border-red-200 text-red-500 hover:bg-red-50'
-              }`}
-            >
-              <Megaphone className="w-4 h-4" />
-              招聘文案
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
