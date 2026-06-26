@@ -173,42 +173,31 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
         </div>
       </div>
 
-      {/* 双窗格 */}
-      <div className="flex gap-0">
-        {/* ── 左：粘贴文字 ── */}
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-400 mb-1.5">粘贴文字</p>
-          <div className="flex gap-2 h-[100px]">
-            <textarea
-              value={rawText}
-              onChange={(e) => setRawText(e.target.value)}
-              placeholder="粘贴整段简历内容到此处，点击「智能解析」自动提取姓名 / 岗位 / 联系方式…"
-              className="flex-1 h-full px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-sm resize-none focus:outline-none focus:border-indigo-300"
-            />
-            <button
-              onClick={handleParse}
-              disabled={!rawText.trim() || parsing}
-              className={cn(
-                'shrink-0 w-20 rounded-xl text-xs font-medium flex flex-col items-center justify-center gap-1 transition-all',
-                !rawText.trim() || parsing ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-indigo-500 text-white hover:bg-indigo-600',
-              )}
-            >
-              {parsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {parsing ? '解析中' : '智能解析'}
-            </button>
-          </div>
+      {/* 一体化简历入口：左侧文字框 + 右侧上传（上传后自动填入左侧） */}
+      <div className="flex gap-3">
+        {/* ── 左：文字输入区（主区域） ── */}
+        <div className="flex-1 min-w-0 flex gap-2" style={{ height: 100 }}>
+          <textarea
+            value={rawText}
+            onChange={(e) => setRawText(e.target.value)}
+            placeholder="粘贴整段简历内容，或从右侧上传文件自动提取…"
+            className="flex-1 h-full px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-sm resize-none focus:outline-none focus:border-indigo-300"
+          />
+          <button
+            onClick={handleParse}
+            disabled={!rawText.trim() || parsing}
+            className={cn(
+              'shrink-0 w-20 rounded-xl text-xs font-medium flex flex-col items-center justify-center gap-1 transition-all',
+              !rawText.trim() || parsing ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-indigo-500 text-white hover:bg-indigo-600',
+            )}
+          >
+            {parsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {parsing ? '解析中' : '智能解析'}
+          </button>
         </div>
 
-        {/* 分隔线 */}
-        <div className="flex flex-col items-center justify-center px-4 gap-1 self-stretch">
-          <div className="w-px flex-1 bg-gray-200" />
-          <span className="text-xs text-gray-400 shrink-0 py-0.5">或</span>
-          <div className="w-px flex-1 bg-gray-200" />
-        </div>
-
-        {/* ── 右：上传简历 ── */}
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-400 mb-1.5">上传简历</p>
+        {/* ── 右：上传简历（提取文字后填入左侧） ── */}
+        <div className="shrink-0 w-[180px]">
           <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={onFileInput} />
 
           {fileStatus === 'idle' || fileStatus === 'error' ? (
@@ -219,39 +208,35 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               onDragLeave={() => setDragOver(false)}
               onDrop={onDrop}
               className={cn(
-                'w-full h-[100px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1.5 text-xs transition-all cursor-pointer',
+                'w-full h-[100px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs transition-all cursor-pointer',
                 dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40',
                 fileStatus === 'error' && 'border-red-300',
               )}
             >
-              <Upload className={cn('w-5 h-5', fileStatus === 'error' ? 'text-red-400' : 'text-gray-300')} />
+              <Upload className={cn('w-4 h-4', fileStatus === 'error' ? 'text-red-400' : 'text-gray-300')} />
               {fileStatus === 'error' ? (
-                <span className="text-red-500 text-center px-2">{fileError}</span>
+                <span className="text-red-500 text-center px-2 leading-tight">{fileError}</span>
               ) : (
                 <>
-                  <span className="text-gray-400">拖入或点击上传</span>
-                  <span className="text-gray-300">PDF / DOC / DOCX</span>
+                  <span className="text-gray-400">上传简历文件</span>
+                  <span className="text-gray-300 text-[11px]">PDF / DOC / DOCX</span>
                 </>
               )}
             </button>
           ) : fileIsBusy ? (
-            <div className="w-full h-[100px] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-2 text-xs text-gray-400">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
-              <span>{uploadedFileName && <span className="font-medium text-gray-600 mr-1">{uploadedFileName}</span>}{fileLabel}</span>
+            <div className="w-full h-[100px] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-1.5 text-xs text-gray-400">
+              <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+              <span className="text-center px-2 leading-tight">{fileLabel}</span>
             </div>
           ) : (
-            /* done */
-            <div className="w-full h-[100px] rounded-xl border border-green-200 bg-green-50 flex items-center justify-between px-4 gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <FileText className="w-5 h-5 text-green-500 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-gray-700 truncate">{uploadedFileName}</p>
-                  <p className="text-xs text-green-600 flex items-center gap-0.5 mt-0.5"><Check className="w-3 h-3" />已解析，可直接录入</p>
-                </div>
-              </div>
-              <button onClick={() => { setFileStatus('idle'); setUploadedFileName(''); setRawText(''); setParsed(false); setName(''); setJobTitle(''); setContact(''); setContactPerson(''); setOrganization(''); setDepartment(''); }}
-                className="shrink-0 p-1 rounded-lg hover:bg-green-100 text-gray-400">
-                <X className="w-4 h-4" />
+            <div className="w-full h-[100px] rounded-xl border border-green-200 bg-green-50 flex flex-col items-center justify-center gap-1 px-3 relative">
+              <FileText className="w-4 h-4 text-green-500 shrink-0" />
+              <p className="text-[11px] font-medium text-gray-600 text-center truncate w-full px-1">{uploadedFileName}</p>
+              <p className="text-[11px] text-green-600 flex items-center gap-0.5"><Check className="w-3 h-3" />文字已填入左侧</p>
+              <button
+                onClick={() => { setFileStatus('idle'); setUploadedFileName(''); setRawText(''); setParsed(false); setName(''); setJobTitle(''); setContact(''); setContactPerson(''); setOrganization(''); setDepartment(''); }}
+                className="absolute top-1.5 right-1.5 p-0.5 rounded hover:bg-green-100 text-gray-400">
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
