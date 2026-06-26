@@ -1,5 +1,6 @@
 'use client';
-import { Check, X, CalendarPlus, CalendarCheck, Phone, UserCog } from 'lucide-react';
+import { useState } from 'react';
+import { Check, X, CalendarPlus, CalendarCheck, Phone, UserCog, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
@@ -13,12 +14,14 @@ interface FeedbackBarProps {
 export function FeedbackBar({ item, onSetFeedback, onSchedule }: FeedbackBarProps) {
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
+  const [showHighlights, setShowHighlights] = useState(false);
 
   return (
     <div className={cn(
-      'flex items-center gap-4 px-4 py-3 rounded-2xl border bg-white transition-all',
+      'rounded-2xl border bg-white transition-all',
       item.feedback === 'done' ? 'border-green-100' : 'border-gray-100 hover:border-indigo-200',
     )}>
+      <div className="flex items-center gap-4 px-4 py-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold text-gray-800 truncate">{base}</span>
@@ -35,6 +38,17 @@ export function FeedbackBar({ item, onSetFeedback, onSchedule }: FeedbackBarProp
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
+        {item.highlights && (
+          <button
+            onClick={() => setShowHighlights((v) => !v)}
+            className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors"
+            title="查看简历亮点"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            亮点
+            {showHighlights ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+        )}
         {item.interviewStatus === 'scheduled' ? (
           <button
             onClick={() => onSchedule(item)}
@@ -69,6 +83,19 @@ export function FeedbackBar({ item, onSetFeedback, onSchedule }: FeedbackBarProp
           </button>
         </div>
       </div>
+      </div>
+
+      {/* 简历亮点展开面板 */}
+      {showHighlights && item.highlights && (
+        <div className="px-4 pb-3 pt-0">
+          <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3">
+            <p className="text-xs font-medium text-amber-700 mb-1.5 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5" />简历亮点（仅内部可见）
+            </p>
+            <pre className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap font-sans">{item.highlights}</pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

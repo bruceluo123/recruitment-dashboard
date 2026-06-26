@@ -20,6 +20,7 @@ export interface RepushItem {
   contactPerson?: string;      // 简历对接人/推荐人（非候选人本人）
   rawText?: string;            // 录入时粘贴的简历原文（截断保存，便于回看）
   dataUrl?: string;            // 旧版 base64，仅兼容历史数据（新增项不再写入）
+  highlights?: string;         // AI 从简历中提取的候选人亮点摘要（仅内部可见）
   feedback: FeedbackStatus;
   interviewStatus?: InterviewStatus;  // 是否已约面
   interviewRound?: InterviewRound;    // 约面轮次（一面/二面/三面）
@@ -49,6 +50,7 @@ export interface NewRecommendation {
   rawText?: string;
   organization?: string;
   department?: string;
+  highlights?: string;   // AI 从简历中提取的候选人亮点摘要（仅内部可见）
 }
 
 interface RepushStore {
@@ -101,6 +103,7 @@ export const useRepushStore = create<RepushStore>()(
               contact: rec.contact || undefined,
               contactPerson: rec.contactPerson || undefined,
               rawText: rec.rawText ? rec.rawText.slice(0, 2000) : undefined,
+              highlights: rec.highlights ? rec.highlights.slice(0, 1500) : undefined,
               feedback: 'pending' as const,
               interviewStatus: 'none' as const,
               organization: rec.organization || undefined,

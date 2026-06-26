@@ -4,7 +4,7 @@ import { Sparkles, Loader2, Check, UserPlus, Upload, FileText, X } from 'lucide-
 import { cn } from '@/lib/utils';
 import type { JD } from '@/types/jd';
 import type { RepushColumnId, NewRecommendation } from '@/store/repush-store';
-import { extractRecommendationInfo, matchJDByTitle } from '@/lib/recommendation';
+import { extractRecommendationInfo, extractResumeHighlights, matchJDByTitle } from '@/lib/recommendation';
 
 interface ResumeIntakeProps {
   columnNames: Record<RepushColumnId, string>;
@@ -29,6 +29,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const [contactPerson, setContactPerson] = useState('');
   const [organization, setOrganization] = useState('');
   const [department, setDepartment] = useState('');
+  const [highlights, setHighlights] = useState('');
   const [justAdded, setJustAdded] = useState(false);
 
   // 右窗格：文件上传
@@ -60,7 +61,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const resetFields = () => {
     setRawText(''); setParsed(false);
     setName(''); setJobTitle(''); setContact(''); setContactPerson('');
-    setOrganization(''); setDepartment('');
+    setOrganization(''); setDepartment(''); setHighlights('');
     setFileStatus('idle'); setUploadedFileName(''); setFileError('');
   };
 
@@ -75,6 +76,8 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     setOrganization(info.organization || jd?.organization?.trim() || '');
     setDepartment(info.department || jd?.department?.trim() || '');
     setParsed(true);
+    // 同步提取亮点（不阻塞表单展示，后台完成后更新）
+    extractResumeHighlights(text).then(setHighlights).catch(() => {});
   };
 
   // ── 左窗格：文字解析 ──────────────────────────────────────────────────────
@@ -111,7 +114,14 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       const text = data.text || '';
       setRawText(text);   // 把提取文字存入 rawText，录入推荐时一起保存
       setFileStatus('parsing');
-      await applyParsedInfo(text);
+      if (parsed && name.trim()) {
+        // 表单字段已填好：不覆盖，只提取简历亮点（附件模式）
+        const hl = await extractResumeHighlights(text);
+        setHighlights(hl);
+      } else {
+        // 表单为空：完整解析基础信息 + 亮点
+        await applyParsedInfo(text);
+      }
       setFileStatus('done');
     } catch (e) {
       setFileStatus('error');
@@ -143,6 +153,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       rawText: rawText.trim() || undefined,
       organization: organization || undefined,
       department: department || undefined,
+      highlights: highlights || undefined,
     });
     resetFields();
     setJustAdded(true);

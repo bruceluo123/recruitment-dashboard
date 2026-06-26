@@ -177,6 +177,45 @@ ${text}
   }
 }
 
+/**
+ * 从简历原文中提取候选人亮点摘要，供内部查阅。
+ * 返回格式化的多行文本，如：
+ *   💼 8年经验 · 现任字节跳动高级工程师
+ *   🎓 上海交大 · 本科计算机
+ *   ⚡ React / TypeScript / Node.js
+ *   ✨ 主导过日活500万产品的架构重构，降本30%
+ */
+export async function extractResumeHighlights(rawText: string): Promise<string> {
+  const text = rawText.slice(0, 4000);
+  if (!text.trim()) return '';
+  try {
+    const prompt = `请从以下简历文本中提取候选人的核心亮点，用于猎头内部快速评估。
+
+## 简历文本
+${text}
+
+## 输出要求
+用 4-6 行简洁中文，每行一个维度，格式固定如下（缺失信息直接跳过该行）：
+💼 X年经验 · 现任[公司][职级/岗位]
+🎓 [学校] · [学历][专业]
+⚡ [核心技能/技术栈，用 / 分隔，最多6个]
+✨ [1-2句最值得提的履历亮点或成就，简洁有力]
+
+只输出这几行，不要其他说明或标题。`;
+
+    const res = await fetch('/api/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 300 }),
+    });
+    const data = await res.json();
+    const content: string = data?.choices?.[0]?.message?.content || '';
+    return content.trim();
+  } catch {
+    return '';
+  }
+}
+
 /** 按岗位名在 JD 库中找最相近的一条，用于自动回填编制/部门。无匹配返回 null。 */
 export function matchJDByTitle(title: string, jds: JD[]): JD | null {
   const t = title.trim().toLowerCase();
