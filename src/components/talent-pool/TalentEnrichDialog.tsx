@@ -1,7 +1,7 @@
 'use client';
 import { useState, useCallback, useRef } from 'react';
 import {
-  X, Upload, CheckCircle2, XCircle, AlertCircle, Loader2, FileText, PlusCircle,
+  X, Upload, CheckCircle2, XCircle, Loader2, FileText, PlusCircle,
 } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import { generateId } from '@/lib/utils';
