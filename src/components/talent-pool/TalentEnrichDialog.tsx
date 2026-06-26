@@ -36,6 +36,18 @@ const STATUS_LABEL: Record<RowStatus, string> = {
 const CONCURRENCY = 3;
 const UPLOAD_TIMEOUT = 60_000;
 
+/** 检查提取出的名字是否有效（含至少一个汉字或字母）。 */
+function isValidName(name: string): boolean {
+  return /[\u4e00-\u9fff\u0041-\u005a\u0061-\u007a]/i.test(name);
+}
+
+/** 从文件名提取显示用名称；若解析结果无效则回退到去扩展名的文件名。 */
+function displayNameFromFile(file: File): string {
+  const { name } = parseEnrichFileName(file.name);
+  if (isValidName(name)) return name;
+  return file.name.replace(/\.(pdf|docx?)$/i, '').trim() || file.name;
+}
+
 // ─── Upload helper (mirrors talent-store logic) ───────────────────────────────
 
 async function uploadFile(
@@ -96,7 +108,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
 
     const initial: EnrichRow[] = files.map((f) => ({
       fileName: f.name,
-      parsedName: parseEnrichFileName(f.name).name,
+      parsedName: displayNameFromFile(f),
       status: 'pending' as RowStatus,
     }));
     setRows(initial);
@@ -108,7 +120,11 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
     const processOne = async (i: number) => {
       if (signal.aborted) return;
       const file = files[i];
-      const { name, jobTitle } = parseEnrichFileName(file.name);
+      const { name: rawName, jobTitle } = parseEnrichFileName(file.name);
+      // 若解析出的姓名无汉字或字母（如 "."），回退到文件名本身
+      const name = isValidName(rawName)
+        ? rawName
+        : file.name.replace(/\.(pdf|docx?)$/i, '').trim() || file.name;
 
       // 1. 按「姓名+岗位」匹配人才库，决定是更新还是新建
       const match = findTalentMatch(talents, name, jobTitle);

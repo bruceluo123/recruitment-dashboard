@@ -3,6 +3,7 @@
 // 需要环境变量 GEMINI_API_KEY（Google AI Studio 免费申请）。
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_FALLBACK_MODEL = 'gemini-1.5-flash';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
 
 // 用于匹配的「大概」提取：只要关键信息要点，不逐字照抄全文 → 输出更短、生成更快。
@@ -77,9 +78,9 @@ async function deleteFile(fileName: string, apiKey: string): Promise<void> {
   await fetch(`${GEMINI_BASE}/v1beta/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {});
 }
 
-/** 轮询文件状态直到 ACTIVE（最多等 30s）。大 PDF 上传后需要处理时间。 */
+/** 轮询文件状态直到 ACTIVE（最多等 60s）。大 PDF 上传后需要处理时间。 */
 async function waitForFileActive(fileName: string, apiKey: string): Promise<void> {
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     const res = await fetch(`${GEMINI_BASE}/v1beta/${fileName}?key=${apiKey}`);
     if (!res.ok) return; // 查询失败则直接尝试，不阻塞主流程
@@ -87,6 +88,72 @@ async function waitForFileActive(fileName: string, apiKey: string): Promise<void
     if (data.state === 'ACTIVE') return;
     if (data.state === 'FAILED') throw new Error('Gemini Files 处理失败');
     await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+/** 调用指定模型的 generateContent，返回提取文本。 */
+async function callGenerateContent(uri: string, apiKey: string, model: string): Promise<string> {
+  const res = await fetch(
+    `${GEMINI_BASE}/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { file_data: { mime_type: 'application/pdf', file_uri: uri } },
+              { text: EXTRACT_PROMPT },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0, maxOutputTokens: OCR_MAX_OUTPUT_TOKENS },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Gemini OCR ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as GeminiResponse;
+  if (data.error?.message) throw new Error(`Gemini OCR: ${data.error.message}`);
+  const text = (data.candidates?.[0]?.content?.parts ?? [])
+    .map((p) => p.text ?? '')
+    .join('')
+    .trim();
+  if (!text) throw new Error('Gemini OCR 返回空文本');
+  return text;
+}
+
+/**
+ * 调用 generateContent，遇到限流（429/503）自动重试，
+ * 主模型（2.5-flash）失败后降级到备用模型（1.5-flash）。
+ */
+async function generateContentWithRetry(uri: string, apiKey: string): Promise<string> {
+  const tryModel = async (model: string): Promise<string> => {
+    let lastErr: Error = new Error('Gemini OCR 失败');
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await callGenerateContent(uri, apiKey, model);
+      } catch (e) {
+        lastErr = e as Error;
+        const msg = lastErr.message;
+        const isTransient = msg.includes('429') || msg.includes('503') || msg.includes('quota');
+        if (isTransient && attempt < 3) {
+          await new Promise((r) => setTimeout(r, attempt * 4000));
+          continue;
+        }
+        if (!isTransient) throw lastErr; // 非限流错误不重试
+      }
+    }
+    throw lastErr;
+  };
+
+  try {
+    return await tryModel(GEMINI_MODEL);
+  } catch {
+    // 主模型失败后尝试备用模型
+    return tryModel(GEMINI_FALLBACK_MODEL);
   }
 }
 
@@ -101,42 +168,9 @@ export async function extractPdfTextViaGemini(buffer: Buffer, apiKey: string): P
   // 2. 等待文件处理完成（大 PDF 上传后需要几秒才能 ACTIVE）
   if (name) await waitForFileActive(name, apiKey);
 
-  // 3. 调用 generateContent，引用 file_data URI
+  // 3. 调用 generateContent（含自动重试和备用模型降级）
   try {
-    const res = await fetch(
-      `${GEMINI_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { file_data: { mime_type: 'application/pdf', file_uri: uri } },
-                { text: EXTRACT_PROMPT },
-              ],
-            },
-          ],
-          generationConfig: { temperature: 0, maxOutputTokens: OCR_MAX_OUTPUT_TOKENS },
-        }),
-      },
-    );
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Gemini OCR ${res.status}: ${errText.slice(0, 300)}`);
-    }
-
-    const data = (await res.json()) as GeminiResponse;
-    if (data.error?.message) throw new Error(`Gemini OCR: ${data.error.message}`);
-
-    const text = (data.candidates?.[0]?.content?.parts ?? [])
-      .map((p) => p.text ?? '')
-      .join('')
-      .trim();
-
-    if (!text) throw new Error('Gemini OCR 返回空文本');
-    return text;
+    return await generateContentWithRetry(uri, apiKey);
   } finally {
     // 4. 无论成功失败都删除上传的临时文件
     await deleteFile(name, apiKey);

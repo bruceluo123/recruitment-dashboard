@@ -65,7 +65,11 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
     return { error: '该 PDF 为图片型（扫描件），暂无法识别。请配置 GEMINI_API_KEY 启用图片识别，或上传 DOCX / 粘贴文本' };
   }
   if (pdfParseError && ocrError) {
-    return { error: `PDF 解析失败（pdf-parse: ${pdfParseError.slice(0, 60)}；OCR: ${ocrError.slice(0, 60)}）` };
+    const isCorrupted = pdfParseError.toLowerCase().includes('invalid') || pdfParseError.toLowerCase().includes('password');
+    const detail = isCorrupted
+      ? 'PDF 已损坏或加密，无法解析，请检查文件或转换为 DOCX 后重试'
+      : `pdf-parse: ${pdfParseError.slice(0, 50)}；OCR: ${ocrError.slice(0, 50)}`;
+    return { error: detail };
   }
   if (ocrError) {
     return { error: `图片型 PDF，OCR 识别失败（${ocrError.slice(0, 80)}）。请上传 DOCX 或粘贴简历文本` };
