@@ -8,10 +8,11 @@ import { JDDetailPanel } from './JDDetailPanel';
 import { JDImportDialog } from './JDImportDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store';
-import { Briefcase, Sparkles, Trash2, X, Bell } from 'lucide-react';
+import { Briefcase, Sparkles, Trash2, X, Bell, Megaphone, Copy, Check } from 'lucide-react';
 import { generateId } from '@/lib/utils';
 import type { JDCategory, JDImportResult, JDDiffItem, JD, WeeklyAdded } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
+import { buildAdCopy, adVariantLabel, type AdVariant, type AdSegment } from '@/lib/ad-copy';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
@@ -634,6 +635,9 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
 function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; onClose: () => void }) {
   const jds = useJDStore((s) => s.jds);
   const [previewJd, setPreviewJd] = useState<JD | null>(null);
+  const [copyMode, setCopyMode] = useState(false);
+  const [copyVariant, setCopyVariant] = useState<AdVariant>('maimanfen');
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   const weekLabel = weekly ? (() => {
     const mon = new Date(weekly.weekKey);
@@ -657,12 +661,31 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
     setPreviewJd((prev) => (prev?.id === found.id ? null : found));
   };
 
+  // 把本周新增 items 转成 JD[] 供文案生成
+  const weeklyJds = useMemo<JD[]>(() => {
+    if (!weekly?.items.length) return [];
+    return weekly.items.map(findJd).filter((j): j is JD => !!j);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekly, jds]);
+
+  const adSegments = useMemo<AdSegment[]>(() => {
+    if (!copyMode || !weeklyJds.length) return [];
+    return buildAdCopy(weeklyJds, '本周新增', copyVariant, 22);
+  }, [copyMode, weeklyJds, copyVariant]);
+
+  const handleCopy = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx(null), 1500);
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="fixed inset-0 bg-black/20" onClick={onClose} />
 
-      {/* JD detail preview panel (left) */}
-      {previewJd && (
+      {/* JD detail preview panel (left of weekly panel) */}
+      {previewJd && !copyMode && (
         <div className="relative z-10 w-[360px] h-full bg-white border-r border-gray-100 shadow-xl flex flex-col overflow-hidden animate-fade-in">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
@@ -721,6 +744,67 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
         </div>
       )}
 
+      {/* 招聘文案 panel (left of weekly panel, when copyMode) */}
+      {copyMode && (
+        <div className="relative z-10 w-[400px] h-full bg-white border-r border-gray-100 shadow-xl flex flex-col overflow-hidden animate-fade-in">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-red-500" />
+              招聘文案 · 本周新增 {weeklyJds.length} 个岗位
+            </h4>
+            <button onClick={() => setCopyMode(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {/* 风格切换 */}
+          <div className="flex gap-2 px-4 py-2.5 border-b border-gray-100 shrink-0">
+            {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setCopyVariant(v)}
+                className={`px-3 h-7 rounded-lg text-xs font-medium transition-all ${
+                  copyVariant === v
+                    ? 'bg-red-500 text-white'
+                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {adVariantLabel(v)}版
+              </button>
+            ))}
+            <span className="ml-auto text-xs text-gray-400 self-center">
+              {weeklyJds.length} 个岗位 · {adSegments.length} 段
+            </span>
+          </div>
+          <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+            {weeklyJds.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">本周暂无可生成文案的岗位</p>
+            ) : adSegments.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">生成中…</p>
+            ) : (
+              adSegments.map((seg, idx) => (
+                <div key={idx} className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <span className="text-xs font-semibold text-gray-600">{seg.title}</span>
+                    <button
+                      onClick={() => handleCopy(seg.text, idx)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all border border-gray-200 bg-white hover:bg-gray-50 text-gray-600"
+                    >
+                      {copiedIdx === idx
+                        ? <><Check className="w-3 h-3 text-green-500" />已复制</>
+                        : <><Copy className="w-3 h-3" />复制</>
+                      }
+                    </button>
+                  </div>
+                  <pre className="px-3 py-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed select-all">
+                    {seg.text}
+                  </pre>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Weekly panel (right) */}
       <div className="relative z-10 w-[300px] h-full bg-white shadow-xl flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
@@ -760,6 +844,22 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
             </>
           )}
         </div>
+        {/* 招聘文案入口 */}
+        {weekly && weekly.items.length > 0 && (
+          <div className="px-5 py-3 border-t border-gray-100 shrink-0">
+            <button
+              onClick={() => { setCopyMode((v) => !v); setPreviewJd(null); }}
+              className={`w-full flex items-center justify-center gap-2 h-9 rounded-xl text-sm font-medium transition-all ${
+                copyMode
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : 'border border-red-200 text-red-500 hover:bg-red-50'
+              }`}
+            >
+              <Megaphone className="w-4 h-4" />
+              招聘文案
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
