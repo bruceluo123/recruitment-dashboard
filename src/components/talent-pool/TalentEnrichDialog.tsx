@@ -1,16 +1,17 @@
 'use client';
 import { useState, useCallback, useRef } from 'react';
 import {
-  X, Upload, CheckCircle2, XCircle, AlertCircle, Loader2, FileText,
+  X, Upload, CheckCircle2, XCircle, AlertCircle, Loader2, FileText, PlusCircle,
 } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
+import { generateId } from '@/lib/utils';
 import {
-  parseEnrichFileName, findTalentByName, enrichResumeText, type EnrichFields,
+  parseEnrichFileName, findTalentMatch, enrichResumeText, type EnrichFields,
 } from '@/lib/resume-enrich';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type RowStatus = 'pending' | 'uploading' | 'parsing' | 'enriching' | 'done' | 'unmatched' | 'failed';
+type RowStatus = 'pending' | 'uploading' | 'parsing' | 'enriching' | 'done' | 'created' | 'failed';
 
 interface EnrichRow {
   fileName: string;
@@ -27,8 +28,8 @@ const STATUS_LABEL: Record<RowStatus, string> = {
   uploading: '上传中',
   parsing: '提取文字',
   enriching: 'AI 解析',
-  done: '完成',
-  unmatched: '未匹配姓名',
+  done: '已回填',
+  created: '已新建',
   failed: '失败',
 };
 
@@ -65,7 +66,7 @@ async function uploadFile(
 interface Props { isOpen: boolean; onClose: () => void; }
 
 export function TalentEnrichDialog({ isOpen, onClose }: Props) {
-  const { talents, updateTalent } = useTalentStore();
+  const { talents, updateTalent, addTalent } = useTalentStore();
   const [files, setFiles] = useState<File[]>([]);
   const [rows, setRows] = useState<EnrichRow[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -107,16 +108,14 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
     const processOne = async (i: number) => {
       if (signal.aborted) return;
       const file = files[i];
-      const { name } = parseEnrichFileName(file.name);
+      const { name, jobTitle } = parseEnrichFileName(file.name);
 
-      // 1. 按姓名匹配人才库
-      const talent = findTalentByName(talents, name);
-      if (!talent) {
-        patchRow(i, { status: 'unmatched' });
-        return;
-      }
+      // 1. 按「姓名+岗位」匹配人才库，决定是更新还是新建
+      const match = findTalentMatch(talents, name, jobTitle);
+      const targetId = match.action === 'update' && match.talent ? match.talent.id : generateId();
+      const targetName = match.talent?.name ?? name;
 
-      patchRow(i, { status: 'uploading', talentId: talent.id, talentName: talent.name });
+      patchRow(i, { status: 'uploading', talentId: targetId, talentName: targetName });
 
       try {
         // 2. 上传文件
@@ -143,7 +142,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
         await fetch('/api/talent/text', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: talent.id, text }),
+          body: JSON.stringify({ id: targetId, text }),
           signal,
         }).catch(() => { /* KV 存储失败不阻塞流程 */ });
 
@@ -152,8 +151,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
         const fields = await enrichResumeText(text, signal);
         if (signal.aborted) return;
 
-        // 6. 回填档案
-        updateTalent(talent.id, {
+        const enriched = {
           resumeUrl,
           resumeFileName,
           hasResumeText: true,
@@ -165,9 +163,25 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
           ...(fields.school ? { school: fields.school } : {}),
           ...(fields.gradYear ? { gradYear: fields.gradYear } : {}),
           ...(fields.categories?.length ? { categories: fields.categories } : {}),
-        });
+        };
 
-        patchRow(i, { status: 'done', fields });
+        if (match.action === 'update' && match.talent) {
+          // 规则1/3：同名同岗 或 仅姓名匹配 → 更新现有档案
+          updateTalent(match.talent.id, enriched);
+          patchRow(i, { status: 'done', fields });
+        } else {
+          // 规则2/4：同名不同岗 或 完全无匹配 → 新建档案
+          addTalent({
+            id: targetId,
+            name,
+            jobTitle: jobTitle || fields.company || '',
+            categories: fields.categories ?? [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            ...enriched,
+          });
+          patchRow(i, { status: 'created', fields });
+        }
       } catch (err) {
         if (signal.aborted) return;
         patchRow(i, { status: 'failed', error: (err as Error).message });
@@ -212,7 +226,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
 
   // ─── Derived counts ──────────────────────────────────────────────────────
   const doneCount = rows.filter((r) => r.status === 'done').length;
-  const unmatchedCount = rows.filter((r) => r.status === 'unmatched').length;
+  const createdCount = rows.filter((r) => r.status === 'created').length;
   const failedCount = rows.filter((r) => r.status === 'failed').length;
   const processedCount = rows.filter((r) => r.status !== 'pending').length;
   const progress = rows.length ? Math.round((processedCount / rows.length) * 100) : 0;
@@ -270,14 +284,14 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
                 <span className="text-gray-600">
                   {isRunning
                     ? `处理中… ${processedCount} / ${rows.length}`
-                    : `完成：成功 ${doneCount}${unmatchedCount ? ` · 未匹配 ${unmatchedCount}` : ''}${failedCount ? ` · 失败 ${failedCount}` : ''}`}
+                    : `完成：回填 ${doneCount}${createdCount ? ` · 新建 ${createdCount}` : ''}${failedCount ? ` · 失败 ${failedCount}` : ''}`}
                 </span>
                 <span className="text-gray-400 text-xs">{progress}%</span>
               </div>
               <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-300 ${
-                    isDone && failedCount === 0 && unmatchedCount === 0
+                    isDone && failedCount === 0
                       ? 'bg-emerald-500'
                       : 'bg-gradient-to-r from-indigo-500 to-cyan-500'
                   }`}
@@ -296,7 +310,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
                   className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-gray-50 text-sm"
                 >
                   {row.status === 'done' && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
-                  {row.status === 'unmatched' && <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />}
+                  {row.status === 'created' && <PlusCircle className="w-4 h-4 text-blue-500 shrink-0" />}
                   {row.status === 'failed' && <XCircle className="w-4 h-4 text-red-400 shrink-0" />}
                   {row.status === 'pending' && <FileText className="w-4 h-4 text-gray-300 shrink-0" />}
                   {(['uploading', 'parsing', 'enriching'] as RowStatus[]).includes(row.status) && (
@@ -309,13 +323,13 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
 
                   <span className={`text-xs shrink-0 ${
                     row.status === 'done' ? 'text-emerald-600' :
-                    row.status === 'unmatched' ? 'text-amber-500' :
+                    row.status === 'created' ? 'text-blue-500' :
                     row.status === 'failed' ? 'text-red-500' :
                     (['uploading', 'parsing', 'enriching'] as RowStatus[]).includes(row.status)
                       ? 'text-indigo-500' : 'text-gray-400'
                   }`}>
-                    {row.status === 'done' && row.fields?.company
-                      ? `✓ ${row.fields.company}`
+                    {(row.status === 'done' || row.status === 'created') && row.fields?.company
+                      ? `${row.status === 'created' ? '+ ' : '✓ '}${row.fields.company}`
                       : row.status === 'failed'
                       ? (row.error?.slice(0, 28) ?? '失败')
                       : STATUS_LABEL[row.status]}
@@ -325,17 +339,12 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
             </div>
           )}
 
-          {/* Unmatched detail */}
-          {isDone && unmatchedCount > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-xs font-medium text-amber-700 mb-2">
-                以下 {unmatchedCount} 份文件未找到对应人选（请确认文件名中的姓名与人才库一致）：
+          {/* New talent hint */}
+          {isDone && createdCount > 0 && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <p className="text-xs font-medium text-blue-700">
+                已为 {createdCount} 份简历新建人选档案（无同名同岗匹配）
               </p>
-              <ul className="space-y-0.5">
-                {rows.filter((r) => r.status === 'unmatched').map((r, i) => (
-                  <li key={i} className="text-xs text-amber-600">· {r.fileName}</li>
-                ))}
-              </ul>
             </div>
           )}
         </div>

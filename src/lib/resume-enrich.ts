@@ -25,9 +25,45 @@ export function parseEnrichFileName(fileName: string): { name: string; jobTitle:
   return { name: base.slice(0, sep).trim(), jobTitle: base.slice(sep + 1).trim() };
 }
 
-/** 在人才库中按姓名找到对应人选（先精确匹配，再包含匹配）。 */
+/**
+ * 在人才库中查找最佳匹配，并返回操作类型：
+ * - 'update': 名字+岗位都匹配（规则1）或仅名字匹配且文件名无岗位信息（规则3）→ 更新现有条目
+ * - 'create': 同名不同岗（规则2）或完全无匹配（规则4）→ 新建条目
+ */
+export function findTalentMatch(
+  talents: Array<{ id: string; name: string; jobTitle: string }>,
+  parsedName: string,
+  parsedJobTitle: string,
+): { talent?: { id: string; name: string; jobTitle: string }; action: 'update' | 'create' } {
+  const q = parsedName.trim().toLowerCase();
+  if (!q) return { action: 'create' };
+
+  // 按姓名查找所有候选（精确 → 包含）
+  const byName = talents.filter((t) => {
+    const tq = t.name.trim().toLowerCase();
+    return tq === q || tq.includes(q) || q.includes(tq);
+  });
+
+  if (!byName.length) return { action: 'create' }; // 规则4：完全无匹配
+
+  const jq = parsedJobTitle.trim().toLowerCase();
+  if (jq) {
+    // 有岗位信息：先找名字+岗位都匹配的
+    const exact = byName.find((t) => {
+      const tjq = t.jobTitle.trim().toLowerCase();
+      return tjq === jq || tjq.includes(jq) || jq.includes(tjq);
+    });
+    if (exact) return { talent: exact, action: 'update' }; // 规则1：同名同岗 → 更新
+    return { action: 'create' }; // 规则2：同名不同岗 → 新建
+  }
+
+  // 文件名无岗位信息 → 直接按姓名匹配第一个（规则3）
+  return { talent: byName[0], action: 'update' };
+}
+
+/** @deprecated 使用 findTalentMatch 代替 */
 export function findTalentByName(
-  talents: Array<{ id: string; name: string }>,
+  talents: Array<{ id: string; name: string; jobTitle?: string }>,
   parsedName: string,
 ): { id: string; name: string } | undefined {
   const q = parsedName.trim().toLowerCase();
