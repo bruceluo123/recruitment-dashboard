@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Loader2, Check, UserPlus } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Sparkles, Loader2, Check, UserPlus, Upload, FileText, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JD } from '@/types/jd';
 import type { RepushColumnId, NewRecommendation } from '@/store/repush-store';
@@ -16,6 +16,8 @@ interface ResumeIntakeProps {
   onOwnerChange?: (owner: RepushColumnId) => void;
 }
 
+type FileStatus = 'idle' | 'uploading' | 'parsing' | 'done' | 'error';
+
 export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaultOwner = 'a', onAdd, onOwnerChange }: ResumeIntakeProps) {
   const [rawText, setRawText] = useState('');
   const [owner, setOwner] = useState<RepushColumnId>(defaultOwner);
@@ -29,22 +31,23 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const [department, setDepartment] = useState('');
   const [justAdded, setJustAdded] = useState(false);
 
-  // 外部偏好（活跃推荐人）变化时同步本地选择
+  // 右窗格：文件上传
+  const [fileStatus, setFileStatus] = useState<FileStatus>('idle');
+  const [uploadedFileName, setUploadedFileName] = useState('');
+  const [fileError, setFileError] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => { setOwner(defaultOwner); }, [defaultOwner]);
 
-  const handleOwnerChange = (c: RepushColumnId) => {
-    setOwner(c);
-    onOwnerChange?.(c);
-  };
+  const handleOwnerChange = (c: RepushColumnId) => { setOwner(c); onOwnerChange?.(c); };
 
-  // 岗位下拉选项：JD 库中去重、非空的岗位名
   const jdTitleOptions = useMemo(() => {
     const set = new Set<string>();
     for (const jd of jds) { const t = jd.title?.trim(); if (t) set.add(t); }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   }, [jds]);
 
-  // 选/改岗位时按 JD 库自动回填编制/部门
   const handleJobTitleChange = (title: string) => {
     setJobTitle(title);
     const jd = title ? matchJDByTitle(title, jds) : null;
@@ -58,25 +61,75 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     setRawText(''); setParsed(false);
     setName(''); setJobTitle(''); setContact(''); setContactPerson('');
     setOrganization(''); setDepartment('');
+    setFileStatus('idle'); setUploadedFileName(''); setFileError('');
   };
 
+  /** 公共：把提取好的文字喂给 AI 解析联系信息，回填表单 */
+  const applyParsedInfo = async (text: string) => {
+    const info = await extractRecommendationInfo(text);
+    setName(info.name);
+    setJobTitle(info.jobTitle);
+    setContact(info.contact);
+    setContactPerson(info.contactPerson);
+    const jd = info.jobTitle ? matchJDByTitle(info.jobTitle, jds) : null;
+    setOrganization(info.organization || jd?.organization?.trim() || '');
+    setDepartment(info.department || jd?.department?.trim() || '');
+    setParsed(true);
+  };
+
+  // ── 左窗格：文字解析 ──────────────────────────────────────────────────────
   const handleParse = async () => {
     if (!rawText.trim() || parsing) return;
     setParsing(true);
     try {
-      const info = await extractRecommendationInfo(rawText);
-      setName(info.name);
-      setJobTitle(info.jobTitle);
-      setContact(info.contact);
-      setContactPerson(info.contactPerson);
-      // 优先用简历中明写的编制/部门；缺失时再按岗位名匹配 JD 库回填
-      const jd = info.jobTitle ? matchJDByTitle(info.jobTitle, jds) : null;
-      setOrganization(info.organization || jd?.organization?.trim() || '');
-      setDepartment(info.department || jd?.department?.trim() || '');
-      setParsed(true);
+      await applyParsedInfo(rawText);
     } finally {
       setParsing(false);
     }
+  };
+
+  // ── 右窗格：文件上传 ──────────────────────────────────────────────────────
+  const handleFile = async (file: File) => {
+    if (!/\.(pdf|docx?)$/i.test(file.name)) {
+      setFileError('仅支持 PDF / DOC / DOCX');
+      setFileStatus('error');
+      return;
+    }
+    setUploadedFileName(file.name);
+    setFileError('');
+    setFileStatus('uploading');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
+      const data = (await res.json()) as { text?: string; error?: string };
+      if (!res.ok || data.error) {
+        setFileStatus('error');
+        setFileError(data.error || '文件解析失败');
+        return;
+      }
+      const text = data.text || '';
+      setRawText(text);   // 把提取文字存入 rawText，录入推荐时一起保存
+      setFileStatus('parsing');
+      await applyParsedInfo(text);
+      setFileStatus('done');
+    } catch (e) {
+      setFileStatus('error');
+      setFileError((e as Error).message || '上传失败，请重试');
+    }
+  };
+
+  const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = '';
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
   };
 
   const handleAdd = () => {
@@ -96,9 +149,13 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     setTimeout(() => setJustAdded(false), 1800);
   };
 
+  const fileIsBusy = fileStatus === 'uploading' || fileStatus === 'parsing';
+  const fileLabel = fileStatus === 'uploading' ? '上传中…' : fileStatus === 'parsing' ? '解析中…' : '';
+
   return (
     <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-cyan-50/50 p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
+      {/* 顶栏 */}
+      <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
           <span className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center"><Sparkles className="w-4 h-4 text-white" /></span>
           简历入口
@@ -107,11 +164,8 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
           <span className="text-xs text-gray-400">推荐人</span>
           <div className="flex rounded-lg border border-indigo-200 overflow-hidden text-xs">
             {(['a', 'b'] as RepushColumnId[]).map((c) => (
-              <button
-                key={c}
-                onClick={() => handleOwnerChange(c)}
-                className={cn('px-3 h-7 font-medium transition-colors', owner === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}
-              >
+              <button key={c} onClick={() => handleOwnerChange(c)}
+                className={cn('px-3 h-7 font-medium transition-colors', owner === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}>
                 {columnNames[c]}
               </button>
             ))}
@@ -119,26 +173,92 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <textarea
-          value={rawText}
-          onChange={(e) => setRawText(e.target.value)}
-          placeholder="粘贴整段简历内容到此处，点击「智能解析」自动提取姓名 / 岗位 / 联系方式…"
-          className="flex-1 min-h-[96px] max-h-48 px-4 py-3 rounded-xl bg-white border border-gray-200 text-sm resize-y focus:outline-none focus:border-indigo-300"
-        />
-        <button
-          onClick={handleParse}
-          disabled={!rawText.trim() || parsing}
-          className={cn(
-            'shrink-0 w-28 rounded-xl text-sm font-medium flex flex-col items-center justify-center gap-1.5 transition-all',
-            !rawText.trim() || parsing ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-indigo-500 text-white hover:bg-indigo-600',
+      {/* 双窗格 */}
+      <div className="flex gap-0">
+        {/* ── 左：粘贴文字 ── */}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-400 mb-1.5">粘贴文字</p>
+          <div className="flex gap-2 h-[100px]">
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="粘贴整段简历内容到此处，点击「智能解析」自动提取姓名 / 岗位 / 联系方式…"
+              className="flex-1 h-full px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-sm resize-none focus:outline-none focus:border-indigo-300"
+            />
+            <button
+              onClick={handleParse}
+              disabled={!rawText.trim() || parsing}
+              className={cn(
+                'shrink-0 w-20 rounded-xl text-xs font-medium flex flex-col items-center justify-center gap-1 transition-all',
+                !rawText.trim() || parsing ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-indigo-500 text-white hover:bg-indigo-600',
+              )}
+            >
+              {parsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {parsing ? '解析中' : '智能解析'}
+            </button>
+          </div>
+        </div>
+
+        {/* 分隔线 */}
+        <div className="flex flex-col items-center justify-center px-4 gap-1 self-stretch">
+          <div className="w-px flex-1 bg-gray-200" />
+          <span className="text-xs text-gray-400 shrink-0 py-0.5">或</span>
+          <div className="w-px flex-1 bg-gray-200" />
+        </div>
+
+        {/* ── 右：上传简历 ── */}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-400 mb-1.5">上传简历</p>
+          <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={onFileInput} />
+
+          {fileStatus === 'idle' || fileStatus === 'error' ? (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className={cn(
+                'w-full h-[100px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1.5 text-xs transition-all cursor-pointer',
+                dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40',
+                fileStatus === 'error' && 'border-red-300',
+              )}
+            >
+              <Upload className={cn('w-5 h-5', fileStatus === 'error' ? 'text-red-400' : 'text-gray-300')} />
+              {fileStatus === 'error' ? (
+                <span className="text-red-500 text-center px-2">{fileError}</span>
+              ) : (
+                <>
+                  <span className="text-gray-400">拖入或点击上传</span>
+                  <span className="text-gray-300">PDF / DOC / DOCX</span>
+                </>
+              )}
+            </button>
+          ) : fileIsBusy ? (
+            <div className="w-full h-[100px] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-2 text-xs text-gray-400">
+              <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+              <span>{uploadedFileName && <span className="font-medium text-gray-600 mr-1">{uploadedFileName}</span>}{fileLabel}</span>
+            </div>
+          ) : (
+            /* done */
+            <div className="w-full h-[100px] rounded-xl border border-green-200 bg-green-50 flex items-center justify-between px-4 gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-5 h-5 text-green-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-gray-700 truncate">{uploadedFileName}</p>
+                  <p className="text-xs text-green-600 flex items-center gap-0.5 mt-0.5"><Check className="w-3 h-3" />已解析，可直接录入</p>
+                </div>
+              </div>
+              <button onClick={() => { setFileStatus('idle'); setUploadedFileName(''); setRawText(''); setParsed(false); setName(''); setJobTitle(''); setContact(''); setContactPerson(''); setOrganization(''); setDepartment(''); }}
+                className="shrink-0 p-1 rounded-lg hover:bg-green-100 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           )}
-        >
-          {parsing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-          {parsing ? '解析中' : '智能解析'}
-        </button>
+        </div>
       </div>
 
+      {/* 解析结果表单 */}
       {parsed && (
         <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end animate-fade-in">
           <Field label="姓名 *">
