@@ -820,18 +820,16 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
             <span className="truncate">本周新增{weekLabel ? ` · ${weekLabel}` : ''}</span>
           </h3>
           <div className="flex items-center gap-1.5 shrink-0 ml-2">
-            {weekly && weekly.items.length > 0 && (
-              <button
-                onClick={() => { setCopyMode((v) => !v); setPreviewJd(null); }}
-                className={`flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium transition-all ${
-                  copyMode
-                    ? 'bg-red-500 text-white'
-                    : 'border border-red-200 text-red-500 hover:bg-red-50'
-                }`}
-              >
-                <Megaphone className="w-3.5 h-3.5" />招聘文案
-              </button>
-            )}
+            <button
+              onClick={() => { setCopyMode((v) => !v); setPreviewJd(null); }}
+              className={`flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium transition-all ${
+                copyMode
+                  ? 'bg-red-500 text-white'
+                  : 'border border-red-200 text-red-500 hover:bg-red-50'
+              }`}
+            >
+              <Megaphone className="w-3.5 h-3.5" />招聘文案
+            </button>
             <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
           </div>
         </div>
