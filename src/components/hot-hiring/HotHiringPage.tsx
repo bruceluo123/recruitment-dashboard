@@ -1,14 +1,14 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
   AlertTriangle, Megaphone, X, Copy, Check,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Bell,
 } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
-import type { JDCategory } from '@/types/jd';
+import type { JDCategory, JDDiffItem } from '@/types/jd';
 import {
   PRIORITY_COLORS,
   isUrgentPriority,
@@ -63,11 +63,26 @@ function buildUrgentGroups(jds: JD[]): UrgentGroup[] {
 
 export function HotHiringPage() {
   const [mounted, setMounted] = useState(false);
-  const [adVariant, setAdVariant] = useState<AdVariant | null>(null);
+  const [adDialog, setAdDialog] = useState<{ jds: JD[]; label: string; variant: AdVariant } | null>(null);
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
   const selectJD = useJDStore((s) => s.selectJD);
+  const weeklyAdded = useJDStore((s) => s.weeklyAdded);
+
+  // 本周新增 items → JD[]（按 reqKey 优先、标题兜底匹配现有岗位）
+  const weeklyJds = useMemo<JD[]>(() => {
+    const items = weeklyAdded?.items;
+    if (!items?.length) return [];
+    const findJd = (item: JDDiffItem): JD | undefined => {
+      if (item.reqKey) {
+        const byKey = jds.find((j) => j.reqKey === item.reqKey);
+        if (byKey) return byKey;
+      }
+      return jds.find((j) => j.title.trim() === item.title.trim());
+    };
+    return items.map(findJd).filter((j): j is JD => !!j);
+  }, [weeklyAdded, jds]);
 
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
@@ -127,17 +142,24 @@ export function HotHiringPage() {
             <span className="text-xs text-indigo-500 ml-1">已选 {selectedGroups.size} 个分类 · {selectedJDs.length} 个岗位</span>
           )}
           <div className="flex-1" />
+          <button
+            onClick={() => setAdDialog({ jds: weeklyJds, label: '本周新增', variant: 'maimanfen' })}
+            disabled={weeklyJds.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500 text-white hover:bg-green-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
+          >
+            <Bell className="w-4 h-4" />本周新增文案{weeklyJds.length > 0 ? ` (${weeklyJds.length})` : ''}
+          </button>
           {selectedGroups.size > 0 ? (
             <>
-              <button onClick={() => setAdVariant('maimanfen')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 text-sm font-semibold shadow-sm transition-colors">
+              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'maimanfen' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 text-sm font-semibold shadow-sm transition-colors">
                 <Megaphone className="w-4 h-4" />生成麦满分文案
               </button>
-              <button onClick={() => setAdVariant('tieniu')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 text-sm font-semibold shadow-sm transition-colors">
+              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'tieniu' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 text-sm font-semibold shadow-sm transition-colors">
                 <Megaphone className="w-4 h-4" />生成铁牛文案
               </button>
             </>
           ) : (
-            <span className="text-xs text-gray-400">勾选分类后生成文案</span>
+            <span className="text-xs text-gray-400">勾选分类后生成急招文案</span>
           )}
         </div>
       </GlassPanel>
@@ -182,8 +204,8 @@ export function HotHiringPage() {
         </GlassPanel>
       </div>
 
-      {adVariant && (
-        <AdCopyDialog jds={selectedJDs} variant={adVariant} onClose={() => setAdVariant(null)} />
+      {adDialog && (
+        <AdCopyDialog jds={adDialog.jds} label={adDialog.label} initialVariant={adDialog.variant} onClose={() => setAdDialog(null)} />
       )}
     </div>
   );
@@ -262,11 +284,14 @@ function GroupCard({ group, checked, onToggle, onOpen }: GroupCardProps) {
 
 interface AdCopyDialogProps {
   jds: JD[];
-  variant: AdVariant;
+  label: string;
+  initialVariant: AdVariant;
   onClose: () => void;
 }
 
-function AdCopyDialog({ jds, variant, onClose }: AdCopyDialogProps) {
+function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps) {
+  const [variant, setVariant] = useState<AdVariant>(initialVariant);
+
   // P0 排前、P1 排后，合并成一份文案
   const sorted = [
     ...jds.filter((j) => j.priority === 'P0'),
@@ -274,7 +299,7 @@ function AdCopyDialog({ jds, variant, onClose }: AdCopyDialogProps) {
     ...jds.filter((j) => j.priority !== 'P0' && j.priority !== 'P1'),
   ];
   // perSegment=9999 让所有岗位合成一整段不切割
-  const segments = buildAdCopy(sorted, '急招', variant, 9999);
+  const segments = buildAdCopy(sorted, label, variant, 9999);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
@@ -284,16 +309,30 @@ function AdCopyDialog({ jds, variant, onClose }: AdCopyDialogProps) {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-            <Megaphone className="w-4 h-4 text-red-500" />急招招聘文案 · {adVariantLabel(variant)}版
+            <Megaphone className="w-4 h-4 text-red-500" />{label}招聘文案 · {adVariantLabel(variant)}版
           </h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setVariant(v)}
+                className={cn(
+                  'px-3 h-7 rounded-lg text-xs font-medium transition-all',
+                  variant === v ? 'bg-red-500 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50',
+                )}
+              >
+                {adVariantLabel(v)}版
+              </button>
+            ))}
+            <button onClick={onClose} className="p-1 ml-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
         <div className="overflow-y-auto px-5 py-4 space-y-5">
           {segments.length > 0
             ? segments.map((seg, i) => <AdSegmentCard key={i} segment={seg} />)
-            : <p className="text-sm text-gray-400 text-center py-6">请先勾选至少一个分类</p>
+            : <p className="text-sm text-gray-400 text-center py-6">本周暂无新增岗位，或请先勾选至少一个分类</p>
           }
         </div>
       </div>
