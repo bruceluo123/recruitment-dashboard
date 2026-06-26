@@ -114,7 +114,8 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       const text = data.text || '';
       setRawText(text);   // 把提取文字存入 rawText，录入推荐时一起保存
       setFileStatus('parsing');
-      if (parsed && name.trim()) {
+      const hasFields = !!(name.trim() || contact.trim() || contactPerson.trim() || jobTitle.trim());
+      if (hasFields) {
         // 表单字段已填好：不覆盖，只提取简历亮点（附件模式）
         const hl = await extractResumeHighlights(text);
         setHighlights(hl);
