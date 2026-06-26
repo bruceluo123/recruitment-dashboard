@@ -30,6 +30,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const [organization, setOrganization] = useState('');
   const [department, setDepartment] = useState('');
   const [highlights, setHighlights] = useState('');
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
 
   // 右窗格：文件上传
@@ -61,7 +62,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const resetFields = () => {
     setRawText(''); setParsed(false);
     setName(''); setJobTitle(''); setContact(''); setContactPerson('');
-    setOrganization(''); setDepartment(''); setHighlights('');
+    setOrganization(''); setDepartment(''); setHighlights(''); setHighlightsLoading(false);
     setFileStatus('idle'); setUploadedFileName(''); setFileError('');
   };
 
@@ -76,8 +77,12 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     setOrganization(info.organization || jd?.organization?.trim() || '');
     setDepartment(info.department || jd?.department?.trim() || '');
     setParsed(true);
-    // 同步提取亮点（不阻塞表单展示，后台完成后更新）
-    extractResumeHighlights(text).then(setHighlights).catch(() => {});
+    // 后台提取亮点，显示加载状态
+    setHighlightsLoading(true);
+    extractResumeHighlights(text)
+      .then((hl) => { setHighlights(hl); })
+      .catch(() => {})
+      .finally(() => setHighlightsLoading(false));
   };
 
   // ── 左窗格：文字解析 ──────────────────────────────────────────────────────
@@ -117,8 +122,11 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       const hasFields = !!(name.trim() || contact.trim() || contactPerson.trim() || jobTitle.trim());
       if (hasFields) {
         // 表单字段已填好：不覆盖，只提取简历亮点（附件模式）
-        const hl = await extractResumeHighlights(text);
-        setHighlights(hl);
+        setHighlightsLoading(true);
+        extractResumeHighlights(text)
+          .then((hl) => { setHighlights(hl); })
+          .catch(() => {})
+          .finally(() => setHighlightsLoading(false));
       } else {
         // 表单为空：完整解析基础信息 + 亮点
         await applyParsedInfo(text);
@@ -288,7 +296,17 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
           <Field label="简历对接人">
             <input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="对接人" className="intake-input" />
           </Field>
-          <div className="col-span-2 md:col-span-6 flex justify-end">
+          <div className="col-span-2 md:col-span-6 flex items-center justify-end gap-3">
+            {highlightsLoading && (
+              <span className="flex items-center gap-1.5 text-xs text-amber-500">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />亮点提取中，稍等再录入效果更好
+              </span>
+            )}
+            {!highlightsLoading && highlights && (
+              <span className="flex items-center gap-1 text-xs text-amber-500">
+                <Sparkles className="w-3.5 h-3.5" />亮点已提取
+              </span>
+            )}
             <button
               onClick={handleAdd}
               disabled={!name.trim()}
