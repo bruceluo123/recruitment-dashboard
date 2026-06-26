@@ -134,24 +134,40 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
       patchRow(i, { status: 'uploading', talentId: targetId, talentName: targetName });
 
       try {
-        // 2. 上传文件
+        // 2. 上传文件（优先 Vercel Blob；本地无 token 时自动回退直传解析）
         const uploaded = await uploadFile(file, signal);
         if (signal.aborted) return;
-        if (!uploaded) throw new Error('文件上传失败');
-        const { resumeUrl, resumeFileName } = uploaded;
 
-        // 3. 提取文字
-        patchRow(i, { status: 'parsing' });
-        const parseRes = await fetch('/api/resume/parse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: resumeUrl, fileName: resumeFileName }),
-          signal,
-        });
-        if (signal.aborted) return;
-        const parseData = (await parseRes.json()) as { text?: string; error?: string };
-        if (parseData.error) throw new Error(parseData.error);
-        const text = parseData.text || '';
+        let text: string;
+        let resumeUrl: string | undefined;
+        let resumeFileName: string = file.name;
+
+        if (uploaded) {
+          resumeUrl = uploaded.resumeUrl;
+          resumeFileName = uploaded.resumeFileName;
+          // 3a. 从 Blob URL 提取文字
+          patchRow(i, { status: 'parsing' });
+          const parseRes = await fetch('/api/resume/parse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: resumeUrl, fileName: resumeFileName }),
+            signal,
+          });
+          if (signal.aborted) return;
+          const parseData = (await parseRes.json()) as { text?: string; error?: string };
+          if (parseData.error) throw new Error(parseData.error);
+          text = parseData.text || '';
+        } else {
+          // 3b. 回退：直接 FormData 上传并解析（Blob token 未配置或上传失败时走此路径）
+          patchRow(i, { status: 'parsing' });
+          const fd = new FormData();
+          fd.append('file', file);
+          const parseRes = await fetch('/api/resume/parse', { method: 'POST', body: fd, signal });
+          if (signal.aborted) return;
+          const parseData = (await parseRes.json()) as { text?: string; error?: string };
+          if (parseData.error) throw new Error(parseData.error);
+          text = parseData.text || '';
+        }
         if (!text) throw new Error('简历文字提取为空');
 
         // 4. 存入 KV（供后续 JD 匹配使用）
@@ -168,7 +184,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
         if (signal.aborted) return;
 
         const enriched = {
-          resumeUrl,
+          ...(resumeUrl ? { resumeUrl } : {}),
           resumeFileName,
           hasResumeText: true,
           resumeChars: text.replace(/\s+/g, '').length,
