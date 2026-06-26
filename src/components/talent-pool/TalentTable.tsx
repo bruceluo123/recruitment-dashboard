@@ -1,9 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
 import type { Talent } from '@/types/talent';
-import { Pencil, Trash2, Sparkles, X } from 'lucide-react';
+import { Pencil, Trash2, Sparkles, X, Loader2 } from 'lucide-react';
 
 interface TalentTableProps {
   talents: Talent[];
@@ -15,57 +15,48 @@ interface TalentTableProps {
   onToggleSelectAll?: () => void;
 }
 
-/** 把人才结构化字段组装成亮点摘要行 */
-function buildTalentHighlights(t: Talent): string {
-  const lines: string[] = [];
-  const expParts: string[] = [];
-  if (t.company) expParts.push(`现任 ${t.company}`);
-  if (t.jobTitle) expParts.push(t.jobTitle);
-  if (expParts.length) lines.push(`💼 ${expParts.join(' · ')}`);
-  if (t.prevCompanies?.length) lines.push(`🏢 曾任职：${t.prevCompanies.slice(0, 3).join(' / ')}`);
-  const eduParts: string[] = [];
-  if (t.school) eduParts.push(t.school);
-  if (t.eduLevel) eduParts.push(t.eduLevel);
-  if (t.major) eduParts.push(t.major);
-  if (eduParts.length) lines.push(`🎓 ${eduParts.join(' · ')}`);
-  if (t.techDirection) lines.push(`⚡ ${t.techDirection}`);
-  if (t.level) lines.push(`🏷 ${t.level}`);
-  if (t.location) lines.push(`📍 ${t.location}`);
-  const salaryParts: string[] = [];
-  if (t.monthlySalary) salaryParts.push(`月薪 ${t.monthlySalary}`);
-  if (t.annualSalary) salaryParts.push(`年薪 ${t.annualSalary}`);
-  if (salaryParts.length) lines.push(`💰 ${salaryParts.join(' · ')}`);
-  if (t.workIntent) lines.push(`🎯 ${t.workIntent}`);
-  if (t.notes) lines.push(`📝 ${t.notes.slice(0, 60)}${t.notes.length > 60 ? '…' : ''}`);
-  return lines.join('\n');
-}
-
 function HighlightsModal({ talent, onClose }: { talent: Talent; onClose: () => void }) {
-  const text = buildTalentHighlights(talent);
+  const [resumeText, setResumeText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/talent/text?id=${encodeURIComponent(talent.id)}`)
+      .then((r) => r.json())
+      .then((d: { text?: string }) => setResumeText(d.text || ''))
+      .catch(() => setResumeText(''))
+      .finally(() => setLoading(false));
+  }, [talent.id]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="fixed inset-0 bg-black/20" />
+      <div className="fixed inset-0 bg-black/30" />
       <div
-        className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl border border-amber-100 p-5"
+        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-amber-100 flex flex-col max-h-[80vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-amber-500" />
-            {talent.name} · 简历亮点
+            {talent.name} · 简历原文
+            {talent.resumeChars && (
+              <span className="ml-2 text-xs text-gray-400 font-normal">{talent.resumeChars.toLocaleString()} 字</span>
+            )}
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
             <X className="w-4 h-4" />
           </button>
         </div>
-        {text ? (
-          <pre className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap font-sans">{text}</pre>
-        ) : (
-          <p className="text-sm text-gray-400">暂无结构化信息，请先充实档案。</p>
-        )}
-        {talent.resumeChars && (
-          <p className="mt-3 text-xs text-gray-400">简历字数：{talent.resumeChars.toLocaleString()} 字</p>
-        )}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />加载中…
+            </div>
+          ) : resumeText ? (
+            <pre className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap font-sans">{resumeText}</pre>
+          ) : (
+            <p className="text-sm text-gray-400 py-8 text-center">简历文字未提取，请先「扫描简历」。</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -167,9 +158,9 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
                         <button
                           onClick={() => setHighlightId(t.id)}
                           className="flex items-center gap-0.5 px-2 h-7 rounded-lg text-xs font-medium bg-amber-50 text-amber-500 border border-amber-200 hover:bg-amber-100 transition-colors shrink-0"
-                          title="查看简历亮点"
+                          title="查看简历内容"
                         >
-                          <Sparkles className="w-3.5 h-3.5" />亮点
+                          <Sparkles className="w-3.5 h-3.5" />简历
                         </button>
                       ) : t.resumeUrl ? (
                         <span className="flex items-center gap-0.5 px-2 h-7 rounded-lg text-xs text-gray-300 border border-gray-100 shrink-0" title="有简历但未扫描">
