@@ -12,7 +12,7 @@ import { Briefcase, Sparkles, Trash2, X, Bell, Megaphone, Copy, Check } from 'lu
 import { generateId } from '@/lib/utils';
 import type { JDCategory, JDImportResult, JDDiffItem, JD, WeeklyAdded } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
-import { buildAdCopy, adVariantLabel, type AdVariant, type AdSegment } from '@/lib/ad-copy';
+import { buildAdCopy, buildDesensitizedCopy, adVariantLabel, type AdVariant, type AdSegment } from '@/lib/ad-copy';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
@@ -678,7 +678,8 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
 
   const adSegments = useMemo<AdSegment[]>(() => {
     if (!copyMode || !weeklyJds.length) return [];
-    return buildAdCopy(weeklyJds, '本周新增', copyVariant, 22, copyHideSalary);
+    if (copyHideSalary) return [buildDesensitizedCopy(weeklyJds)];
+    return buildAdCopy(weeklyJds, '本周新增', copyVariant, 22);
   }, [copyMode, weeklyJds, copyVariant, copyHideSalary]);
 
   const handleCopy = (text: string, idx: number) => {
@@ -774,20 +775,25 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
               onClick={() => setCopyHideSalary(true)}
               className={`px-3 h-7 rounded-lg text-xs font-medium transition-all ${copyHideSalary ? 'bg-gray-700 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
             >脱敏</button>
-            <div className="w-px self-stretch bg-gray-200 mx-0.5" />
-            {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
-              <button
-                key={v}
-                onClick={() => setCopyVariant(v)}
-                className={`px-3 h-7 rounded-lg text-xs font-medium transition-all ${
-                  copyVariant === v
-                    ? 'bg-red-500 text-white'
-                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {adVariantLabel(v)}版
-              </button>
-            ))}
+            {/* 脱敏模式下隐藏风格按钮（模板固定） */}
+            {!copyHideSalary && (
+              <>
+                <div className="w-px self-stretch bg-gray-200 mx-0.5" />
+                {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setCopyVariant(v)}
+                    className={`px-3 h-7 rounded-lg text-xs font-medium transition-all ${
+                      copyVariant === v
+                        ? 'bg-red-500 text-white'
+                        : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {adVariantLabel(v)}版
+                  </button>
+                ))}
+              </>
+            )}
             <span className="ml-auto text-xs text-gray-400 self-center">
               {weeklyJds.length} 个岗位 · {adSegments.length} 段
             </span>

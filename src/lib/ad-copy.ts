@@ -95,10 +95,32 @@ function salaryOf(jd: JD): string {
 }
 
 /** 生成一行岗位文案，具体格式由风格的 buildLine 决定 */
-function lineOf(jd: JD, cfg: VariantConfig, hideSalary: boolean): string {
-  const salary = hideSalary ? '' : salaryOf(jd);
+function lineOf(jd: JD, cfg: VariantConfig): string {
+  const salary = salaryOf(jd);
   const loc = isRemoteLocation(jd.location) ? '' : jd.location!.trim();
   return cfg.buildLine(jd.title, salary, loc);
+}
+
+// ─── 脱敏模板 ───────────────────────────────────────────────────────────────
+// 纯数字 emoji 编号，无分类、无薪资、无额外 emoji，固定头尾。
+const EMOJI_NUMS = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+const emojiNum = (n: number) => n <= 10 ? EMOJI_NUMS[n - 1] : `${n}.`;
+
+/**
+ * 脱敏文案：flat 编号列表，不含薪资、分类、风格头部，适合对外转发。
+ * 返回单个 AdSegment（可直接放入 segments 数组）。
+ */
+export function buildDesensitizedCopy(jds: JD[]): AdSegment {
+  if (jds.length === 0) return { title: '脱敏文案', text: '', count: 0 };
+  const lines = jds.map((jd, i) => `${emojiNum(i + 1)}${jd.title}`);
+  const text = [
+    'HR直招🚀远程工作岗位🔥',
+    '',
+    ...lines,
+    '',
+    '联系方式、欢迎小伙伴投递：',
+  ].join('\n');
+  return { title: '脱敏文案', text, count: jds.length };
 }
 
 export interface AdSegment {
@@ -140,7 +162,7 @@ function groupByCategory(jds: JD[]): CategoryGroup[] {
  * @param variant 文案风格：麦满分 / 铁牛（头部与署名不同）
  * @param perSegment 每段岗位数上限（参考模板约 20~25）
  */
-export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22, hideSalary = false): AdSegment[] {
+export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22): AdSegment[] {
   const cfg = VARIANTS[variant];
   if (jds.length === 0) return [];
   const groups = groupByCategory(jds);
@@ -168,7 +190,7 @@ export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant
           headingWritten = true;
         }
       }
-      cur.lines.push(lineOf(jd, cfg, hideSalary));
+      cur.lines.push(lineOf(jd, cfg));
       cur.count++;
     }
   }
