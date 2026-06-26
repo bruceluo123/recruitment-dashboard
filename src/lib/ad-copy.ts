@@ -36,7 +36,7 @@ const VARIANTS: Record<AdVariant, VariantConfig> = {
     label: '麦满分',
     buildHeader: (_priorityLabel, seq) => `远程remote工作—今日急招岗位🔝🔝（${seq}）`,
     buildHeading: (emoji, label) => `${emoji}${label}类`,
-    buildLine: (title, salary, loc) => `- ${title} ｜ ${salary}${loc ? `  ${loc}` : ''}`,
+    buildLine: (title, salary, loc) => `- ${title}${salary ? ` ｜ ${salary}` : ''}${loc ? `  ${loc}` : ''}`,
     signature:
       [
         '各种类岗位总计200+，自荐 / 内推都欢迎',
@@ -47,7 +47,7 @@ const VARIANTS: Record<AdVariant, VariantConfig> = {
     label: '铁牛',
     buildHeader: () => '全远程居家工作—今日急招',
     buildHeading: (emoji, label) => `${emoji}${label}类`,
-    buildLine: (title, salary, loc) => `- ${title} ｜ ${salary}${loc ? `  ${loc}` : ''}`,
+    buildLine: (title, salary, loc) => `- ${title}${salary ? ` ｜ ${salary}` : ''}${loc ? `  ${loc}` : ''}`,
     signature: '欢迎自荐或转推荐，投递联系 @Tie_Niu66',
   },
 };
@@ -95,8 +95,8 @@ function salaryOf(jd: JD): string {
 }
 
 /** 生成一行岗位文案，具体格式由风格的 buildLine 决定 */
-function lineOf(jd: JD, cfg: VariantConfig): string {
-  const salary = salaryOf(jd);
+function lineOf(jd: JD, cfg: VariantConfig, hideSalary: boolean): string {
+  const salary = hideSalary ? '' : salaryOf(jd);
   const loc = isRemoteLocation(jd.location) ? '' : jd.location!.trim();
   return cfg.buildLine(jd.title, salary, loc);
 }
@@ -140,7 +140,7 @@ function groupByCategory(jds: JD[]): CategoryGroup[] {
  * @param variant 文案风格：麦满分 / 铁牛（头部与署名不同）
  * @param perSegment 每段岗位数上限（参考模板约 20~25）
  */
-export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22): AdSegment[] {
+export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22, hideSalary = false): AdSegment[] {
   const cfg = VARIANTS[variant];
   if (jds.length === 0) return [];
   const groups = groupByCategory(jds);
@@ -168,7 +168,7 @@ export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant
           headingWritten = true;
         }
       }
-      cur.lines.push(lineOf(jd, cfg));
+      cur.lines.push(lineOf(jd, cfg, hideSalary));
       cur.count++;
     }
   }

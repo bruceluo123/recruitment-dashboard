@@ -644,6 +644,7 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
   const [previewJd, setPreviewJd] = useState<JD | null>(null);
   const [copyMode, setCopyMode] = useState(false);
   const [copyVariant, setCopyVariant] = useState<AdVariant>('maimanfen');
+  const [copyHideSalary, setCopyHideSalary] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   const weekLabel = weekly ? (() => {
@@ -677,8 +678,8 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
 
   const adSegments = useMemo<AdSegment[]>(() => {
     if (!copyMode || !weeklyJds.length) return [];
-    return buildAdCopy(weeklyJds, '本周新增', copyVariant, 22);
-  }, [copyMode, weeklyJds, copyVariant]);
+    return buildAdCopy(weeklyJds, '本周新增', copyVariant, 22, copyHideSalary);
+  }, [copyMode, weeklyJds, copyVariant, copyHideSalary]);
 
   const handleCopy = (text: string, idx: number) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -763,8 +764,17 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
               <X className="w-4 h-4" />
             </button>
           </div>
-          {/* 风格切换 */}
-          <div className="flex gap-2 px-4 py-2.5 border-b border-gray-100 shrink-0">
+          {/* 风格 + 脱敏切换 */}
+          <div className="flex gap-2 px-4 py-2.5 border-b border-gray-100 shrink-0 flex-wrap">
+            <button
+              onClick={() => setCopyHideSalary(false)}
+              className={`px-3 h-7 rounded-lg text-xs font-medium transition-all ${!copyHideSalary ? 'bg-gray-700 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            >常规</button>
+            <button
+              onClick={() => setCopyHideSalary(true)}
+              className={`px-3 h-7 rounded-lg text-xs font-medium transition-all ${copyHideSalary ? 'bg-gray-700 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            >脱敏</button>
+            <div className="w-px self-stretch bg-gray-200 mx-0.5" />
             {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
               <button
                 key={v}

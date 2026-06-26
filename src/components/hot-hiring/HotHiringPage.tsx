@@ -291,6 +291,7 @@ interface AdCopyDialogProps {
 
 function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps) {
   const [variant, setVariant] = useState<AdVariant>(initialVariant);
+  const [hideSalary, setHideSalary] = useState(false);
 
   // P0 排前、P1 排后，合并成一份文案
   const sorted = [
@@ -299,7 +300,7 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
     ...jds.filter((j) => j.priority !== 'P0' && j.priority !== 'P1'),
   ];
   // perSegment=9999 让所有岗位合成一整段不切割
-  const segments = buildAdCopy(sorted, label, variant, 9999);
+  const segments = buildAdCopy(sorted, label, variant, 9999, hideSalary);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
@@ -312,6 +313,17 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
             <Megaphone className="w-4 h-4 text-red-500" />{label}招聘文案 · {adVariantLabel(variant)}版
           </h3>
           <div className="flex items-center gap-1.5">
+            {/* 常规 / 脱敏 */}
+            <button
+              onClick={() => setHideSalary(false)}
+              className={cn('px-3 h-7 rounded-lg text-xs font-medium transition-all', !hideSalary ? 'bg-gray-700 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50')}
+            >常规</button>
+            <button
+              onClick={() => setHideSalary(true)}
+              className={cn('px-3 h-7 rounded-lg text-xs font-medium transition-all', hideSalary ? 'bg-gray-700 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50')}
+            >脱敏</button>
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
+            {/* 麦满分 / 铁牛 */}
             {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
               <button
                 key={v}
