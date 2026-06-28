@@ -134,6 +134,7 @@ interface Candidate {
 - [2026-06-22] 自媒体工作站 A/B/C 全完成：A→sync.ts env-var 驱动+.env.example；B→/api/inspire 代理 aihot+BriefList 接真数据+灵感库全页；C→/api/factory/image(DashScope wanx)+素材工厂5维度UI(参照baoyu-cover-image/baoyu-xhs-images) | Set迭代 tsconfig 兼容性报错两处已修 | 下次：部署Vercel配DASHSCOPE_API_KEY；知识库接入板块
 - [2026-06-24] 面板新格式适配（序列列自动检测）；今日增改显示编制/部门替代REQ码；JD备注说明字段全链路（面板粘贴→列解析→详情展示→diff检测）；人才库「批量充实档案」功能（上传PDF→AI提取技能/学历/经历→按姓名回填）；Gemini OCR从inline_data改用Files API解决大PDF 503问题 | Gemini Files API已上线待用户重新测试 | 下次：验证Aaron1.pdf能否正常识别
 - [2026-06-28] 知识库文件夹中文化完成（maps→知识枢纽/sources→素材摘录等7个）；.wiki-schema.md路径规范同步更新；生成工作站知识库接入说明.md交接文档；建立X推文入库流程（baoyu-danger-x-to-markdown+x_cookies.json复用，无需每次Chrome登录）；第一条推文入库（马斯克原理9件思维工具） | X cookie首次未命中需写入固定路径才生效 | 下次：知识库接入工作站board；更多推文入库
+- [2026-06-28] JD分类内容感知重构：detectCategories仅看标题→新增classifyJD(标题+职责+要求综合判定)，标题能归类的不变、标题无信号时用正文最强信号，根治"一律掉进运营兜底"；扩充关键词(效能官/智能体→ai、人事/SSC/绩效→hr、签证/移民→行政、演武→培训、cuda/微架构→硬件、商服→bd、pjm→项目、内容策略→content)；接入导入两条路径(rowToColumnJD+AI路径)；新增store.reclassifyAll()+JD库工具栏「重新分类」按钮(确认+汇总)。线上507条模拟仅36条变更全为修正(效能官→AI、人事/SSC→HR×8、签证→行政等) | 重分类只改本地store，需手动「备份到云端」同步KV | 下次：用户点重新分类后核对效果、备份云端
 <!-- SESSION_LOG_END -->
 
 ## 代码规范快查

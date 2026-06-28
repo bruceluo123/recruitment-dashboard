@@ -43,6 +43,7 @@ export function JDLibraryPage() {
   const deleteJD = useJDStore((s) => s.deleteJD);
   const deleteJDBatch = useJDStore((s) => s.deleteJDBatch);
   const cleanAllJDs = useJDStore((s) => s.cleanAllJDs);
+  const reclassifyAll = useJDStore((s) => s.reclassifyAll);
   const exportAllJDs = useJDStore((s) => s.exportAllJDs);
   const backupToKV = useJDStore((s) => s.backupToKV);
   const undoDeleteJD = useJDStore((s) => s.undoDeleteJD);
@@ -171,6 +172,12 @@ export function JDLibraryPage() {
     }
   };
 
+  const handleReclassify = () => {
+    if (!window.confirm('将按「标题 + 职责 + 要求」重新判定所有岗位分类，修正历史误分类（如效能官→AI、人事/SSC→HR、签证→行政）。\n\n标题能明确归类的岗位保持不变。是否继续？')) return;
+    const { total, changed } = reclassifyAll();
+    window.alert(changed > 0 ? `重新分类完成：共 ${total} 个岗位，更新了 ${changed} 个。\n\n如需同步到云端，请点击「备份到云端」。` : `重新分类完成：共 ${total} 个岗位，无需调整。`);
+  };
+
   const handleAdd = () => {
     if (!addForm.title.trim()) return;
     addJdBatch([{
@@ -213,6 +220,7 @@ export function JDLibraryPage() {
         <p className="text-sm text-gray-500 mt-1">
           共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 ·{' '}
           <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理编号/联系人</button> ·{' '}
+          <button onClick={handleReclassify} className="text-purple-500 hover:text-purple-600 underline text-xs">重新分类</button> ·{' '}
           <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
           <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}

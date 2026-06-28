@@ -11,7 +11,6 @@ import {
   analyzeColumns,
   classifyJD,
   cleanJDNumbering,
-  detectCategories,
   getJDKey,
   isAllowedTitleHeader,
   mergeUniqueJDs,
@@ -48,6 +47,7 @@ interface JDStore {
   importFromExcel: (file: File, mode?: 'merge' | 'replace') => Promise<JDImportResult>;
   cycleStatus: (id: string) => void;
   cleanAllJDs: () => void;
+  reclassifyAll: () => { total: number; changed: number };
   exportAllJDs: () => void;
   backupToKV: () => Promise<void>;
 }
@@ -102,6 +102,25 @@ export const useJDStore = create<JDStore>()(
           };
         }),
       })),
+
+      // 用「标题 + 职责 + 要求」综合重判所有岗位分类，修正历史上误落进「运营」兜底的岗位
+      // （如「效能官」→AI、「人事主管/SSC」→HR、「签证执行专员」→行政）。
+      // 标题能归类的不变，仅当标题无信号时用正文最强信号；返回本次实际改动数量。
+      reclassifyAll: () => {
+        let changed = 0;
+        const jds = get().jds.map((j) => {
+          const next = classifyJD(j.title, j.responsibilities, j.requirements);
+          const before = [...j.categories].sort().join(',');
+          const after = [...next].sort().join(',');
+          if (before !== after) {
+            changed++;
+            return { ...j, categories: next, updatedAt: new Date().toISOString() };
+          }
+          return j;
+        });
+        if (changed > 0) set({ jds });
+        return { total: jds.length, changed };
+      },
 
       exportAllJDs: () => {
         const jds = get().jds;
