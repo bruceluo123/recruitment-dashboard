@@ -217,15 +217,15 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['seo', /seo|搜索引擎优化|关键词优化/i],
   ['advertising', /广告|信息流|投放|sem|feed|千川|广告素材|广告策略/i],
   ['gaming', /游戏|unity|unreal|ue[45]|cocos|fps|mmo/i],
-  // AI: 匹配独立AI词、AI+中文前缀(AI应用/AI效能/AI产品...)、AIGC、Agent、comfyui
-  ['ai', /(^|[\s\-_/｜|（）()【】])ai(?=$|[\s\-_/｜|（）()【】])|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|gpt|prompt|aigc|\bagent\b|comfyui/i],
+  // AI: 匹配独立AI词、AI+中文前缀(AI应用/AI效能/AI产品...)、AIGC、Agent、comfyui、效能官/智能体
+  ['ai', /(^|[\s\-_/｜|（）()【】])ai(?=$|[\s\-_/｜|（）()【】])|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|gpt|prompt|aigc|\bagent\b|comfyui|效能官|智能体/i],
   ['algorithm', /算法|推荐系统|nlp|机器学习|深度学习|计算机视觉/i],
   ['frontend', /前端|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端|web\s*sdk/i],
   ['backend', /后端|java|\bgo\b|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师|架构设计|springcloud/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
   ['testing', /测试|qa|质量|代码审计/i],
-  // 培训/学习发展（经验萃取、SOP工程化等知识管理岗）
-  ['training', /培训|讲师|课程开发|教研|学习发展|经验萃取|sop工程化|赋能|带教|培训师|教学设计/i],
+  // 培训/学习发展（经验萃取、SOP工程化、演武/认证体系等知识管理岗）
+  ['training', /培训|讲师|课程开发|教研|学习发展|经验萃取|sop工程化|赋能|带教|培训师|教学设计|演武|认证体系/i],
   ['product', /产品经理|产品总监|产品负责人|产品助理|产品调优|产品定价|专案产品|平台产品/i],
   ['design', /ui|ux|设计|视觉|动效/i],
   // 美术: 3D系列、spine、动作设计、角色设计、绑定
@@ -239,18 +239,22 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['legal', /法务|法律顾问|律师|合规|知识产权|版权|专利/i],
   ['finance', /财务|会计|出纳|审计|税务/i],
   ['data', /数据|数据挖掘|爬虫|etl|数据仓库|数据分析|数据工程|大数据/i],
-  ['hardware', /gpu|硬件|芯片|嵌入式|固件|pcb|电路|cpu/i],
-  ['hr', /hr|人力|招聘|薪酬|员工关系|组织发展/i],
-  ['bd', /商务|bd|拓展|渠道|合作|销售|新客户/i],
+  // 硬件: 加 GPU 微架构/CUDA/Kernel/Tensor Core 等软硬结合性能岗信号
+  ['hardware', /gpu|硬件|芯片|嵌入式|固件|pcb|电路|cpu|cuda|kernel|微架构|tensor\s*core/i],
+  // HR: 加 人事/SSC(共享服务中心)/绩效/社保/考勤
+  ['hr', /hr|人力|招聘|薪酬|员工关系|组织发展|人事|ssc|绩效|社保|考勤/i],
+  // BD: 加 商服(商务服务)
+  ['bd', /商务|bd|拓展|渠道|合作|销售|新客户|商服/i],
   ['customer-service', /客服|客户服务|售后/i],
-  // 内容创作/编辑（区别于"内容运营"——后者归运营）
-  ['content', /内容创作|内容编辑|内容生产|内容工程|采编|文案|脚本策划|aigc/i],
+  // 内容创作/编辑（区别于"内容运营"——后者归运营）：加 内容策略
+  ['content', /内容创作|内容编辑|内容生产|内容工程|采编|文案|脚本策划|aigc|内容策略/i],
   ['operations', /运营|电商|直播运营|带货|主播|中控|场控|选品|新媒体运营/i],
-  ['project', /项目|pmo|scrum/i],
+  // project: 加 pjm(项目经理英文缩写)
+  ['project', /项目|pmo|scrum|pjm/i],
   // director: 加组长(Java后端组长、新媒体运营组长)
   ['director', /总监|vp|副总裁|cto|ceo|负责人|组长/i],
-  // administration: 加督导
-  ['administration', /行政|前台|助理|秘书|档案|车辆|办公室|督导/i],
+  // administration: 加督导、签证/移民/数字游民事务
+  ['administration', /行政|前台|助理|秘书|档案|车辆|办公室|督导|签证|移民|数字游民/i],
 ];
 
 export function detectCategories(text: string): JDCategory[] {
@@ -268,6 +272,49 @@ export function detectCategories(text: string): JDCategory[] {
     else result.push('operations');
   }
   return result.slice(0, 3);
+}
+
+/** 统计正文里每个分类的关键词命中次数，按命中数（再按关键词优先级）降序返回。 */
+function scoreCategoriesByBody(text: string): Array<[JDCategory, number]> {
+  const t = text.toLowerCase();
+  const order = CATEGORY_KEYWORDS.map(([c]) => c);
+  const scored: Array<[JDCategory, number]> = [];
+  for (const [cat, re] of CATEGORY_KEYWORDS) {
+    const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+    const m = t.match(g);
+    if (m && m.length) scored.push([cat, m.length]);
+  }
+  return scored.sort((a, b) => b[1] - a[1] || order.indexOf(a[0]) - order.indexOf(b[0]));
+}
+
+/**
+ * 结合岗位「标题 + 职责 + 要求」综合判断分类（替代仅看标题的 detectCategories）。
+ *
+ * 设计原则：标题是最可靠信号，标题命中任一分类即直接采用——避免被正文里顺带提到的
+ * "会用 AI 工具""做过设计稿""配合测试"等噪音误判（这类词几乎每份 JD 都有）。
+ * 仅当标题完全无法归类时，才用正文关键词打分取得分最高者，
+ * 这样像「效能官」（标题无信号、正文全是 AI/Agent）能正确落到 AI，
+ * 而不再一律掉进「运营」兜底。最终仍兜底到 detectCategories 的宽口径规则。
+ */
+export function classifyJD(
+  title: string,
+  responsibilities: string[] = [],
+  requirements: string[] = [],
+): JDCategory[] {
+  const t = (title || '').toLowerCase();
+  const titleCats: JDCategory[] = [];
+  for (const [cat, re] of CATEGORY_KEYWORDS) {
+    if (re.test(t) && !titleCats.includes(cat)) titleCats.push(cat);
+  }
+  if (titleCats.length) return titleCats.slice(0, 3);
+
+  // 标题无信号：用正文打分，取最强信号
+  const body = [...responsibilities, ...requirements].join('\n');
+  const scored = scoreCategoriesByBody(body);
+  if (scored.length) return [scored[0][0]];
+
+  // 正文也无信号：沿用原宽口径兜底（开发→backend / →operations 等）
+  return detectCategories(title);
 }
 
 // ─── Salary parse ───
@@ -471,7 +518,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     reqKey: reqKey || undefined,
     expedited: expedited || undefined,
     notes: notes || undefined,
-    categories: detectCategories(title),
+    categories: classifyJD(title, split.responsibilities, split.requirements),
     responsibilities: stripContactMeta(split.responsibilities),
     requirements: stripContactMeta(split.requirements),
     salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),

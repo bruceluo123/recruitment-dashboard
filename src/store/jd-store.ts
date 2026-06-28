@@ -9,6 +9,7 @@ import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
 import { pushImportDiff, pushWeeklyAdded } from '@/lib/sync';
 import {
   analyzeColumns,
+  classifyJD,
   cleanJDNumbering,
   detectCategories,
   getJDKey,
@@ -260,7 +261,7 @@ export const useJDStore = create<JDStore>()(
                   reqKey: reqKey || undefined,
                   expedited: expedited || undefined,
                   notes: notes || undefined,
-                  categories: detectCategories(title),
+                  categories: classifyJD(title, responsibilities, requirements),
                   responsibilities: stripContactMeta(responsibilities),
                   requirements: stripContactMeta(requirements),
                   salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
