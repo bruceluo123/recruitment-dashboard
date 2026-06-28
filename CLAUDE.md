@@ -133,6 +133,7 @@ interface Candidate {
 - [2026-06-21] 安装 agent-reach v1.5.0，配通 10/13 平台（YouTube/GitHub/Twitter/小红书/Reddit/B站/V2EX/RSS/网页/小宇宙）；Twitter cookie + Groq key 已配；OpenCLI v1.8.4 更新并接通；LinkedIn 改用 Exa 替代；CLAUDE.md 新增 Session 日志和代码规范快查节 | LinkedIn Chromium 太重装失败 | 下次：LinkedIn 有需要再考虑其他方案
 - [2026-06-22] 自媒体工作站 A/B/C 全完成：A→sync.ts env-var 驱动+.env.example；B→/api/inspire 代理 aihot+BriefList 接真数据+灵感库全页；C→/api/factory/image(DashScope wanx)+素材工厂5维度UI(参照baoyu-cover-image/baoyu-xhs-images) | Set迭代 tsconfig 兼容性报错两处已修 | 下次：部署Vercel配DASHSCOPE_API_KEY；知识库接入板块
 - [2026-06-24] 面板新格式适配（序列列自动检测）；今日增改显示编制/部门替代REQ码；JD备注说明字段全链路（面板粘贴→列解析→详情展示→diff检测）；人才库「批量充实档案」功能（上传PDF→AI提取技能/学历/经历→按姓名回填）；Gemini OCR从inline_data改用Files API解决大PDF 503问题 | Gemini Files API已上线待用户重新测试 | 下次：验证Aaron1.pdf能否正常识别
+- [2026-06-28] 知识库文件夹中文化完成（maps→知识枢纽/sources→素材摘录等7个）；.wiki-schema.md路径规范同步更新；生成工作站知识库接入说明.md交接文档；建立X推文入库流程（baoyu-danger-x-to-markdown+x_cookies.json复用，无需每次Chrome登录）；第一条推文入库（马斯克原理9件思维工具） | X cookie首次未命中需写入固定路径才生效 | 下次：知识库接入工作站board；更多推文入库
 <!-- SESSION_LOG_END -->
 
 ## 代码规范快查
