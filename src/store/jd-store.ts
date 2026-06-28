@@ -48,6 +48,7 @@ interface JDStore {
   cycleStatus: (id: string) => void;
   cleanAllJDs: () => void;
   reclassifyAll: () => { total: number; changed: number };
+  resetNewBadge: () => { count: number };
   exportAllJDs: () => void;
   backupToKV: () => Promise<void>;
 }
@@ -120,6 +121,16 @@ export const useJDStore = create<JDStore>()(
         });
         if (changed > 0) set({ jds });
         return { total: jds.length, changed };
+      },
+
+      // 把当前岗位库整体标记为「已建立」基线：将所有现有岗位的 createdAt 回拨到 30 天前，
+      // 清除因覆盖导入误重置 createdAt 而导致「全部显示新」的状态。
+      // 之后只有真正新增（导入时标题/REQ-Key 都匹配不上的岗位）才会显示「新」角标。
+      resetNewBadge: () => {
+        const baseline = new Date(Date.now() - 30 * 86400000).toISOString();
+        const jds = get().jds.map((j) => ({ ...j, createdAt: baseline }));
+        set({ jds });
+        return { count: jds.length };
       },
 
       exportAllJDs: () => {
@@ -313,8 +324,13 @@ export const useJDStore = create<JDStore>()(
             // 每日面板只有摘要列（岗位名/薪资/部门/编制），没有职责/要求。
             // 覆盖时若新行缺职责/要求，则沿用库中同一岗位的旧内容，避免覆盖把 JD 详情清空。
             const oldByKey = new Map(get().jds.map((j) => [getJDKey(j), j]));
+            // 标题兜底：REQ-Key 变化时仍能认出同一岗位，避免覆盖导入把 createdAt 重置成 now
+            // （否则整库每次覆盖都会「全部显示新」）。仅在精确 key 匹配不到时启用。
+            const normReclassTitle = (t: string) =>
+              t.toLowerCase().replace(/[（(]\s*\d+\s*人\s*[）)]/g, '').replace(/\s+/g, '');
+            const oldByTitle = new Map(get().jds.map((j) => [normReclassTitle(j.title), j] as const));
             const enriched = deduped.jds.map((jd) => {
-              const old = oldByKey.get(getJDKey(jd));
+              const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(normReclassTitle(jd.title));
               if (!old) return jd; // 真正新增：保留 createdAt = now，会显示「新」角标
               const hasResp = jd.responsibilities && jd.responsibilities.length > 0;
               const hasReq = jd.requirements && jd.requirements.length > 0;

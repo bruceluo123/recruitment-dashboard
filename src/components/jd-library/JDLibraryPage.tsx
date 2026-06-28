@@ -44,6 +44,7 @@ export function JDLibraryPage() {
   const deleteJDBatch = useJDStore((s) => s.deleteJDBatch);
   const cleanAllJDs = useJDStore((s) => s.cleanAllJDs);
   const reclassifyAll = useJDStore((s) => s.reclassifyAll);
+  const resetNewBadge = useJDStore((s) => s.resetNewBadge);
   const exportAllJDs = useJDStore((s) => s.exportAllJDs);
   const backupToKV = useJDStore((s) => s.backupToKV);
   const undoDeleteJD = useJDStore((s) => s.undoDeleteJD);
@@ -178,6 +179,12 @@ export function JDLibraryPage() {
     window.alert(changed > 0 ? `重新分类完成：共 ${total} 个岗位，更新了 ${changed} 个。\n\n如需同步到云端，请点击「备份到云端」。` : `重新分类完成：共 ${total} 个岗位，无需调整。`);
   };
 
+  const handleResetNewBadge = () => {
+    if (!window.confirm('将当前整个岗位库标记为「已建立」，清除所有「新」角标。\n\n清除后，只有今后新增（导入面板里全新的岗位）才会显示「新」。是否继续？')) return;
+    const { count } = resetNewBadge();
+    window.alert(`已清除「新」角标：共处理 ${count} 个岗位。\n\n请点击「备份到云端」同步到其他人。`);
+  };
+
   const handleAdd = () => {
     if (!addForm.title.trim()) return;
     addJdBatch([{
@@ -221,6 +228,7 @@ export function JDLibraryPage() {
           共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 ·{' '}
           <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理编号/联系人</button> ·{' '}
           <button onClick={handleReclassify} className="text-purple-500 hover:text-purple-600 underline text-xs">重新分类</button> ·{' '}
+          <button onClick={handleResetNewBadge} className="text-sky-500 hover:text-sky-600 underline text-xs">清除新角标</button> ·{' '}
           <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
           <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}
