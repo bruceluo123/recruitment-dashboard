@@ -331,15 +331,17 @@ export const useJDStore = create<JDStore>()(
             const oldByTitle = new Map(get().jds.map((j) => [normReclassTitle(j.title), j] as const));
             const enriched = deduped.jds.map((jd) => {
               const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(normReclassTitle(jd.title));
-              if (!old) return jd; // 真正新增：保留 createdAt = now，会显示「新」角标
               const hasResp = jd.responsibilities && jd.responsibilities.length > 0;
               const hasReq = jd.requirements && jd.requirements.length > 0;
-              return {
-                ...jd,
-                createdAt: old.createdAt, // 保留原始创建时间，避免覆盖后所有岗位都显示「新」
-                responsibilities: hasResp ? jd.responsibilities : old.responsibilities,
-                requirements: hasReq ? jd.requirements : old.requirements,
-              };
+              // 补全正文：日报面板常只有摘要列，缺职责/要求时沿用库中同岗位旧内容
+              const responsibilities = hasResp ? jd.responsibilities : (old?.responsibilities ?? jd.responsibilities);
+              const requirements = hasReq ? jd.requirements : (old?.requirements ?? jd.requirements);
+              // 自动重新分类：用「补全后的完整正文 + 标题」重判分类，根治仅靠摘要标题误分类
+              const categories = classifyJD(jd.title, responsibilities, requirements);
+              // 命中已有岗位：保留原始 createdAt（即使只改了 HC/缺口等也不算「新」）；
+              // 真正新增（标题/REQ-Key 都匹配不到）：保留 createdAt = now，5 工作日内显示「新」。
+              const createdAt = old ? old.createdAt : jd.createdAt;
+              return { ...jd, createdAt, responsibilities, requirements, categories };
             });
             // 计算新增 / 移除 / 异动 diff（在写入前用旧数据对比）
             const prevJds = get().jds;
