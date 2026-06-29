@@ -462,6 +462,26 @@ export function analyzeColumns(headers: string[]): ColumnMap | null {
   return { titleCol, salaryCol, deptCol, locCol, orgCol, serviceCol, hcCol, vacancyCol, priorityCol, odcCol, requesterCol, reqKeyCol, expeditedCol, notesCol, contentCols };
 }
 
+/** 组织后缀：首段以这些结尾时视为「编制/中心」，其余部分为部门。 */
+const ORG_SUFFIX_RE = /(中心|公司|集团|事业群|事业部|中台|研究院|大区|平台|工作室|分公司|子公司|学院)$/;
+
+/**
+ * 把「编制 部门」合并单元格按空格拆成 { org, dept }。
+ * 例：「运营中心 领航」→ {org:'运营中心', dept:'领航'}；
+ *    「运营中心 学习发展部-sop组」→ {org:'运营中心', dept:'学习发展部-sop组'}；
+ *    「推荐中心 录入」→ {org:'推荐中心', dept:'录入'}。
+ * 仅当首段以中心/公司等组织后缀结尾时才拆分，避免误拆普通名称；否则整体作为编制。
+ */
+export function splitOrgDept(raw: string): { org: string; dept: string } {
+  const v = (raw || '').trim();
+  if (!v) return { org: '', dept: '' };
+  const m = v.match(/^(\S+)\s+(\S.*)$/);
+  if (!m) return { org: v, dept: '' };
+  const [, first, rest] = m;
+  if (ORG_SUFFIX_RE.test(first)) return { org: first, dept: rest.trim() };
+  return { org: v, dept: '' };
+}
+
 /** Build a JD from a row using deterministic column parsing (no AI).
  * Returns null if the row has no usable title or is a repeated header row. */
 export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD | null {
@@ -472,7 +492,9 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   // Skip garbage rows whose "title" is purely a number/序号（如错位粘贴产生的 "1" 行）
   if (/^[\d.\s、,，#-]+$/.test(rawTitleCell)) return null;
 
-  const organization = cols.orgCol ? String(row[cols.orgCol] || '').trim() : '';
+  // 编制列可能是「运营中心 领航」这类「编制 部门」合并值，按空格拆开取编制与部门。
+  const orgSplit = splitOrgDept(cols.orgCol ? String(row[cols.orgCol] || '').trim() : '');
+  const organization = orgSplit.org;
   const serviceUnit = cols.serviceCol ? String(row[cols.serviceCol] || '').trim() : '';
   const headcount = cols.hcCol ? String(row[cols.hcCol] || '').trim() : '';
   // 缺口为空一律填 0（无缺口 = 不需要再招，匹配时会跳过）
@@ -489,7 +511,8 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   // 部门取真实「部门」列（如"运营3部"），缺失时回退服务单位/编制——
   // 保留真实部门，详情面板「部门/服务单位」才不会双双显示同一个值。
   const deptCell = cols.deptCol ? String(row[cols.deptCol] || '').trim() : '';
-  const department = deptCell || serviceUnit || organization;
+  // 部门优先取真实部门列；其次取从编制列拆出来的部门（如「领航」）；再退服务单位/编制。
+  const department = deptCell || orgSplit.dept || serviceUnit || organization;
   const location = cols.locCol ? String(row[cols.locCol] || '').trim() : 'remote';
 
   // Collect content, keeping column order

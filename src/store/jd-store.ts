@@ -17,6 +17,7 @@ import {
   normalizeExcelRows,
   parseSalary,
   rowToColumnJD,
+  splitOrgDept,
   stripContactMeta,
 } from '@/lib/jd-parse-core';
 
@@ -96,8 +97,15 @@ export const useJDStore = create<JDStore>()(
       cleanAllJDs: () => set((s) => ({
         jds: s.jds.map((j) => {
           const cleaned = cleanJDNumbering(j);
+          // 修复历史数据中「编制 部门」被塞进同一字段的情况（如「运营中心 领航」→编制运营中心/部门领航）
+          const orgSplit = splitOrgDept(cleaned.organization || '');
+          const organization = orgSplit.org || cleaned.organization;
+          const deptCombined = !cleaned.department || cleaned.department === cleaned.organization;
+          const department = orgSplit.dept && deptCombined ? orgSplit.dept : cleaned.department;
           return {
             ...cleaned,
+            organization: organization || undefined,
+            department,
             responsibilities: stripContactMeta(cleaned.responsibilities),
             requirements: stripContactMeta(cleaned.requirements),
           };
@@ -255,7 +263,9 @@ export const useJDStore = create<JDStore>()(
                 }
 
                 // AI 路径：整段长文本无标题列时由 AI 拆解，仍尽量保留列上的元数据
-                const organization = orgCol ? String(row[orgCol] || '').trim() : '';
+                // 编制列可能是「运营中心 领航」这类「编制 部门」合并值，按空格拆开。
+                const orgSplit = splitOrgDept(orgCol ? String(row[orgCol] || '').trim() : '');
+                const organization = orgSplit.org;
                 const serviceUnit = serviceCol ? String(row[serviceCol] || '').trim() : '';
                 const headcount = hcCol ? String(row[hcCol] || '').trim() : '';
                 const gap = (vacancyCol ? String(row[vacancyCol] || '').trim() : '') || '0';
@@ -268,7 +278,7 @@ export const useJDStore = create<JDStore>()(
 
                 const title = rawTitleCell || (ai.title || '').trim();
                 if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称`); continue; }
-                const department = serviceUnit || ai.department || (deptCol ? String(row[deptCol] || '').trim() : '') || organization;
+                const department = (deptCol ? String(row[deptCol] || '').trim() : '') || orgSplit.dept || serviceUnit || ai.department || organization;
                 const rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : ai.salary || '';
                 const location = ai.location || (locCol ? String(row[locCol] || '').trim() : 'remote');
                 const responsibilities = Array.isArray(ai.responsibilities) ? ai.responsibilities : [];
