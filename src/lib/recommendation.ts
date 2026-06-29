@@ -1,6 +1,7 @@
 // 简历入口：从粘贴的简历文本中提取推荐人信息，并按岗位名自动匹配 JD 库回填编制/部门。
 
 import type { JD } from '@/types/jd';
+import { splitOrgDept } from '@/lib/jd-parse-core';
 
 export interface ExtractedRecommendation {
   name: string;
@@ -73,13 +74,19 @@ function parseContactPerson(text: string): string {
  * 即时精准提取，无需网络。命中姓名+岗位即可直接采用，避免 AI 的延迟与漏识别。
  */
 export function parseStructuredResume(text: string): ExtractedRecommendation {
+  const rawOrg = dedupeRepeated(labelValue(text, ['推荐编制组织/序列/服务单位', '推荐编制组织', '编制组织', '推荐编制', '编制', '服务单位']));
+  const rawDept = labelValue(text, ['推荐部门', '所属部门', '部门']);
+  // 「技术中心 银河」这类空格分隔的「编制 部门」拆开：编制=技术中心、部门=银河（仅在部门缺失时回填）
+  const orgSplit = splitOrgDept(rawOrg);
+  const organization = orgSplit.org || rawOrg;
+  const department = rawDept || orgSplit.dept;
   return {
     name: labelValue(text, ['候选人姓名', '候选姓名', '姓名', 'name']),
     jobTitle: labelValue(text, ['应聘岗位', '应聘职位', '意向岗位', '意向职位', '求职意向', '目标岗位', '推荐岗位', '岗位', '职位']),
     contact: labelValue(text, ['候选人联系方式', '联系方式', '联系电话', '手机号', '手机', '电话', '微信', 'wechat', 'TG', 'telegram']),
     contactPerson: parseContactPerson(text),
-    organization: dedupeRepeated(labelValue(text, ['推荐编制组织/序列/服务单位', '推荐编制组织', '编制组织', '推荐编制', '编制', '服务单位'])),
-    department: labelValue(text, ['推荐部门', '所属部门', '部门']),
+    organization,
+    department,
   };
 }
 
