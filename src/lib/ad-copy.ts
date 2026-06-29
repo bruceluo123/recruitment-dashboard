@@ -104,7 +104,10 @@ function lineOf(jd: JD, cfg: VariantConfig): string {
 // ─── 脱敏模板 ───────────────────────────────────────────────────────────────
 // 纯数字 emoji 编号，无分类、无薪资、无额外 emoji，固定头尾。
 const EMOJI_NUMS = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
-const emojiNum = (n: number) => n <= 10 ? EMOJI_NUMS[n - 1] : `${n}.`;
+const DIGIT_KEYCAPS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣'];
+// 1-10 用现成的数字 emoji（10=🔟）；11 起逐位拼数字 keycap，如 11→1️⃣1️⃣、25→2️⃣5️⃣。
+const emojiNum = (n: number) =>
+  n <= 10 ? EMOJI_NUMS[n - 1] : String(n).split('').map((d) => DIGIT_KEYCAPS[Number(d)]).join('');
 
 /**
  * 脱敏文案：flat 编号列表，不含薪资、分类、风格头部，适合对外转发。
