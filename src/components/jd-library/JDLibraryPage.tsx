@@ -10,9 +10,10 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store';
 import { Briefcase, Sparkles, Trash2, X, Bell, Megaphone, Copy, Check } from 'lucide-react';
 import { generateId } from '@/lib/utils';
-import type { JDCategory, JDImportResult, JDDiffItem, JD, WeeklyAdded } from '@/types/jd';
+import type { JDCategory, JDImportResult, JDDiffItem, JD } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
 import { buildAdCopy, buildDesensitizedCopy, adVariantLabel, type AdVariant, type AdSegment } from '@/lib/ad-copy';
+import { recentlyAddedJds, recentWindowLabel } from '@/lib/jd-recent';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
@@ -20,7 +21,6 @@ export function JDLibraryPage() {
   const [diffOpen, setDiffOpen] = useState(false);
   const [weeklyOpen, setWeeklyOpen] = useState(false);
   const lastImportDiff = useJDStore((s) => s.lastImportDiff);
-  const weeklyAdded = useJDStore((s) => s.weeklyAdded);
   const [addOpen, setAddOpen] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -52,24 +52,10 @@ export function JDLibraryPage() {
   const filteredJDs = useFilteredJDs();
   const categories = useCategoryCounts();
 
-  // 5 个工作日内新增的岗位 ID 集合（以 createdAt 为准，跳过周末）
-  const newJdIds = useMemo(() => {
-    const ids = new Set<string>();
-    // 计算 5 个工作日前的零点
-    const threshold = new Date();
-    threshold.setHours(0, 0, 0, 0);
-    let workdays = 0;
-    while (workdays < 5) {
-      threshold.setDate(threshold.getDate() - 1);
-      const d = threshold.getDay();
-      if (d !== 0 && d !== 6) workdays++;
-    }
-    jds.forEach((jd) => {
-      if (jd.id.startsWith('jd-00')) return; // 跳过 mock 数据
-      if (jd.createdAt && new Date(jd.createdAt) >= threshold) ids.add(jd.id);
-    });
-    return ids;
-  }, [lastImportDiff, jds]);
+  // 最近 5 个工作日内新增的岗位（按 createdAt，跨周末/跨星期，不在周一被重置）。
+  // 「新」角标与「本周新增」面板共用这一份滚动窗口，保证两处完全一致。
+  const recentJds = useMemo(() => recentlyAddedJds(jds), [jds]);
+  const newJdIds = useMemo(() => new Set(recentJds.map((j) => j.id)), [recentJds]);
 
   // 列筛选选项：基于全部岗位去重，保证选项不随筛选缩水
   const orgOptions = useMemo(
@@ -246,7 +232,7 @@ export function JDLibraryPage() {
         onImportClick={() => setImportOpen(true)} onAddClick={() => setAddOpen(true)}
         batchMode={batchMode} onBatchModeChange={handleBatchModeChange}
         hasDiff={!!lastImportDiff} onDiffClick={() => setDiffOpen(true)}
-        weeklyCount={weeklyAdded?.items.length ?? 0} onWeeklyClick={() => setWeeklyOpen(true)}
+        weeklyCount={recentJds.length} onWeeklyClick={() => setWeeklyOpen(true)}
       />
 
       {batchMode && (
@@ -293,7 +279,7 @@ export function JDLibraryPage() {
       <JDDetailPanel jd={selectedJd} isOpen={!!selectedJdId} onClose={() => selectJD(null)} />
       <JDImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       {diffOpen && <ImportDiffDialog diff={lastImportDiff ?? null} onClose={() => setDiffOpen(false)} />}
-      {weeklyOpen && <WeeklyAddedDialog weekly={weeklyAdded} onClose={() => setWeeklyOpen(false)} />}
+      {weeklyOpen && <WeeklyAddedDialog recentJds={recentJds} onClose={() => setWeeklyOpen(false)} />}
 
       {/* Undo delete toast */}
       {lastDeletedJD && (
@@ -655,42 +641,24 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
 
 // ─── WeeklyAddedDialog ──────────────────────────────────────────────────────────
 
-function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; onClose: () => void }) {
-  const jds = useJDStore((s) => s.jds);
+function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: () => void }) {
   const [previewJd, setPreviewJd] = useState<JD | null>(null);
   const [copyMode, setCopyMode] = useState(false);
   const [copyVariant, setCopyVariant] = useState<AdVariant>('maimanfen');
   const [copyHideSalary, setCopyHideSalary] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
-  const weekLabel = weekly ? (() => {
-    const mon = new Date(weekly.weekKey);
-    const sun = new Date(mon);
-    sun.setDate(mon.getDate() + 6);
-    const fmt = (d: Date) => `${d.getMonth() + 1}月${d.getDate()}日`;
-    return `${fmt(mon)}—${fmt(sun)}`;
-  })() : null;
+  const weekLabel = recentWindowLabel();
 
-  const findJd = (item: JDDiffItem): JD | undefined => {
-    if (item.reqKey) {
-      const byKey = jds.find((j) => j.reqKey === item.reqKey);
-      if (byKey) return byKey;
-    }
-    return jds.find((j) => j.title.trim() === item.title.trim());
+  const handleItemClick = (jd: JD) => {
+    setPreviewJd((prev) => (prev?.id === jd.id ? null : jd));
   };
 
-  const handleItemClick = (item: JDDiffItem) => {
-    const found = findJd(item);
-    if (!found) return;
-    setPreviewJd((prev) => (prev?.id === found.id ? null : found));
-  };
-
-  // 把本周新增 items 转成 JD[] 供文案生成
-  const weeklyJds = useMemo<JD[]>(() => {
-    if (!weekly?.items.length) return [];
-    return weekly.items.map(findJd).filter((j): j is JD => !!j);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekly, jds]);
+  // 滚动窗口内的岗位即「本周新增」，直接用于文案生成（最近的排在前面）
+  const weeklyJds = useMemo<JD[]>(
+    () => [...recentJds].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [recentJds],
+  );
 
   const adSegments = useMemo<AdSegment[]>(() => {
     if (!copyMode || !weeklyJds.length) return [];
@@ -850,6 +818,7 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2 min-w-0">
             <Bell className="w-4 h-4 text-green-500 shrink-0" />
             <span className="truncate">本周新增{weekLabel ? ` · ${weekLabel}` : ''}</span>
+            <span className="text-[10px] text-gray-400 font-normal shrink-0">近5个工作日</span>
           </h3>
           <div className="flex items-center gap-1.5 shrink-0 ml-2">
             <button
@@ -866,28 +835,27 @@ function WeeklyAddedDialog({ weekly, onClose }: { weekly: WeeklyAdded | null; on
           </div>
         </div>
         <div className="overflow-y-auto flex-1 px-5 py-4 text-sm">
-          {!weekly || weekly.items.length === 0 ? (
+          {weeklyJds.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-gray-500 text-sm">本周暂无新增岗位</p>
-              <p className="text-gray-400 text-xs mt-1">每次覆盖导入时，新增的岗位会自动累计到这里。</p>
+              <p className="text-gray-500 text-sm">近 5 个工作日暂无新增岗位</p>
+              <p className="text-gray-400 text-xs mt-1">导入面板里真正新增的岗位会自动出现在这里，5 个工作日后滚动移出。</p>
             </div>
           ) : (
             <>
-              <p className="text-gray-500 text-xs mb-3">本周新增 <span className="font-semibold text-gray-800">{weekly.items.length}</span> 个岗位（点击查看详情）</p>
+              <p className="text-gray-500 text-xs mb-3">近 5 个工作日新增 <span className="font-semibold text-gray-800">{weeklyJds.length}</span> 个岗位（点击查看详情）</p>
               <ul className="space-y-0.5">
-                {weekly.items.map((item) => {
-                  const found = findJd(item);
-                  const isActive = previewJd && found?.id === previewJd.id;
+                {weeklyJds.map((jd) => {
+                  const isActive = previewJd?.id === jd.id;
                   return (
                     <li
-                      key={item.reqKey || item.title}
-                      onClick={() => handleItemClick(item)}
+                      key={jd.id}
+                      onClick={() => handleItemClick(jd)}
                       className={'text-xs text-gray-700 flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors' + (isActive ? ' bg-indigo-50' : '')}
                     >
                       <span className="text-green-500 shrink-0">·</span>
-                      <span className="hover:text-indigo-600 transition-colors">{item.title}</span>
-                      {(item.organization || item.department) && (
-                        <span className="text-gray-400 shrink-0">{[item.organization, item.department].filter(Boolean).join(' · ')}</span>
+                      <span className="hover:text-indigo-600 transition-colors">{jd.title}</span>
+                      {(jd.organization || jd.department) && (
+                        <span className="text-gray-400 shrink-0">{[jd.organization, jd.department].filter(Boolean).join(' · ')}</span>
                       )}
                     </li>
                   );

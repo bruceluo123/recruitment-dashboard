@@ -8,7 +8,8 @@ import {
   ChevronDown, ChevronUp, Bell,
 } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
-import type { JDCategory, JDDiffItem } from '@/types/jd';
+import type { JDCategory } from '@/types/jd';
+import { recentlyAddedJds } from '@/lib/jd-recent';
 import {
   PRIORITY_COLORS,
   isUrgentPriority,
@@ -68,21 +69,11 @@ export function HotHiringPage() {
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
   const selectJD = useJDStore((s) => s.selectJD);
-  const weeklyAdded = useJDStore((s) => s.weeklyAdded);
-
-  // 本周新增 items → JD[]（按 reqKey 优先、标题兜底匹配现有岗位）
-  const weeklyJds = useMemo<JD[]>(() => {
-    const items = weeklyAdded?.items;
-    if (!items?.length) return [];
-    const findJd = (item: JDDiffItem): JD | undefined => {
-      if (item.reqKey) {
-        const byKey = jds.find((j) => j.reqKey === item.reqKey);
-        if (byKey) return byKey;
-      }
-      return jds.find((j) => j.title.trim() === item.title.trim());
-    };
-    return items.map(findJd).filter((j): j is JD => !!j);
-  }, [weeklyAdded, jds]);
+  // 本周新增 = 最近 5 个工作日内新增（按 createdAt 滚动窗口，跨周末，与 JD 库角标一致）
+  const weeklyJds = useMemo<JD[]>(
+    () => recentlyAddedJds(jds).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [jds],
+  );
 
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
