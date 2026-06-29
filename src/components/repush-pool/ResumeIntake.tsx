@@ -117,19 +117,22 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
         return;
       }
       const text = data.text || '';
-      setRawText(text);   // 把提取文字存入 rawText，录入推荐时一起保存
+      // 不覆盖已有内容：把提取文字追加到原文下方（录入推荐时一起保存）
+      const prev = rawText.trim();
+      const combined = prev ? `${prev}\n\n${text}` : text;
+      setRawText(combined);
       setFileStatus('parsing');
       const hasFields = !!(name.trim() || contact.trim() || contactPerson.trim() || jobTitle.trim());
       if (hasFields) {
         // 表单字段已填好：不覆盖，只提取简历亮点（附件模式）
         setHighlightsLoading(true);
-        extractResumeHighlights(text)
+        extractResumeHighlights(combined)
           .then((hl) => { setHighlights(hl); })
           .catch(() => {})
           .finally(() => setHighlightsLoading(false));
       } else {
-        // 表单为空：完整解析基础信息 + 亮点
-        await applyParsedInfo(text);
+        // 表单为空：完整解析基础信息 + 亮点（基于合并后的全文）
+        await applyParsedInfo(combined);
       }
       setFileStatus('done');
     } catch (e) {
