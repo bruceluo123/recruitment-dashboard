@@ -10,7 +10,6 @@ import { DailyReportModal } from './DailyReportModal';
 import { TodayReportModal } from './TodayReportModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
-import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { scheduleRecommendation } from '@/lib/schedule';
@@ -49,8 +48,9 @@ export function RecommendationCenter() {
   const addCandidate = useInterviewStore((s) => s.addCandidate);
   const candidates = useInterviewStore((s) => s.candidates);
 
-  const view = usePrefStore((s) => s.activeOwner);
-  const setView = usePrefStore((s) => s.setActiveOwner);
+  // 推荐人视图为本页会话状态：每次进入默认「麦满分」(a)，切换不写全局、不影响其他页面，
+  // 避免多人共用一台设备时被上一个人选的「啵啵」一直占用。
+  const [view, setView] = useState<RepushColumnId>('a');
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [editing, setEditing] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
