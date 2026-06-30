@@ -72,26 +72,35 @@ export function RepushModal({ item, orgOptions, deptOptions, jds, onClose, onCon
 
         <div className="space-y-3">
           <Field label="岗位 *">
-            <select value={jobTitle} onChange={(e) => handleJobTitleChange(e.target.value)} className="repush-input cursor-pointer">
-              <option value="">请选择岗位</option>
-              {jdTitleOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-              {jobTitle && !jdTitleOptions.includes(jobTitle) && <option value={jobTitle}>{jobTitle}（自定义）</option>}
-            </select>
+            <input
+              list="repush-jd-options"
+              value={jobTitle}
+              onChange={(e) => handleJobTitleChange(e.target.value)}
+              placeholder="选择或输入岗位"
+              className="repush-input"
+            />
+            <datalist id="repush-jd-options">{jdTitleOptions.map((t) => <option key={t} value={t} />)}</datalist>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="编制">
-              <select value={organization} onChange={(e) => setOrganization(e.target.value)} className="repush-input cursor-pointer">
-                <option value="">未选编制</option>
-                {orgOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-                {organization && !orgOptions.includes(organization) && <option value={organization}>{organization}</option>}
-              </select>
+              <input
+                list="repush-org-options"
+                value={organization}
+                onChange={(e) => setOrganization(e.target.value)}
+                placeholder="选择或输入编制"
+                className="repush-input"
+              />
+              <datalist id="repush-org-options">{orgOptions.map((o) => <option key={o} value={o} />)}</datalist>
             </Field>
             <Field label="部门">
-              <select value={department} onChange={(e) => setDepartment(e.target.value)} className="repush-input cursor-pointer">
-                <option value="">未选部门</option>
-                {deptOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-                {department && !deptOptions.includes(department) && <option value={department}>{department}</option>}
-              </select>
+              <input
+                list="repush-dept-options"
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                placeholder="选择或输入部门"
+                className="repush-input"
+              />
+              <datalist id="repush-dept-options">{deptOptions.map((d) => <option key={d} value={d} />)}</datalist>
             </Field>
           </div>
         </div>
