@@ -372,7 +372,9 @@ export function useFilteredTalents(): Talent[] {
       if (!haystack.includes(q)) return false;
     }
     return true;
-  });
+  })
+    // 由近及远：新导入/新增的（createdAt 越新）排在最上面；无 createdAt 的老数据沉到末尾
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 }
 
 export function useTalentCategoryCounts(): { id: JDCategory | 'all'; label: string; count: number }[] {
