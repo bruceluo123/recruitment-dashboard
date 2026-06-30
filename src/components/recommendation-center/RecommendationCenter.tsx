@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
 import { RecommendationBar } from './RecommendationBar';
 import { EditRecommendationModal } from './EditRecommendationModal';
+import { RepushModal, type RepushArgs } from './RepushModal';
 import { DailyReportModal } from './DailyReportModal';
 import { TodayReportModal } from './TodayReportModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
@@ -13,7 +14,7 @@ import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRou
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { scheduleRecommendation } from '@/lib/schedule';
-import { formatDayHeader, startOfDay } from '@/lib/repush-format';
+import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
 
 /** 把推荐记录按「天」分组，组与组按时间由近到远排序 */
@@ -53,6 +54,7 @@ export function RecommendationCenter() {
   const [view, setView] = useState<RepushColumnId>('a');
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [editing, setEditing] = useState<RepushItem | null>(null);
+  const [repushing, setRepushing] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
   const [todayReporting, setTodayReporting] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
@@ -81,6 +83,23 @@ export function RecommendationCenter() {
     if (!scheduling) return;
     scheduleRecommendation(scheduling, args, { jds, addCandidate, updateItem });
     setScheduling(null);
+  };
+
+  // 复推：基于原记录新建一条独立推荐（换岗位/编制/部门），原记录保持不变
+  const confirmRepush = (args: RepushArgs) => {
+    if (!repushing) return;
+    addRecommendation({
+      column: repushing.column,
+      candidateName: repushing.candidateName || displayName(repushing),
+      jdTitle: args.jdTitle || undefined,
+      contact: repushing.contact,
+      contactPerson: repushing.contactPerson,
+      rawText: repushing.rawText,
+      organization: args.organization || undefined,
+      department: args.department || undefined,
+      highlights: repushing.highlights,
+    });
+    setRepushing(null);
   };
 
   return (
@@ -162,6 +181,7 @@ export function RecommendationCenter() {
                       item={it}
                       onSchedule={setScheduling}
                       onEdit={setEditing}
+                      onRepush={setRepushing}
                       onRemove={removeItem}
                     />
                   ))}
@@ -188,6 +208,16 @@ export function RecommendationCenter() {
           jds={jds}
           onClose={() => setEditing(null)}
           onSave={updateItem}
+        />
+      )}
+      {repushing && (
+        <RepushModal
+          item={repushing}
+          orgOptions={orgOptions}
+          deptOptions={deptOptions}
+          jds={jds}
+          onClose={() => setRepushing(null)}
+          onConfirm={confirmRepush}
         />
       )}
       {reporting && (

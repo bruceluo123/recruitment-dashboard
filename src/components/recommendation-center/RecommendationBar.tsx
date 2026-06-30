@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
@@ -8,10 +8,11 @@ interface RecommendationBarProps {
   item: RepushItem;
   onSchedule: (item: RepushItem) => void;
   onEdit: (item: RepushItem) => void;
+  onRepush: (item: RepushItem) => void;
   onRemove: (id: string) => void;
 }
 
-export function RecommendationBar({ item, onSchedule, onEdit, onRemove }: RecommendationBarProps) {
+export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
@@ -89,6 +90,14 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRemove }: Recomm
             面试
           </button>
         )}
+        <button
+          onClick={() => onRepush(item)}
+          className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-violet-200 bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors"
+          title="复推到其他岗位（新建一条推荐）"
+        >
+          <Repeat className="w-3.5 h-3.5" />
+          复推
+        </button>
         <button
           onClick={() => onEdit(item)}
           className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"

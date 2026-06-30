@@ -647,11 +647,21 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
   const [copyVariant, setCopyVariant] = useState<AdVariant>('maimanfen');
   const [copyHideSalary, setCopyHideSalary] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  // 文案模式下被排除的岗位（不想发的）。排除后文案会自动从 1 重新编号
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
 
   const weekLabel = recentWindowLabel();
 
   const handleItemClick = (jd: JD) => {
     setPreviewJd((prev) => (prev?.id === jd.id ? null : jd));
+  };
+
+  const toggleExclude = (id: string) => {
+    setExcludedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   };
 
   // 滚动窗口内的岗位即「本周新增」，直接用于文案生成（最近的排在前面）
@@ -660,11 +670,17 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
     [recentJds],
   );
 
+  // 实际进入文案的岗位 = 本周新增 − 被排除的
+  const selectedJds = useMemo<JD[]>(
+    () => weeklyJds.filter((jd) => !excludedIds.has(jd.id)),
+    [weeklyJds, excludedIds],
+  );
+
   const adSegments = useMemo<AdSegment[]>(() => {
-    if (!copyMode || !weeklyJds.length) return [];
-    if (copyHideSalary) return [buildDesensitizedCopy(weeklyJds)];
-    return buildAdCopy(weeklyJds, '本周新增', copyVariant, 22);
-  }, [copyMode, weeklyJds, copyVariant, copyHideSalary]);
+    if (!copyMode || !selectedJds.length) return [];
+    if (copyHideSalary) return [buildDesensitizedCopy(selectedJds)];
+    return buildAdCopy(selectedJds, '本周新增', copyVariant, 22);
+  }, [copyMode, selectedJds, copyVariant, copyHideSalary]);
 
   const handleCopy = (text: string, idx: number) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -743,7 +759,7 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
             <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <Megaphone className="w-4 h-4 text-red-500" />
-              招聘文案 · 本周新增 {weeklyJds.length} 个岗位
+              招聘文案 · 已选 {selectedJds.length} 个岗位{excludedIds.size > 0 ? `（排除 ${excludedIds.size}）` : ''}
             </h4>
             <button onClick={() => setCopyMode(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0">
               <X className="w-4 h-4" />
@@ -779,12 +795,13 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
               </>
             )}
             <span className="ml-auto text-xs text-gray-400 self-center">
-              {weeklyJds.length} 个岗位 · {adSegments.length} 段
+              {selectedJds.length} 个岗位 · {adSegments.length} 段
             </span>
           </div>
+          <p className="px-4 pt-2.5 text-[11px] text-gray-400 shrink-0">在右侧列表取消勾选不想发的岗位，文案会自动从 1 重新编号。</p>
           <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
-            {weeklyJds.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-8">本周暂无可生成文案的岗位</p>
+            {selectedJds.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">{weeklyJds.length === 0 ? '本周暂无可生成文案的岗位' : '已全部排除，请至少保留一个岗位'}</p>
             ) : adSegments.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-8">生成中…</p>
             ) : (
@@ -842,18 +859,32 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
             </div>
           ) : (
             <>
-              <p className="text-gray-500 text-xs mb-3">近 5 个工作日新增 <span className="font-semibold text-gray-800">{weeklyJds.length}</span> 个岗位（点击查看详情）</p>
+              <p className="text-gray-500 text-xs mb-3">
+                近 5 个工作日新增 <span className="font-semibold text-gray-800">{weeklyJds.length}</span> 个岗位
+                {copyMode ? '（取消勾选可从文案中排除）' : '（点击查看详情）'}
+              </p>
               <ul className="space-y-0.5">
                 {weeklyJds.map((jd) => {
                   const isActive = previewJd?.id === jd.id;
+                  const isExcluded = excludedIds.has(jd.id);
                   return (
                     <li
                       key={jd.id}
-                      onClick={() => handleItemClick(jd)}
-                      className={'text-xs text-gray-700 flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors' + (isActive ? ' bg-indigo-50' : '')}
+                      onClick={() => (copyMode ? toggleExclude(jd.id) : handleItemClick(jd))}
+                      className={
+                        'text-xs flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors'
+                        + (isActive ? ' bg-indigo-50' : '')
+                        + (copyMode && isExcluded ? ' text-gray-300' : ' text-gray-700')
+                      }
                     >
-                      <span className="text-green-500 shrink-0">·</span>
-                      <span className="hover:text-indigo-600 transition-colors">{jd.title}</span>
+                      {copyMode ? (
+                        <span className={'shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center self-center ' + (isExcluded ? 'border-gray-300 bg-white' : 'border-green-500 bg-green-500')}>
+                          {!isExcluded && <Check className="w-2.5 h-2.5 text-white" />}
+                        </span>
+                      ) : (
+                        <span className="text-green-500 shrink-0">·</span>
+                      )}
+                      <span className={(copyMode && isExcluded ? 'line-through' : 'hover:text-indigo-600') + ' transition-colors'}>{jd.title}</span>
                       {(jd.organization || jd.department) && (
                         <span className="text-gray-400 shrink-0">{[jd.organization, jd.department].filter(Boolean).join(' · ')}</span>
                       )}
