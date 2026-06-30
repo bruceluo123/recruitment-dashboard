@@ -676,11 +676,43 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
     [weeklyJds, excludedIds],
   );
 
-  const adSegments = useMemo<AdSegment[]>(() => {
-    if (!copyMode || !selectedJds.length) return [];
+  // 文案不再自动生成：用户删完不想发的岗位后，手动点「生成文案」才出结果并从 1 重新编号
+  const [generatedSegments, setGeneratedSegments] = useState<AdSegment[]>([]);
+  const [generatedSig, setGeneratedSig] = useState('');
+
+  // 当前选择的签名（岗位集合 + 风格 + 脱敏），用于判断生成结果是否已过期
+  const currentSig = useMemo(
+    () => `${copyHideSalary ? 'd' : 'n'}|${copyVariant}|${selectedJds.map((jd) => jd.id).join(',')}`,
+    [copyHideSalary, copyVariant, selectedJds],
+  );
+  const isDirty = generatedSig !== currentSig;
+
+  const buildSegments = (): AdSegment[] => {
+    if (!selectedJds.length) return [];
     if (copyHideSalary) return [buildDesensitizedCopy(selectedJds)];
     return buildAdCopy(selectedJds, '本周新增', copyVariant, 22);
-  }, [copyMode, selectedJds, copyVariant, copyHideSalary]);
+  };
+
+  const handleGenerate = () => {
+    setGeneratedSegments(buildSegments());
+    setGeneratedSig(currentSig);
+  };
+
+  const openCopyMode = () => {
+    setPreviewJd(null);
+    setCopyMode((on) => {
+      const next = !on;
+      // 进入文案模式时按当前（全部）岗位先生成一版，用户再删减后点「重新生成」
+      if (next) {
+        const segs = selectedJds.length
+          ? (copyHideSalary ? [buildDesensitizedCopy(selectedJds)] : buildAdCopy(selectedJds, '本周新增', copyVariant, 22))
+          : [];
+        setGeneratedSegments(segs);
+        setGeneratedSig(currentSig);
+      }
+      return next;
+    });
+  };
 
   const handleCopy = (text: string, idx: number) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -795,36 +827,76 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
               </>
             )}
             <span className="ml-auto text-xs text-gray-400 self-center">
-              {selectedJds.length} 个岗位 · {adSegments.length} 段
+              {selectedJds.length} 个岗位 · {generatedSegments.length} 段
             </span>
           </div>
-          <p className="px-4 pt-2.5 text-[11px] text-gray-400 shrink-0">在右侧列表取消勾选不想发的岗位，文案会自动从 1 重新编号。</p>
-          <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+          <p className="px-4 pt-2.5 text-[11px] text-gray-400 shrink-0">删掉不想发的岗位后点「生成文案」，会自动从 1 重新编号。</p>
+          <div className="overflow-y-auto flex-1 px-4 py-3 space-y-3">
+            {/* 岗位清单：可逐条删除 */}
             {selectedJds.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-8">{weeklyJds.length === 0 ? '本周暂无可生成文案的岗位' : '已全部排除，请至少保留一个岗位'}</p>
-            ) : adSegments.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-8">生成中…</p>
+              <p className="text-xs text-gray-400 text-center py-8">{weeklyJds.length === 0 ? '本周暂无可生成文案的岗位' : '已全部删除，点右侧列表可恢复'}</p>
             ) : (
-              adSegments.map((seg, idx) => (
-                <div key={idx} className="rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
-                    <span className="text-xs font-semibold text-gray-600">{seg.title}</span>
-                    <button
-                      onClick={() => handleCopy(seg.text, idx)}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all border border-gray-200 bg-white hover:bg-gray-50 text-gray-600"
-                    >
-                      {copiedIdx === idx
-                        ? <><Check className="w-3 h-3 text-green-500" />已复制</>
-                        : <><Copy className="w-3 h-3" />复制</>
-                      }
-                    </button>
-                  </div>
-                  <pre className="px-3 py-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed select-all">
-                    {seg.text}
-                  </pre>
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600">
+                  岗位清单 · {selectedJds.length} 个（删完点生成）
                 </div>
-              ))
+                <ul className="divide-y divide-gray-100 max-h-[40vh] overflow-y-auto">
+                  {selectedJds.map((jd, i) => (
+                    <li key={jd.id} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700">
+                      <span className="shrink-0 w-5 text-gray-400 tabular-nums">{i + 1}</span>
+                      <span className="flex-1 min-w-0 truncate">{jd.title}</span>
+                      {(jd.organization || jd.department) && (
+                        <span className="text-gray-400 shrink-0 truncate max-w-[100px]">{[jd.organization, jd.department].filter(Boolean).join(' · ')}</span>
+                      )}
+                      <button
+                        onClick={() => toggleExclude(jd.id)}
+                        title="从文案中删除该岗位"
+                        className="shrink-0 p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
+
+            {/* 生成按钮：有改动时高亮提示重新生成 */}
+            <button
+              onClick={handleGenerate}
+              disabled={selectedJds.length === 0}
+              className={`w-full flex items-center justify-center gap-1.5 h-9 rounded-xl text-sm font-medium transition-all ${
+                selectedJds.length === 0
+                  ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                  : isDirty
+                    ? 'bg-red-500 text-white hover:bg-red-600'
+                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              {generatedSegments.length === 0 ? '生成文案' : isDirty ? '重新生成（已改动）' : '已是最新'}
+            </button>
+
+            {/* 生成结果 */}
+            {generatedSegments.map((seg, idx) => (
+              <div key={idx} className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+                  <span className="text-xs font-semibold text-gray-600">{seg.title}</span>
+                  <button
+                    onClick={() => handleCopy(seg.text, idx)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all border border-gray-200 bg-white hover:bg-gray-50 text-gray-600"
+                  >
+                    {copiedIdx === idx
+                      ? <><Check className="w-3 h-3 text-green-500" />已复制</>
+                      : <><Copy className="w-3 h-3" />复制</>
+                    }
+                  </button>
+                </div>
+                <pre className="px-3 py-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed select-all">
+                  {seg.text}
+                </pre>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -839,7 +911,7 @@ function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: (
           </h3>
           <div className="flex items-center gap-1.5 shrink-0 ml-2">
             <button
-              onClick={() => { setCopyMode((v) => !v); setPreviewJd(null); }}
+              onClick={openCopyMode}
               className={`flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-medium transition-all ${
                 copyMode
                   ? 'bg-red-500 text-white'
