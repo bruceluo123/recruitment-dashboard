@@ -122,18 +122,13 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       const combined = prev ? `${prev}\n\n${text}` : text;
       setRawText(combined);
       setFileStatus('parsing');
-      const hasFields = !!(name.trim() || contact.trim() || contactPerson.trim() || jobTitle.trim());
-      if (hasFields) {
-        // 表单字段已填好：不覆盖，只提取简历亮点（附件模式）
-        setHighlightsLoading(true);
-        extractResumeHighlights(combined)
-          .then((hl) => { setHighlights(hl); })
-          .catch(() => {})
-          .finally(() => setHighlightsLoading(false));
-      } else {
-        // 表单为空：完整解析基础信息 + 亮点（基于合并后的全文）
-        await applyParsedInfo(combined);
-      }
+      // 上传简历只负责「亮点 + 简历内容」，绝不回填左侧 6 个结构化字段。
+      // 那 6 个字段只能由「推荐语 + 智能解析」填充（不论上传与解析先后顺序）。
+      setHighlightsLoading(true);
+      extractResumeHighlights(combined)
+        .then((hl) => { setHighlights(hl); })
+        .catch(() => {})
+        .finally(() => setHighlightsLoading(false));
       setFileStatus('done');
     } catch (e) {
       setFileStatus('error');
@@ -257,7 +252,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               <p className="text-[11px] font-medium text-gray-600 text-center truncate w-full px-1">{uploadedFileName}</p>
               <p className="text-[11px] text-green-600 flex items-center gap-0.5"><Check className="w-3 h-3" />文字已填入左侧</p>
               <button
-                onClick={() => { setFileStatus('idle'); setUploadedFileName(''); setRawText(''); setParsed(false); setName(''); setJobTitle(''); setContact(''); setContactPerson(''); setOrganization(''); setDepartment(''); }}
+                onClick={() => { setFileStatus('idle'); setUploadedFileName(''); setHighlights(''); setHighlightsLoading(false); }}
                 className="absolute top-1.5 right-1.5 p-0.5 rounded hover:bg-green-100 text-gray-400">
                 <X className="w-3.5 h-3.5" />
               </button>
