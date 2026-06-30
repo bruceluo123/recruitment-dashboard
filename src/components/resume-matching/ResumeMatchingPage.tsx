@@ -5,7 +5,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ResumeUploader } from './ResumeUploader';
 import { MatchingResultsList } from './MatchingResultsList';
 import { useResumeStore, MATCH_TTL_MS } from '@/store/resume-store';
-import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JDCategory } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
 import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -59,7 +59,8 @@ export function ResumeMatchingPage() {
 
   if (!mounted) return null;
 
-  const allCats: (JDCategory | 'all')[] = ['all', 'frontend', 'backend', 'testing', 'product', 'design', 'devops', 'ai', 'algorithm', 'data', 'hardware', 'operations', 'advertising', 'gaming', 'finance', 'hr', 'bd', 'customer-service', 'project', 'seo', 'administration', 'director'];
+  // 用权威的 ALL_CATEGORIES，确保新增分类（市场/美术/视频/直播/法务/培训/内容）也出现在匹配范围
+  const allCats: (JDCategory | 'all')[] = ['all', ...ALL_CATEGORIES];
 
   return (
     <div className="animate-fade-in space-y-6 max-w-7xl mx-auto">

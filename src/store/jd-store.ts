@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { JD, JDFilter, JDCategory, JDImportResult, JDDiffItem, JDStatus, WeeklyAdded } from '@/types/jd';
 import { hasCategory, parsePriority } from '@/types/jd';
-import { JD_CATEGORY_LABELS, JD_STATUS_LABELS } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_STATUS_LABELS, ALL_CATEGORIES } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
@@ -607,12 +607,11 @@ export function useFilteredJDs(): JD[] {
   });
 }
 
-const ALL_CATS: JDCategory[] = ['frontend','devops','administration','advertising','gaming','backend','operations','product','design','finance','algorithm','customer-service','project','ai','testing','hr','bd','seo','director','data','hardware'];
-
 export function useCategoryCounts(): { id: JDCategory | 'all'; label: string; count: number }[] {
   const { jds } = useJDStore();
   const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: jds.length }];
-  for (const cat of ALL_CATS) {
+  // 用权威的 ALL_CATEGORIES，确保新增分类（市场/美术/视频/直播/法务/培训/内容）也出现在标签栏
+  for (const cat of ALL_CATEGORIES) {
     entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count: jds.filter((j) => hasCategory(j, cat)).length });
   }
   return entries;
