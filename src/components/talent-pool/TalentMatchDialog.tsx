@@ -1,6 +1,6 @@
 'use client';
-import { useMemo, useState } from 'react';
-import { X, Loader2, Sparkles, FileText, Copy, Check, Search } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { X, Loader2, Sparkles, FileText, Copy, Check, Search, Pause } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import { useJDStore } from '@/store/jd-store';
 import { matchJDToTalents } from '@/lib/talent-match';
@@ -42,6 +42,7 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<TalentMatchResult[] | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const filteredJds = useMemo(() => {
     const q = jdSearch.trim().toLowerCase();
@@ -71,17 +72,23 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
 
     if (!talents.length) { setError('人才库为空，请先导入候选人'); return; }
 
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     try {
-      const res = await matchJDToTalents(jdInput, jdCategories, talents);
+      const res = await matchJDToTalents(jdInput, jdCategories, talents, controller.signal);
       setResults(res);
       if (!res.length) setError('未找到匹配的候选人');
     } catch (err) {
-      setError(`匹配失败: ${(err as Error).message}`);
+      if ((err as Error).name === 'AbortError') setError('已暂停匹配');
+      else setError(`匹配失败: ${(err as Error).message}`);
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
   };
+
+  const handlePause = () => abortRef.current?.abort();
 
   const handleCopyTg = async (tg: string, id: string) => {
     try {
@@ -144,10 +151,22 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
             </div>
           )}
 
-          <button onClick={handleMatch} disabled={loading}
-            className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-            {loading ? <><Loader2 className="w-4 h-4 animate-spin" />AI 匹配中...</> : <><Sparkles className="w-4 h-4" />开始匹配</>}
-          </button>
+          {loading ? (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-10 rounded-xl bg-indigo-500/90 text-white text-sm font-medium flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />AI 匹配中...
+              </div>
+              <button onClick={handlePause}
+                className="h-10 px-4 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all flex items-center gap-2 shrink-0">
+                <Pause className="w-4 h-4" />暂停匹配
+              </button>
+            </div>
+          ) : (
+            <button onClick={handleMatch}
+              className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
+              <Sparkles className="w-4 h-4" />开始匹配
+            </button>
+          )}
 
           {error && <div className="px-4 py-2.5 rounded-xl bg-red-50 border border-red-100 text-sm text-red-600">{error}</div>}
 
