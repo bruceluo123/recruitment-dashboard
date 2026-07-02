@@ -496,24 +496,31 @@ function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: s
     setPreviewJd((prev) => (prev?.id === found.id ? null : found));
   };
 
-  const renderDiffItem = (item: JDDiffItem, color: string, clickable: boolean) => (
-    <li
-      key={item.reqKey || item.title}
-      onClick={clickable ? () => handleItemClick(item) : undefined}
-      className={clickable ? 'text-xs text-gray-700 flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors' + (previewJd && findJd(item)?.id === previewJd.id ? ' bg-indigo-50' : '') : 'text-xs text-gray-700 flex items-baseline gap-1.5'}
-    >
-      <span className={`shrink-0 ${color}`}>·</span>
-      <span className={clickable ? 'hover:text-indigo-600 transition-colors' : ''}>{item.title}</span>
-      {(item.organization || item.department) && (
-        <span className="text-gray-400 shrink-0">
-          {[item.organization, item.department].filter(Boolean).join(' · ')}
-        </span>
-      )}
-      {item.changes && item.changes.length > 0 && (
-        <span className="text-amber-600 ml-1 shrink-0">— {item.changes.join('，')}</span>
-      )}
-    </li>
-  );
+  const renderDiffItem = (item: JDDiffItem, color: string, clickable: boolean) => {
+    // 优先读当前库中该岗位的实时字段，让历史 diff 快照也与详情卡保持一致（服务单位）；
+    // 找不到（如已移除岗位）时退回 diff 自身记录的字段。
+    const live = findJd(item);
+    const org = live?.organization ?? item.organization;
+    const svc = live?.serviceUnit ?? item.serviceUnit ?? live?.department ?? item.department;
+    return (
+      <li
+        key={item.reqKey || item.title}
+        onClick={clickable ? () => handleItemClick(item) : undefined}
+        className={clickable ? 'text-xs text-gray-700 flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors' + (previewJd && live?.id === previewJd.id ? ' bg-indigo-50' : '') : 'text-xs text-gray-700 flex items-baseline gap-1.5'}
+      >
+        <span className={`shrink-0 ${color}`}>·</span>
+        <span className={clickable ? 'hover:text-indigo-600 transition-colors' : ''}>{item.title}</span>
+        {(org || svc) && (
+          <span className="text-gray-400 shrink-0">
+            {[org, svc].filter(Boolean).join(' · ')}
+          </span>
+        )}
+        {item.changes && item.changes.length > 0 && (
+          <span className="text-amber-600 ml-1 shrink-0">— {item.changes.join('，')}</span>
+        )}
+      </li>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">

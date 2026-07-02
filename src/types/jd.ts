@@ -109,7 +109,7 @@ export function hasCategory(jd: { categories?: JDCategory[]; category?: JDCatego
   if (jd.categories) return jd.categories.includes(cat);
   return jd.category === cat;
 }
-export interface JDDiffItem { title: string; reqKey?: string; organization?: string; department?: string; changes?: string[]; }
+export interface JDDiffItem { title: string; reqKey?: string; organization?: string; department?: string; serviceUnit?: string; changes?: string[]; }
 export interface JDImportResult { success: number; failed: number; errors: string[]; skipped?: number; replaced?: number; added?: JDDiffItem[]; removed?: JDDiffItem[]; changed?: JDDiffItem[]; }
 /** 本周新增累计：每次覆盖导入时将 diff.added 追加进来，周一自动重置 */
 export interface WeeklyAdded { weekKey: string; items: JDDiffItem[]; lastUpdated: string; }
