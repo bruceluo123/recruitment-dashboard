@@ -87,6 +87,12 @@ export function TalentPoolPage() {
 
   const handleBatchDelete = () => {
     if (selectedIds.length === 0) return;
+    // 批量删除经墓碑机制会同步到全团队且不可撤销，删除前二次确认(展示数量+抽样名单)
+    const sample = selectedIds.slice(0, 5)
+      .map((id) => talents.find((t) => t.id === id)?.name || id)
+      .join('、');
+    const more = selectedIds.length > 5 ? ` 等 ${selectedIds.length} 人` : '';
+    if (!window.confirm(`确认删除选中的 ${selectedIds.length} 位人选？\n\n${sample}${more}\n\n此操作会同步到全团队，且无法撤销。`)) return;
     deleteTalentBatch(selectedIds);
     setSelectedIds([]);
     setBatchMode(false);

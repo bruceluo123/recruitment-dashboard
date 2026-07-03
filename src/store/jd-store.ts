@@ -5,7 +5,8 @@ import type { JD, JDFilter, JDCategory, JDImportResult, JDDiffItem, JDStatus, We
 import { hasCategory, parsePriority } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_STATUS_LABELS, ALL_CATEGORIES } from '@/types/jd';
 import { MOCK_JDS } from '@/data/mock-jds';
-import { generateId } from '@/lib/utils';
+import { generateId, mondayKey } from '@/lib/utils';
+import { isMockJds } from '@/lib/mock-guard';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
 import { pushImportDiff, pushWeeklyAdded, syncPush } from '@/lib/sync';
 import {
@@ -131,7 +132,7 @@ export const useJDStore = create<JDStore>()(
         if (changed > 0) {
           set({ jds });
           // 重分类是修改(非删除)，直接推送 KV，避免忘记「备份到云端」后被远端旧数据覆盖回来
-          if (!jds.every((j) => j.id.startsWith('jd-00'))) syncPush('jds', jds);
+          if (!isMockJds(jds)) syncPush('jds', jds);
         }
         return { total: jds.length, changed };
       },
@@ -153,7 +154,7 @@ export const useJDStore = create<JDStore>()(
 
       backupToKV: async () => {
         const jds = get().jds;
-        if (jds.length > 0 && jds.every((j) => j.id.startsWith('jd-00'))) {
+        if (isMockJds(jds)) {
           alert('当前为示例数据，不能备份。请先导入真实岗位数据。');
           return;
         }
@@ -397,7 +398,7 @@ export const useJDStore = create<JDStore>()(
             // 持久化今日增改，供工具栏"今日增改"按钮调取；同时推送到 KV 供其他用户查看
             const importDiff = { ...result, date: new Date().toISOString() };
             // 累计本周新增：新 diff.added 追加到本周列表（按周一日期重置）
-            const weekKey = getMondayKey();
+            const weekKey = mondayKey();
             const prev = get().weeklyAdded;
             const baseItems = prev?.weekKey === weekKey ? prev.items : [];
             const newItems = result.added ?? [];
@@ -463,11 +464,7 @@ export const useJDStore = create<JDStore>()(
         if (!state) return;
         // 若 weeklyAdded 为空但 lastImportDiff 有数据，则自动补充（首次部署兼容）
         if (!state.weeklyAdded && state.lastImportDiff?.added?.length && state.lastImportDiff.date) {
-          const d = new Date(state.lastImportDiff.date);
-          const day = d.getDay();
-          const mon = new Date(d);
-          mon.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-          const weekKey = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
+          const weekKey = mondayKey(new Date(state.lastImportDiff.date));
           const weekly: WeeklyAdded = { weekKey, items: state.lastImportDiff.added, lastUpdated: state.lastImportDiff.date };
           state.weeklyAdded = weekly;
           // 异步写入 KV，让其他端也能拿到
@@ -513,15 +510,6 @@ export const useJDStore = create<JDStore>()(
   ),
 );
 
-/** 返回本周周一的日期字符串，如 "2026-06-22"，用作本周新增的 weekKey */
-function getMondayKey(): string {
-  const now = new Date();
-  const day = now.getDay(); // 0=Sun
-  const diffToMon = day === 0 ? -6 : 1 - day;
-  const mon = new Date(now);
-  mon.setDate(now.getDate() + diffToMon);
-  return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
-}
 
 function formatExportList(items: string[]): string {
   return items.map((item, index) => `${index + 1}. ${item}`).join('\n');

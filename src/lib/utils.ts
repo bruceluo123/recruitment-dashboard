@@ -9,6 +9,14 @@ export function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+/** 返回给定日期(默认今天)所在周的周一日期字符串，如 "2026-06-22"，用作本周新增 weekKey。 */
+export function mondayKey(date: Date = new Date()): string {
+  const day = date.getDay(); // 0=Sun
+  const mon = new Date(date);
+  mon.setDate(date.getDate() + (day === 0 ? -6 : 1 - day));
+  return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
+}
+
 export function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('zh-CN', {
     year: 'numeric',

@@ -2,6 +2,8 @@
 import { useEffect, useRef } from 'react';
 import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded, pushWeeklyAdded } from '@/lib/sync';
 import { stripContactMeta } from '@/lib/jd-parse-core';
+import { isMockJds } from '@/lib/mock-guard';
+import { mondayKey } from '@/lib/utils';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { useTalentStore } from '@/store/talent-store';
@@ -13,12 +15,6 @@ import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
 import type { TodoItem } from '@/types/todo';
 import type { Company } from '@/types/company';
-
-// Check if JDs are mock data (all IDs start with "jd-00")
-function isMockData(jds: JD[]): boolean {
-  if (jds.length === 0) return false;
-  return jds.every((j) => j.id.startsWith('jd-00'));
-}
 
 /** 取数组里所有 id */
 function idsOf(arr: Array<{ id?: string }>): string[] {
@@ -79,7 +75,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         });
         // Only apply remote if it's not empty mock，且不会用空覆盖本地非空
         const typedJds = normalized as unknown as JD[];
-        if (!isMockData(typedJds) && shouldApply(typedJds, useJDStore.getState().jds.length, readOk)) {
+        if (!isMockJds(typedJds) && shouldApply(typedJds, useJDStore.getState().jds.length, readOk)) {
           useJDStore.setState({ jds: typedJds });
         }
       }
@@ -113,7 +109,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     const removed = removedIds(prevJds.current, next);
     prevJds.current = next;
     if (skipPush.current) return;
-    if (isMockData(jds)) return; // never push mock data to KV
+    if (isMockJds(jds)) return; // never push mock data to KV
     if (removed.length) syncDelete('jds', removed);
     syncPush('jds', jds);
   }, [jds]);
@@ -196,11 +192,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           }
         } else if (rd?.added?.length && rd.date) {
           // KV 中 weeklyAdded 为空：从 lastImportDiff.added 直接补充
-          const diffDate = new Date(rd.date);
-          const day = diffDate.getDay();
-          const mon = new Date(diffDate);
-          mon.setDate(diffDate.getDate() + (day === 0 ? -6 : 1 - day));
-          const weekKey = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
+          const weekKey = mondayKey(new Date(rd.date));
           const localWeekly = useJDStore.getState().weeklyAdded;
           if (!localWeekly?.items?.length) {
             const newWeekly: WeeklyAdded = { weekKey, items: rd.added!, lastUpdated: rd.date };
