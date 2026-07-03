@@ -59,7 +59,10 @@
       "Bash(node .claude/hooks/guard-write-scope.js echo \"EXITCODE=$?\")",
       "Bash(node -e ':*)",
       "Bash(node _guard_test.mjs)",
-      "Bash(echo \"RESULT=$?\")"
+      "Bash(echo \"RESULT=$?\")",
+      "Bash(wc -l package.json src/lib/sync.ts src/store/*.ts src/components/jd-library/JDLibraryPage.tsx)",
+      "Bash(find src/components/talent-pool -type f)",
+      "Bash(npx tsc *)"
     ]
   }
 }
