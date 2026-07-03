@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { guardApi } from '@/lib/api-guard';
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
 
 export async function POST(req: NextRequest) {
+  const blocked = guardApi(req, 'match', 30, 60_000);
+  if (blocked) return blocked;
   try {
     const body = await req.json();
     const apiKey = process.env.DEEPSEEK_API_KEY;

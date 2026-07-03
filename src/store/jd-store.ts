@@ -160,7 +160,7 @@ export const useJDStore = create<JDStore>()(
           const remoteRes = await fetch('/api/data?type=jds');
           if (remoteRes.ok) {
             const remote = await remoteRes.json();
-            const remoteJds = Array.isArray(remote?.data) ? remote.data as JD[] : [];
+            const remoteJds = Array.isArray(remote?.jds) ? remote.jds as JD[] : [];
             dataToBackup = mergeUniqueJDs(remoteJds, jds).jds;
           }
           const res = await fetch('/api/data', {

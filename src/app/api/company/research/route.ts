@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseResearchText, DIMENSION_NUMBERED } from '@/lib/company-research';
 import { ALL_CATEGORIES, JD_CATEGORY_LABELS } from '@/types/jd';
+import { guardApi } from '@/lib/api-guard';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -54,6 +55,8 @@ interface GeminiResponse {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = guardApi(req, 'company-research', 10, 60_000);
+  if (blocked) return blocked;
   try {
     const { name } = await req.json();
     const company = typeof name === 'string' ? name.trim() : '';

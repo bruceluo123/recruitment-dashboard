@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
+import { guardApi } from '@/lib/api-guard';
 
 export const dynamic = 'force-dynamic';
 
 // 上传简历文件到 Vercel Blob，返回可下载的公开链接
 export async function POST(request: NextRequest) {
+  const blocked = guardApi(request, 'talent-upload', 30, 60_000);
+  if (blocked) return blocked;
   try {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       return NextResponse.json(

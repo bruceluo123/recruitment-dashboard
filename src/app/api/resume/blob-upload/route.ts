@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
+import { guardApi } from '@/lib/api-guard';
 
 export const runtime = 'nodejs';
 
 // 客户端直传 Vercel Blob 的令牌路由：浏览器经 @vercel/blob/client 的 upload() 调用此处换取上传令牌，
 // 文件随后由浏览器直接传到 Blob，绕过 Vercel Serverless 4.5MB 请求体上限（大简历/作品集 PDF 必经此路径）。
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const blocked = guardApi(request, 'blob-upload', 30, 60_000);
+  if (blocked) return blocked;
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
       { error: '云端文件存储未配置（缺少 BLOB_READ_WRITE_TOKEN），请在 Vercel 项目中关联 Blob Store' },

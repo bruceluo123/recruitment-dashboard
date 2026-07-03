@@ -2,8 +2,12 @@
 // 策略：按 id 合并（merge），而非整数组覆盖，确保「添加永不丢失」；
 // 删除通过墓碑（tombstone）传播，确保删除仍能在多端生效。
 
-const KV_URL = 'https://positive-mongrel-70521.upstash.io';
-const KV_TOKEN = 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
+// KV 凭证：优先读构建期环境变量（Vercel 项目设置 NEXT_PUBLIC_KV_URL / NEXT_PUBLIC_KV_TOKEN），
+// 旧硬编码值仅作过渡兜底 —— 在 Vercel 配好环境变量并轮换 Upstash token 后，应删除兜底值。
+// 注意：浏览器直连架构下 token 必然随 bundle 下发（NEXT_PUBLIC_ 前缀），
+// 长期方案是把写路径收敛到 /api/data（服务端 token），此处只保留只读轮询。
+const KV_URL = process.env.NEXT_PUBLIC_KV_URL || 'https://positive-mongrel-70521.upstash.io';
+const KV_TOKEN = process.env.NEXT_PUBLIC_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
 
 type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
 type ChangeHandler = (type: DataType, data: unknown[], version: number) => void;

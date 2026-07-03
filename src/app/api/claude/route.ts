@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { guardApi } from '@/lib/api-guard'
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions'
 
@@ -8,6 +9,8 @@ const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions'
  * 返回：DeepSeek 原始响应（choices[0].message.content 为生成内容）
  */
 export async function POST(req: NextRequest) {
+  const blocked = guardApi(req, 'claude', 30, 60_000)
+  if (blocked) return blocked
   const apiKey = process.env.DEEPSEEK_API_KEY
 
   if (!apiKey) {
