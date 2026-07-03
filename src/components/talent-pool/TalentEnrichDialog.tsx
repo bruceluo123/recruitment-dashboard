@@ -78,7 +78,10 @@ async function uploadFile(
 interface Props { isOpen: boolean; onClose: () => void; }
 
 export function TalentEnrichDialog({ isOpen, onClose }: Props) {
-  const { talents, updateTalent, addTalent } = useTalentStore();
+  // 按需订阅：避免整 store 订阅导致该弹窗随无关字段变化而重渲染
+  const talents = useTalentStore((s) => s.talents);
+  const updateTalent = useTalentStore((s) => s.updateTalent);
+  const addTalent = useTalentStore((s) => s.addTalent);
   const [files, setFiles] = useState<File[]>([]);
   const [rows, setRows] = useState<EnrichRow[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -237,7 +240,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
       setIsDone(true);
     }
     abortRef.current = null;
-  }, [files, talents, updateTalent, patchRow]);
+  }, [files, talents, updateTalent, addTalent, patchRow]);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();

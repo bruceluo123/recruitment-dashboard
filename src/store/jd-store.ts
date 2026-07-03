@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { JD, JDFilter, JDCategory, JDImportResult, JDDiffItem, JDStatus, WeeklyAdded } from '@/types/jd';
@@ -593,8 +594,11 @@ async function exportJDsWithTemplate(jds: JD[]): Promise<void> {
 // ─── Selectors ───
 
 export function useFilteredJDs(): JD[] {
-  const { jds, filter } = useJDStore();
-  return jds.filter((jd) => {
+  // 按需订阅 + useMemo：仅当 jds/filter 真正变化时重新过滤，
+  // 避免 store 其它字段（导入进度等）触发大页面全量重算。
+  const jds = useJDStore((s) => s.jds);
+  const filter = useJDStore((s) => s.filter);
+  return useMemo(() => jds.filter((jd) => {
     if (filter.category !== 'all' && !hasCategory(jd, filter.category)) return false;
     if (filter.search) {
       const q = filter.search.toLowerCase();
@@ -604,15 +608,24 @@ export function useFilteredJDs(): JD[] {
     if (filter.department && jd.department !== filter.department) return false;
     if (filter.status && jd.status !== filter.status) return false;
     return true;
-  });
+  }), [jds, filter]);
 }
 
 export function useCategoryCounts(): { id: JDCategory | 'all'; label: string; count: number }[] {
-  const { jds } = useJDStore();
-  const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: jds.length }];
-  // 用权威的 ALL_CATEGORIES，确保新增分类（市场/美术/视频/直播/法务/培训/内容）也出现在标签栏
-  for (const cat of ALL_CATEGORIES) {
-    entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count: jds.filter((j) => hasCategory(j, cat)).length });
-  }
-  return entries;
+  const jds = useJDStore((s) => s.jds);
+  return useMemo(() => {
+    // 一次遍历累加计数（O(n)），替代原先每个分类各 filter 一遍的 O(21n)。
+    // 与 hasCategory 语义一致：优先 categories 数组，缺失时回退旧的单数 category 字段。
+    const counts = new Map<JDCategory, number>();
+    for (const jd of jds) {
+      const cats = jd.categories ?? ((jd as { category?: JDCategory }).category ? [(jd as { category?: JDCategory }).category as JDCategory] : []);
+      for (const cat of cats) counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
+    const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: jds.length }];
+    // 用权威的 ALL_CATEGORIES，确保新增分类（市场/美术/视频/直播/法务/培训/内容）也出现在标签栏
+    for (const cat of ALL_CATEGORIES) {
+      entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count: counts.get(cat) || 0 });
+    }
+    return entries;
+  }, [jds]);
 }

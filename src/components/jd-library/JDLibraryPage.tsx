@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { JDCategoryTabs } from './JDCategoryTabs';
 import { JDSearchBar } from './JDSearchBar';
@@ -73,7 +73,6 @@ export function JDLibraryPage() {
     const t = setTimeout(() => useJDStore.setState({ lastDeletedJD: null }), 10000);
     return () => clearTimeout(t);
   }, [lastDeletedJD]);
-  if (!mounted) return null;
 
   // 编制组织 / 服务单位 的取值（与表格展示口径一致）
   const orgOf = (j: typeof jds[number]) => (j.organization || '').trim();
@@ -94,18 +93,21 @@ export function JDLibraryPage() {
     if (next) selectJD(null);
   };
 
-  const handleToggleSelect = (id: string) => {
+  // useCallback：保持引用稳定，让 memo 化的 JDTable 不因父组件重渲染而整表 reconcile
+  const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
-  };
+  }, []);
 
-  const handleToggleSelectAll = () => {
+  const handleToggleSelectAll = useCallback(() => {
     setSelectedIds((ids) => {
       const visibleSet = new Set(visibleIds);
       const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => ids.includes(id));
       if (allVisibleSelected) return ids.filter((id) => !visibleSet.has(id));
       return Array.from(new Set([...ids, ...visibleIds]));
     });
-  };
+  }, [visibleIds]);
+
+  const handleGapOnlyToggle = useCallback(() => setGapOnly((v) => !v), []);
 
   const handleBatchDelete = () => {
     if (selectedIds.length === 0) return;
@@ -206,6 +208,9 @@ export function JDLibraryPage() {
     }));
   };
 
+  // 水合守卫：放在所有 hook 之后，避免条件调用 hook
+  if (!mounted) return null;
+
   return (
     <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
       <div>
@@ -268,7 +273,7 @@ export function JDLibraryPage() {
             onOrgFilterChange={setOrgFilter}
             onServiceFilterChange={setServiceFilter}
             gapOnly={gapOnly}
-            onGapOnlyToggle={() => setGapOnly((v) => !v)}
+            onGapOnlyToggle={handleGapOnlyToggle}
             newJdIds={newJdIds}
           />
         ) : (

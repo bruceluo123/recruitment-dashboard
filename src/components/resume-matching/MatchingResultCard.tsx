@@ -1,7 +1,13 @@
 'use client';
 import { cn, formatSalary } from '@/lib/utils';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { ScoreRadarChart } from './ScoreRadarChart';
+import dynamic from 'next/dynamic';
+
+// recharts 较重：懒加载雷达图，页面未展示匹配结果时不进首屏 bundle
+const ScoreRadarChart = dynamic(
+  () => import('./ScoreRadarChart').then((m) => m.ScoreRadarChart),
+  { ssr: false, loading: () => <div className="w-[160px] h-[160px]" /> },
+);
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink, UserRound, Copy, Check } from 'lucide-react';

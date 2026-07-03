@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
 import type { Talent } from '@/types/talent';
@@ -62,7 +62,7 @@ function HighlightsModal({ talent, onClose }: { talent: Talent; onClose: () => v
   );
 }
 
-export function TalentTable({ talents, onEdit, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll }: TalentTableProps) {
+function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll }: TalentTableProps) {
   const [highlightId, setHighlightId] = useState<string | null>(null);
   if (talents.length === 0) return <div className="text-center py-12 text-gray-400"><p>暂无匹配的人选</p></div>;
 
@@ -190,3 +190,6 @@ export function TalentTable({ talents, onEdit, onDelete, batchMode = false, sele
     </>
   );
 }
+
+// memo：父页面（TalentPoolPage）的弹窗/批量导入等无关状态变化时，不再整表重新 reconcile
+export const TalentTable = memo(TalentTableImpl);

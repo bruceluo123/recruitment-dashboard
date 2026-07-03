@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { JDCategoryTabs } from '@/components/jd-library/JDCategoryTabs';
@@ -61,7 +61,6 @@ export function TalentPoolPage() {
     const t = setTimeout(() => useTalentStore.setState({ lastDeletedTalent: null }), 10000);
     return () => clearTimeout(t);
   }, [lastDeletedTalent]);
-  if (!mounted) return null;
 
   const editTarget = talents.find((t) => t.id === editId) || null;
   const visibleIds = filteredTalents.map((t) => t.id);
@@ -72,18 +71,19 @@ export function TalentPoolPage() {
     setSelectedIds([]);
   };
 
-  const handleToggleSelect = (id: string) => {
+  // useCallback：保持引用稳定，让 memo 化的 TalentTable 不因父组件重渲染而整表 reconcile
+  const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
-  };
+  }, []);
 
-  const handleToggleSelectAll = () => {
+  const handleToggleSelectAll = useCallback(() => {
     setSelectedIds((ids) => {
       const visibleSet = new Set(visibleIds);
       const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => ids.includes(id));
       if (allVisibleSelected) return ids.filter((id) => !visibleSet.has(id));
       return Array.from(new Set([...ids, ...visibleIds]));
     });
-  };
+  }, [visibleIds]);
 
   const handleBatchDelete = () => {
     if (selectedIds.length === 0) return;
@@ -151,6 +151,9 @@ export function TalentPoolPage() {
     });
     setEditId(id);
   };
+
+  // 水合守卫：放在所有 hook 之后，避免条件调用 hook
+  if (!mounted) return null;
 
   return (
     <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">

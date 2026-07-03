@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { cn, formatSalary } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority, type JD } from '@/types/jd';
 import { ChevronRight, Trash2, Copy, Check, Filter } from 'lucide-react';
@@ -25,7 +25,7 @@ interface JDTableProps {
   newJdIds?: Set<string>;
 }
 
-export function JDTable({
+function JDTableImpl({
   jds, onSelect, selectedId, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll,
   orgOptions = [], serviceOptions = [], orgFilter, serviceFilter, onOrgFilterChange, onServiceFilterChange,
   gapOnly = false, onGapOnlyToggle, newJdIds,
@@ -226,3 +226,6 @@ export function JDTable({
     </div>
   );
 }
+
+// memo：父页面（JDLibraryPage）的弹窗/同步按钮等无关状态变化时，不再整表重新 reconcile
+export const JDTable = memo(JDTableImpl);

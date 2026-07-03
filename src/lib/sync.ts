@@ -146,6 +146,12 @@ export async function syncDelete(type: DataType, ids: string[]) {
 }
 
 async function poll() {
+  // 先只查版本号（几十字节）：未变化就不下载 6 类数据的全量 JSON（可达数百KB），
+  // 稳定态下把每 10 秒的轮询流量降到接近零，对国内慢链路尤其重要。
+  const rawV = await kvCmd('get', 'recruit:version');
+  const v = parseInt(rawV || '0') || 0;
+  if (v <= remoteVersion) return;
+
   const remote = await fetchRemote();
   if (!remote) return;
   if (remote.version > remoteVersion) {

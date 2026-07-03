@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Talent, TalentFilter, TalentImportResult } from '@/types/talent';
@@ -353,8 +354,10 @@ export const useTalentStore = create<TalentStore>()(
 // ─── Selectors ───
 
 export function useFilteredTalents(): Talent[] {
-  const { talents, filter } = useTalentStore();
-  return talents.filter((t) => {
+  // 按需订阅 + useMemo：仅当 talents/filter 变化时重新过滤排序
+  const talents = useTalentStore((s) => s.talents);
+  const filter = useTalentStore((s) => s.filter);
+  return useMemo(() => talents.filter((t) => {
     // 归档视图：archived=true 只看归档；默认只看活跃（未归档）
     const view = (filter as TalentFilter & { archiveView?: 'active' | 'all' | 'archived' }).archiveView || 'active';
     if (view === 'active' && t.archived) return false;
@@ -374,21 +377,29 @@ export function useFilteredTalents(): Talent[] {
     return true;
   })
     // 由近及远：新导入/新增的（createdAt 越新）排在最上面；无 createdAt 的老数据沉到末尾
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')), [talents, filter]);
 }
 
 export function useTalentCategoryCounts(): { id: JDCategory | 'all'; label: string; count: number }[] {
-  const { talents, filter } = useTalentStore();
-  const view = (filter as TalentFilter & { archiveView?: 'active' | 'all' | 'archived' }).archiveView || 'active';
-  const pool = talents.filter((t) => {
-    if (view === 'active' && t.archived) return false;
-    if (view === 'archived' && !t.archived) return false;
-    return true;
-  });
-  const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: pool.length }];
-  for (const cat of ALL_CATEGORIES) {
-    const count = pool.filter((t) => (t.categories || []).includes(cat)).length;
-    if (count > 0) entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count });
-  }
-  return entries;
+  const talents = useTalentStore((s) => s.talents);
+  const filter = useTalentStore((s) => s.filter);
+  return useMemo(() => {
+    const view = (filter as TalentFilter & { archiveView?: 'active' | 'all' | 'archived' }).archiveView || 'active';
+    const pool = talents.filter((t) => {
+      if (view === 'active' && t.archived) return false;
+      if (view === 'archived' && !t.archived) return false;
+      return true;
+    });
+    // 一次遍历累加计数（O(n)），替代每个分类各 filter 一遍
+    const counts = new Map<JDCategory, number>();
+    for (const t of pool) {
+      for (const cat of t.categories || []) counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
+    const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: pool.length }];
+    for (const cat of ALL_CATEGORIES) {
+      const count = counts.get(cat) || 0;
+      if (count > 0) entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count });
+    }
+    return entries;
+  }, [talents, filter]);
 }
