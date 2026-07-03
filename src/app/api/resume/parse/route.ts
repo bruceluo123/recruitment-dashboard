@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractResumeText, isExtractErr } from '@/lib/resume-text';
+import { blobUrlError } from '@/lib/api-guard';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -13,6 +14,8 @@ export async function POST(request: NextRequest) {
     if (contentType.includes('application/json')) {
       const { url, fileName } = (await request.json()) as { url?: string; fileName?: string };
       if (!url) return NextResponse.json({ error: '缺少文件 URL' }, { status: 400 });
+      const urlErr = blobUrlError(url);
+      if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 });
 
       let buffer: Buffer;
       try {

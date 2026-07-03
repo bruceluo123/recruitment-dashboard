@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractResumeText, isExtractErr } from '@/lib/resume-text';
 import { kvSetRaw, kvConfigured, talentTextKey } from '@/lib/kv-server';
+import { blobUrlError } from '@/lib/api-guard';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -12,6 +13,8 @@ export async function POST(request: NextRequest) {
   try {
     const { id, url, fileName } = (await request.json()) as { id?: string; url?: string; fileName?: string };
     if (!id || !url) return NextResponse.json({ error: '参数缺失 (id/url)' }, { status: 400 });
+    const urlErr = blobUrlError(url);
+    if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 });
 
     let buffer: Buffer;
     try {
