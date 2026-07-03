@@ -7,7 +7,7 @@ import { JD_CATEGORY_LABELS, JD_STATUS_LABELS, ALL_CATEGORIES } from '@/types/jd
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId } from '@/lib/utils';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
-import { pushImportDiff, pushWeeklyAdded } from '@/lib/sync';
+import { pushImportDiff, pushWeeklyAdded, syncPush } from '@/lib/sync';
 import {
   analyzeColumns,
   classifyJD,
@@ -128,7 +128,11 @@ export const useJDStore = create<JDStore>()(
           }
           return j;
         });
-        if (changed > 0) set({ jds });
+        if (changed > 0) {
+          set({ jds });
+          // 重分类是修改(非删除)，直接推送 KV，避免忘记「备份到云端」后被远端旧数据覆盖回来
+          if (!jds.every((j) => j.id.startsWith('jd-00'))) syncPush('jds', jds);
+        }
         return { total: jds.length, changed };
       },
 

@@ -10,7 +10,9 @@ const KV_URL = process.env.NEXT_PUBLIC_KV_URL || 'https://positive-mongrel-70521
 const KV_TOKEN = process.env.NEXT_PUBLIC_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
 
 type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
-type ChangeHandler = (type: DataType, data: unknown[], version: number) => void;
+// readOk：该类型的远端读取是否成功（HTTP 200）。用于区分「合法的空数据」与「读取故障返回空」，
+// 接收端据此决定是否允许用空数组覆盖本地（修复「清空到 0」被永久阻断的问题）。
+type ChangeHandler = (type: DataType, data: unknown[], version: number, readOk: boolean) => void;
 
 interface Item { id?: string }
 /** 墓碑：{ [type]: { [id]: 删除时间戳ms } } */
@@ -51,6 +53,26 @@ async function kvCmd(cmd: string, key: string, body?: string): Promise<string | 
   } catch { return null; }
 }
 
+/** 读取单键并报告 HTTP 是否成功，用于区分「合法空」与「读取失败」。 */
+async function kvGet(key: string): Promise<{ ok: boolean; value: string | null }> {
+  try {
+    const res = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+    });
+    if (!res.ok) return { ok: false, value: null };
+    const data = await res.json();
+    return { ok: true, value: (data.result ?? null) as string | null };
+  } catch {
+    return { ok: false, value: null };
+  }
+}
+
+/** 原子自增全局版本号（Upstash INCR），杜绝并发写的 get→+1→set 竞态导致漏版本。 */
+async function bumpVersion(): Promise<number> {
+  const r = await kvCmd('incr', 'recruit:version');
+  return parseInt(String(r ?? '0')) || 0;
+}
+
 /** 按 id 合并：incoming 在 id 冲突时获胜；保留只存在于 base 的项（添加不丢失） */
 function mergeById(base: unknown[], incoming: unknown[]): unknown[] {
   const map = new Map<string, unknown>();
@@ -86,28 +108,36 @@ async function fetchTombstones(): Promise<Tombstones> {
   return (safeParse(raw) as Tombstones) || {};
 }
 
-async function fetchRemote(): Promise<{ data: Record<DataType, unknown[]>; version: number } | null> {
+async function fetchRemote(): Promise<{
+  data: Record<DataType, unknown[]>;
+  readOk: Record<DataType, boolean>;
+  version: number;
+} | null> {
   try {
-    const [rawJd, rawCand, rawTalent, rawRepush, rawTodos, rawCompanies, rawVer, rawTomb] = await Promise.all([
-      kvCmd('get', KV_KEYS.jds),
-      kvCmd('get', KV_KEYS.candidates),
-      kvCmd('get', KV_KEYS.talents),
-      kvCmd('get', KV_KEYS.repush),
-      kvCmd('get', KV_KEYS.todos),
-      kvCmd('get', KV_KEYS.companies),
+    const [jd, cand, talent, repush, todos, companies, rawVer, rawTomb] = await Promise.all([
+      kvGet(KV_KEYS.jds),
+      kvGet(KV_KEYS.candidates),
+      kvGet(KV_KEYS.talents),
+      kvGet(KV_KEYS.repush),
+      kvGet(KV_KEYS.todos),
+      kvGet(KV_KEYS.companies),
       kvCmd('get', 'recruit:version'),
       kvCmd('get', TOMB_KEY),
     ]);
-    if (!rawJd && !rawCand && !rawTalent && !rawRepush && !rawTodos && !rawCompanies) return null;
+    if (!jd.value && !cand.value && !talent.value && !repush.value && !todos.value && !companies.value) return null;
     tombstones = (safeParse(rawTomb) as Tombstones) || {};
     return {
       data: {
-        jds: (safeParse(rawJd) as unknown[]) || [],
-        candidates: (safeParse(rawCand) as unknown[]) || [],
-        talents: (safeParse(rawTalent) as unknown[]) || [],
-        repush: (safeParse(rawRepush) as unknown[]) || [],
-        todos: (safeParse(rawTodos) as unknown[]) || [],
-        companies: (safeParse(rawCompanies) as unknown[]) || [],
+        jds: (safeParse(jd.value) as unknown[]) || [],
+        candidates: (safeParse(cand.value) as unknown[]) || [],
+        talents: (safeParse(talent.value) as unknown[]) || [],
+        repush: (safeParse(repush.value) as unknown[]) || [],
+        todos: (safeParse(todos.value) as unknown[]) || [],
+        companies: (safeParse(companies.value) as unknown[]) || [],
+      },
+      readOk: {
+        jds: jd.ok, candidates: cand.ok, talents: talent.ok,
+        repush: repush.ok, todos: todos.ok, companies: companies.ok,
       },
       version: parseInt(rawVer || '0') || 0,
     };
@@ -126,10 +156,7 @@ async function pushData(type: DataType, local: unknown[]) {
   const merged = applyTombstones(type, mergeById(remote, local)); // 本地获胜
   const ok = await kvCmd('set', KV_KEYS[type], JSON.stringify(merged));
   if (!ok) return null;
-  const rawV = await kvCmd('get', 'recruit:version');
-  const v = (parseInt(rawV || '0') || 0) + 1;
-  await kvCmd('set', 'recruit:version', String(v));
-  return v;
+  return await bumpVersion();
 }
 
 /** 删除：把 id 写入墓碑（含 TTL 清理），随后由 pushData 把数组中的对应项剔除并传播 */
@@ -156,14 +183,14 @@ async function poll() {
   if (!remote) return;
   if (remote.version > remoteVersion) {
     remoteVersion = remote.version;
-    emitAll(remote.data, remote.version);
+    emitAll(remote.data, remote.version, remote.readOk);
   }
 }
 
-function emitAll(data: Record<DataType, unknown[]>, version: number) {
+function emitAll(data: Record<DataType, unknown[]>, version: number, readOk: Record<DataType, boolean>) {
   if (!onChange) return;
   for (const type of ALL_TYPES) {
-    onChange(type, applyTombstones(type, data[type]), version);
+    onChange(type, applyTombstones(type, data[type]), version, readOk[type]);
   }
 }
 
@@ -172,7 +199,7 @@ export function startSync(handler: ChangeHandler) {
   fetchRemote().then((remote) => {
     if (!remote) return;
     remoteVersion = remote.version;
-    emitAll(remote.data, remote.version);
+    emitAll(remote.data, remote.version, remote.readOk);
   });
   timer = setInterval(poll, 10000);
 }
@@ -200,9 +227,7 @@ export function syncPush(type: DataType, data: unknown[]) {
 export async function pushImportDiff(diff: unknown): Promise<void> {
   await kvCmd('set', 'recruit:last-import-diff', JSON.stringify(diff));
   // 同时推高 version，让其他端的 10s 轮询感知到变化
-  const rawV = await kvCmd('get', 'recruit:version');
-  const v = (parseInt(rawV || '0') || 0) + 1;
-  await kvCmd('set', 'recruit:version', String(v));
+  await bumpVersion();
 }
 
 /** 从 KV 拉取最新 lastImportDiff（供 SyncProvider 轮询用） */
@@ -213,9 +238,7 @@ export async function fetchImportDiff(): Promise<unknown | null> {
 /** 把本周新增累计写入 KV */
 export async function pushWeeklyAdded(data: unknown): Promise<void> {
   await kvCmd('set', 'recruit:weekly-added', JSON.stringify(data));
-  const rawV = await kvCmd('get', 'recruit:version');
-  const v = (parseInt(rawV || '0') || 0) + 1;
-  await kvCmd('set', 'recruit:version', String(v));
+  await bumpVersion();
 }
 
 /** 从 KV 拉取本周新增累计 */

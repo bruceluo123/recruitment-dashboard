@@ -46,6 +46,11 @@ export const useInterviewStore = create<InterviewStore>()(
       }),
       lastDeletedCandidate: null,
     }),
-    { name: 'recruitai-interview-store' },
+    {
+      name: 'recruitai-interview-store',
+      version: 1,
+      // 版本化 persist：字段结构变更时在此按 version 迁移，避免历史 localStorage 无迁移路径而丢候选人。
+      migrate: (persisted) => persisted as InterviewStore,
+    },
   ),
 );
