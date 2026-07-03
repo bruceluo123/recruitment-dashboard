@@ -17,10 +17,17 @@
 - **批次 C 数据可靠性**（commit 33c311d）：version 原子 INCR、空数据保护按「读取是否成功」区分合法清空与故障、重分类自动同步、interview-store 版本化。
 - **批次 E 清理（安全部分）**（commit 后）：移除 8 个未用依赖、silent catch 补日志、删临时脚本、tsbuildinfo 出库。
 
-**待你拍板后再做**（涉及重塑线上多人系统的数据模型 / 需你在场）：
+已追加完成（第二轮）：
 
-- **批次 D 产品升级**：P1-1 简历资产全链路贯通（按候选人建模，动数据模型，最大且最需谨慎）、P1-5 结果闭环+漏斗、P1-6 协同三件套、P1-7 全局提醒。
-- **批次 E 剩余**：P2-1 拆大文件（JDLibraryPage/importFromExcel，中风险需先补测试）、P2-2 DRY 抽取、P2-5 xlsx CVE 换源（可能影响导入，需回归）、根目录非本项目文件（deploy_loan.py / geo/ / yifangpinpin-web 软链，需你确认是否可移出）。
+- **批量删除二次确认 + DRY**（commit）：批量删除加确认弹窗；抽 `mondayKey`/`mock-guard` 消除重复。
+- **P1-5 候选人结果闭环**（commit d90bf8e）：入职/淘汰/拒Offer/退出四态 + 原因 + 卡片徽章，浏览器实测通过。
+
+**仍待做**（下次会话继续）：
+
+- **P1-6 协同剩余**：操作人标识（updatedBy 全链路）、回收站（墓碑改 30 天可恢复）。⚠️ 触及刚改过的 tombstone/sync 语义，建议单独一轮谨慎做。
+- **P1-7 全局面试提醒**：提醒上移到全局 layout + 浏览器 Notification + 飞书 bot。
+- **批次 E 拆分**：P2-1 拆 JDLibraryPage(990行)/importFromExcel(需先补测试)、抽 JdPreviewCard；P2-5 xlsx CVE 换源（需回归导入）；根目录非本项目文件（deploy_loan.py / geo/ / yifangpinpin-web 软链，需你确认可否移出）。
+- **批次 D 大改（需你在场）**：P1-1 简历资产全链路贯通（按候选人建模，动数据模型）。
 
 > ⚠️ 部署提醒：本仓库 Stop hook 会在会话结束自动 commit+push+deploy-prod。以上改动均已保证 build 绿、非破坏、向后兼容，可安全上线。但 **P0-1 的 token 轮换需你手动完成**（见下）。
 
