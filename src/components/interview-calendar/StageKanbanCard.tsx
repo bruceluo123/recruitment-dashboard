@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { cn, formatInterviewDate } from '@/lib/utils';
 import type { Candidate } from '@/types/interview';
-import { STAGE_COLORS } from '@/types/interview';
+import { STAGE_COLORS, OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
 import { Mail, Trash2 } from 'lucide-react';
 
 interface StageKanbanCardProps { candidate: Candidate; onClick: () => void; onDelete: (id: string) => void; }
@@ -25,6 +25,11 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
   return (
     <div draggable onDragStart={(e) => { e.dataTransfer.setData('candidateId', candidate.id); e.currentTarget.classList.add('opacity-50'); }} onDragEnd={(e) => { e.currentTarget.classList.remove('opacity-50'); }} onClick={onClick}
       className="bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-xl p-3.5 cursor-pointer transition-all group animate-fade-in shadow-sm">
+      {candidate.outcome && (
+        <span className={cn('inline-block mb-2 px-2 py-0.5 rounded-md text-[10px] font-medium', OUTCOME_COLORS[candidate.outcome])}>
+          {OUTCOME_LABELS[candidate.outcome]}
+        </span>
+      )}
       <div className="flex items-start justify-between mb-2">
         <h4 className="text-sm font-medium text-gray-800 truncate pr-2">{candidate.name}</h4>
         {showScore && (

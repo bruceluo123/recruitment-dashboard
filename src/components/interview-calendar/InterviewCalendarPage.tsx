@@ -6,7 +6,8 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
-import type { CandidateStatus, CandidateOwner } from '@/types/interview';
+import type { CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
+import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES } from '@/types/interview';
 import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
@@ -116,6 +117,19 @@ export function InterviewCalendarPage() {
       onboardDate: editForm.onboardDate ? new Date(editForm.onboardDate).toISOString() : undefined,
     });
     setEditingId(null);
+  };
+
+  // 标记候选人最终结果（Offer 之后的闭环）。淘汰/退出时可填原因，供复推决策参考。
+  const handleSetOutcome = (id: string, outcome: CandidateOutcome | null) => {
+    if (outcome === null) {
+      updateCandidate(id, { outcome: undefined, outcomeReason: undefined, outcomeAt: undefined });
+      return;
+    }
+    let reason: string | undefined;
+    if (outcome === 'failed' || outcome === 'withdrawn' || outcome === 'offer-rejected') {
+      reason = window.prompt(`标记为「${OUTCOME_LABELS[outcome]}」，可填原因（供复推决策参考，可留空）：`) || undefined;
+    }
+    updateCandidate(id, { outcome, outcomeReason: reason, outcomeAt: new Date().toISOString() });
   };
 
   const handleCopyToday = async () => {
@@ -403,6 +417,32 @@ export function InterviewCalendarPage() {
               <Stat label="投递时间" value={new Date(selected.appliedAt).toLocaleDateString('zh-CN')} />
               <Stat label="入职时间" value={selected.onboardDate ? new Date(selected.onboardDate).toLocaleDateString('zh-CN') : '-'} />
               <Stat label="备注" value={selected.notes || '-'} />
+            </div>
+          )}
+
+          {/* 结果闭环：Offer 之后标记入职/淘汰/拒Offer/退出，替代「删除即丢历史」 */}
+          {!isEditing && (
+            <div className="mt-5 pt-4 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-gray-500">最终结果</p>
+                {selected.outcome && (
+                  <button onClick={() => handleSetOutcome(selected.id, null)} className="text-xs text-gray-400 hover:text-gray-600">清除结果</button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ALL_OUTCOMES.map((o) => {
+                  const active = selected.outcome === o;
+                  return (
+                    <button key={o} onClick={() => handleSetOutcome(selected.id, o)}
+                      className={cn('px-3 h-8 rounded-lg text-xs font-medium transition-all', active ? OUTCOME_COLORS[o] : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50')}>
+                      {OUTCOME_LABELS[o]}
+                    </button>
+                  );
+                })}
+              </div>
+              {selected.outcome && selected.outcomeReason && (
+                <p className="mt-2 text-xs text-gray-500">原因：{selected.outcomeReason}</p>
+              )}
             </div>
           )}
           </div>

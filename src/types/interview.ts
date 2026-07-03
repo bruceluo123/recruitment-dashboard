@@ -1,5 +1,24 @@
 export type CandidateStatus = 'interview-1' | 'interview-2' | 'offer';
 
+/** 候选人最终结果（Offer 之后的闭环）。未设置=仍在流程中。 */
+export type CandidateOutcome = 'onboarded' | 'offer-rejected' | 'failed' | 'withdrawn';
+
+export const OUTCOME_LABELS: Record<CandidateOutcome, string> = {
+  onboarded: '已入职',
+  'offer-rejected': 'Offer被拒',
+  failed: '已淘汰',
+  withdrawn: '主动退出',
+};
+
+export const OUTCOME_COLORS: Record<CandidateOutcome, string> = {
+  onboarded: 'bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-300',
+  'offer-rejected': 'bg-orange-100 text-orange-700 ring-1 ring-inset ring-orange-300',
+  failed: 'bg-gray-100 text-gray-600 ring-1 ring-inset ring-gray-300',
+  withdrawn: 'bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-300',
+};
+
+export const ALL_OUTCOMES: CandidateOutcome[] = ['onboarded', 'offer-rejected', 'failed', 'withdrawn'];
+
 /** 候选人归属的推荐人列：a=麦满分，b=啵啵（与复推池列一致）。未设置时按麦满分处理 */
 export type CandidateOwner = 'a' | 'b';
 
@@ -23,6 +42,9 @@ export interface Candidate {
   contactPhone?: string;
   salary?: string;
   onboardDate?: string;
+  outcome?: CandidateOutcome;   // 最终结果；未设置=仍在流程中
+  outcomeReason?: string;       // 淘汰/退出原因，供复推决策参考
+  outcomeAt?: string;           // 结果标记时间
   appliedAt: string;
   updatedAt: string;
 }
