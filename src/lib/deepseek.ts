@@ -109,10 +109,12 @@ export async function matchResumeToJDs(
     throw new Error('Unexpected response format');
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    console.warn('批量匹配解析失败，降级为逐个匹配', (err as Error)?.message);
     // Fallback to per-JD calls（已预筛，数量可控）
     try {
       return await matchPerJd(resumeText, candidates, resumeId, signal);
-    } catch {
+    } catch (err2) {
+      console.warn(`逐个匹配也失败，返回估算分数(${candidates.length}个JD)`, (err2 as Error)?.message);
       return candidates.map((jd) => makeFallback(jd, resumeId)).sort((a, b) => b.score - a.score);
     }
   }

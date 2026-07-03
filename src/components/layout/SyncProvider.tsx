@@ -205,7 +205,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           if (!localWeekly?.items?.length) {
             const newWeekly: WeeklyAdded = { weekKey, items: rd.added!, lastUpdated: rd.date };
             useJDStore.setState({ weeklyAdded: newWeekly });
-            pushWeeklyAdded(newWeekly).catch(() => {});
+            pushWeeklyAdded(newWeekly).catch((err) => console.error('pushWeeklyAdded failed', err));
           }
         }
       } catch {}

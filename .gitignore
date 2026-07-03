@@ -10,3 +10,6 @@ backups/
 .vercel
 .env*.local
 .env*
+
+# 构建增量缓存，不应入库
+tsconfig.tsbuildinfo

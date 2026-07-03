@@ -175,9 +175,12 @@ export const useJDStore = create<JDStore>()(
           });
           if (res.ok) {
             alert(`备份完成：云端当前共 ${dataToBackup.length} 条岗位。`);
-            console.log('Backup to KV: OK');
+          } else {
+            console.error('backupToKV: 写入失败', res.status);
+            alert(`备份失败：云端接口返回 ${res.status}。`);
           }
-        } catch {
+        } catch (err) {
+          console.error('backupToKV failed', err);
           alert('备份失败：当前网络或云端接口不可用。');
         }
       },
@@ -406,8 +409,8 @@ export const useJDStore = create<JDStore>()(
               lastUpdated: new Date().toISOString(),
             };
             set({ lastImportDiff: importDiff, weeklyAdded: updatedWeekly });
-            pushImportDiff(importDiff).catch(() => {});
-            pushWeeklyAdded(updatedWeekly).catch(() => {});
+            pushImportDiff(importDiff).catch((err) => console.error('pushImportDiff failed', err));
+            pushWeeklyAdded(updatedWeekly).catch((err) => console.error('pushWeeklyAdded failed', err));
           } else {
             // 每日面板新行常缺职责/要求。合并前先从库中同岗位回填内容，
             // 否则「岗位身份变了（旧无 REQ-Key、新有 REQ-Key）」时会新增一条空壳 JD。
@@ -468,7 +471,7 @@ export const useJDStore = create<JDStore>()(
           const weekly: WeeklyAdded = { weekKey, items: state.lastImportDiff.added, lastUpdated: state.lastImportDiff.date };
           state.weeklyAdded = weekly;
           // 异步写入 KV，让其他端也能拿到
-          pushWeeklyAdded(weekly).catch(() => {});
+          pushWeeklyAdded(weekly).catch((err) => console.error('pushWeeklyAdded failed', err));
         }
       },
       migrate: (old: unknown) => {
