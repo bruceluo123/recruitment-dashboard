@@ -8,6 +8,24 @@
 
 ---
 
+## 执行进度（2026-07-04 更新）
+
+已完成并部署（build 绿 + 浏览器冒烟通过）：
+
+- **批次 A 安全加固**（commit 64673ce）：SSRF 白名单、AI/上传端点同源+限流、手动同步端点节流、`/api/data` 补全 6 类映射+可选写口令、`sync.ts` KV 凭证改 env 优先。
+- **批次 B 快赢性能**（commit d8dbf1d）：轮询先查版本号再决定是否下载、selector+useMemo 消重渲染、表格 React.memo、分类计数 O(21n)→O(n)、recharts 懒加载、构建优化+安全头。
+- **批次 C 数据可靠性**（commit 33c311d）：version 原子 INCR、空数据保护按「读取是否成功」区分合法清空与故障、重分类自动同步、interview-store 版本化。
+- **批次 E 清理（安全部分）**（commit 后）：移除 8 个未用依赖、silent catch 补日志、删临时脚本、tsbuildinfo 出库。
+
+**待你拍板后再做**（涉及重塑线上多人系统的数据模型 / 需你在场）：
+
+- **批次 D 产品升级**：P1-1 简历资产全链路贯通（按候选人建模，动数据模型，最大且最需谨慎）、P1-5 结果闭环+漏斗、P1-6 协同三件套、P1-7 全局提醒。
+- **批次 E 剩余**：P2-1 拆大文件（JDLibraryPage/importFromExcel，中风险需先补测试）、P2-2 DRY 抽取、P2-5 xlsx CVE 换源（可能影响导入，需回归）、根目录非本项目文件（deploy_loan.py / geo/ / yifangpinpin-web 软链，需你确认是否可移出）。
+
+> ⚠️ 部署提醒：本仓库 Stop hook 会在会话结束自动 commit+push+deploy-prod。以上改动均已保证 build 绿、非破坏、向后兼容，可安全上线。但 **P0-1 的 token 轮换需你手动完成**（见下）。
+
+---
+
 ## 摘要：最该先做的 5 件事
 
 | # | 任务 | 为什么最优先 | 工作量 |
