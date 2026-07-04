@@ -8,6 +8,7 @@ import { TalentImportDialog } from './TalentImportDialog';
 import { TalentMatchDialog } from './TalentMatchDialog';
 import { TalentEditPanel } from './TalentEditPanel';
 import { TalentEnrichDialog } from './TalentEnrichDialog';
+import { RecycleBinDialog } from '@/components/common/RecycleBinDialog';
 import { useTalentStore, useFilteredTalents, useTalentCategoryCounts } from '@/store/talent-store';
 import { useRepushStore } from '@/store/repush-store';
 import { generateId } from '@/lib/utils';
@@ -22,6 +23,7 @@ export function TalentPoolPage() {
   const [enrichOpen, setEnrichOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
+  const [recycleOpen, setRecycleOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [scanErrors, setScanErrors] = useState<string[]>([]);
   const [scanSummary, setScanSummary] = useState<{ scanned: number; failed: number } | null>(null);
@@ -174,6 +176,8 @@ export function TalentPoolPage() {
             {noResumeCount > 0 && <span className="text-gray-400"> · 无简历 {noResumeCount}</span>}
             {' · '}
             <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button>
+            {' · '}
+            <button onClick={() => setRecycleOpen(true)} className="text-gray-500 hover:text-gray-700 underline text-xs">回收站</button>
           </p>
         </div>
         {/* 视图切换 + 归档全部 */}
@@ -298,6 +302,7 @@ export function TalentPoolPage() {
       </GlassPanel>
 
       <TalentEditPanel talent={editTarget} isOpen={!!editId} onClose={() => setEditId(null)} />
+      <RecycleBinDialog type="talent" open={recycleOpen} onClose={() => setRecycleOpen(false)} />
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       <TalentMatchDialog isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
       <TalentEnrichDialog isOpen={enrichOpen} onClose={() => setEnrichOpen(false)} />

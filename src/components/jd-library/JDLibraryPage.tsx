@@ -6,6 +6,7 @@ import { JDSearchBar } from './JDSearchBar';
 import { JDTable } from './JDTable';
 import { JDDetailPanel } from './JDDetailPanel';
 import { JDImportDialog } from './JDImportDialog';
+import { RecycleBinDialog } from '@/components/common/RecycleBinDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useJDStore, useFilteredJDs, useCategoryCounts } from '@/store/jd-store';
 import { Briefcase, Sparkles, Trash2, X, Bell, Megaphone, Copy, Check } from 'lucide-react';
@@ -23,6 +24,7 @@ export function JDLibraryPage() {
   const lastImportDiff = useJDStore((s) => s.lastImportDiff);
   const [addOpen, setAddOpen] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
+  const [recycleOpen, setRecycleOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // Excel 式列筛选：空集合 = 不筛选
   const [orgFilter, setOrgFilter] = useState<Set<string>>(new Set());
@@ -227,6 +229,7 @@ export function JDLibraryPage() {
           <button onClick={handleReclassify} className="text-purple-500 hover:text-purple-600 underline text-xs">重新分类</button> ·{' '}
           <button onClick={handleResetNewBadge} className="text-sky-500 hover:text-sky-600 underline text-xs">清除新角标</button> ·{' '}
           <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
+          <button onClick={() => setRecycleOpen(true)} className="text-gray-500 hover:text-gray-700 underline text-xs">回收站</button> ·{' '}
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
           <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}
           <button onClick={handleSync} disabled={syncing} className="text-blue-600 hover:text-blue-700 underline text-xs disabled:opacity-50">{syncing ? '同步中…' : '立即同步源表'}</button> ·{' '}
@@ -288,6 +291,7 @@ export function JDLibraryPage() {
       </GlassPanel>
 
       <JDDetailPanel jd={selectedJd} isOpen={!!selectedJdId} onClose={() => selectJD(null)} />
+      <RecycleBinDialog type="jd" open={recycleOpen} onClose={() => setRecycleOpen(false)} />
       <JDImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       {diffOpen && <ImportDiffDialog diff={lastImportDiff ?? null} onClose={() => setDiffOpen(false)} />}
       {weeklyOpen && <WeeklyAddedDialog recentJds={recentJds} onClose={() => setWeeklyOpen(false)} />}

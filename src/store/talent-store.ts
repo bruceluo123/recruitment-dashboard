@@ -5,6 +5,8 @@ import type { Talent, TalentFilter, TalentImportResult } from '@/types/talent';
 import type { JDCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS, ALL_CATEGORIES } from '@/types/jd';
 import { generateId } from '@/lib/utils';
+import { currentOperatorName } from '@/lib/operator';
+import { useRecycleStore } from '@/store/recycle-store';
 import { classifyTitleCategories } from '@/lib/talent-extract';
 import { detectCategories } from '@/lib/jd-parse-core';
 import { extractTalentFieldsBatch } from '@/lib/talent-field-extract';
@@ -111,14 +113,17 @@ export const useTalentStore = create<TalentStore>()(
       updateTalent: (id, partial) => set((s) => ({
         talents: s.talents.map((t) => t.id === id ? { ...t, ...partial, updatedAt: new Date().toISOString() } : t),
       })),
-      deleteTalent: (id) => set((s) => {
-        const target = s.talents.find((t) => t.id === id);
-        return { talents: s.talents.filter((t) => t.id !== id), lastDeletedTalent: target || null };
-      }),
-      deleteTalentBatch: (ids) => set((s) => {
+      deleteTalent: (id) => {
+        const target = get().talents.find((t) => t.id === id) || null;
+        if (target) useRecycleStore.getState().push('talent', currentOperatorName(), [{ label: target.name, data: target }]);
+        set((s) => ({ talents: s.talents.filter((t) => t.id !== id), lastDeletedTalent: target }));
+      },
+      deleteTalentBatch: (ids) => {
         const idSet = new Set(ids);
-        return { talents: s.talents.filter((t) => !idSet.has(t.id)), lastDeletedTalent: null };
-      }),
+        const removed = get().talents.filter((t) => idSet.has(t.id));
+        if (removed.length) useRecycleStore.getState().push('talent', currentOperatorName(), removed.map((t) => ({ label: t.name, data: t })));
+        set((s) => ({ talents: s.talents.filter((t) => !idSet.has(t.id)), lastDeletedTalent: null }));
+      },
       undoDeleteTalent: () => set((s) => {
         if (!s.lastDeletedTalent) return {};
         return { talents: [s.lastDeletedTalent, ...s.talents], lastDeletedTalent: null };

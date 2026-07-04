@@ -7,6 +7,8 @@ import { JD_CATEGORY_LABELS, JD_STATUS_LABELS, ALL_CATEGORIES } from '@/types/jd
 import { MOCK_JDS } from '@/data/mock-jds';
 import { generateId, mondayKey } from '@/lib/utils';
 import { isMockJds } from '@/lib/mock-guard';
+import { currentOperatorName } from '@/lib/operator';
+import { useRecycleStore } from '@/store/recycle-store';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
 import { pushImportDiff, pushWeeklyAdded, syncPush } from '@/lib/sync';
 import {
@@ -76,14 +78,18 @@ export const useJDStore = create<JDStore>()(
       updateJD: (id, partial) => set((s) => ({
         jds: s.jds.map((j) => j.id === id ? { ...j, ...partial, updatedAt: new Date().toISOString() } : j),
       })),
-      deleteJD: (id) => set((s) => {
-        const target = s.jds.find((j) => j.id === id);
-        return { jds: s.jds.filter((j) => j.id !== id), lastDeletedJD: target || null };
-      }),
-      deleteJDBatch: (ids) => set((s) => {
+      deleteJD: (id) => {
+        const target = get().jds.find((j) => j.id === id) || null;
+        // 存入回收站(本机30天)，误删可恢复
+        if (target) useRecycleStore.getState().push('jd', currentOperatorName(), [{ label: target.title, data: target }]);
+        set((s) => ({ jds: s.jds.filter((j) => j.id !== id), lastDeletedJD: target }));
+      },
+      deleteJDBatch: (ids) => {
         const idSet = new Set(ids);
-        return { jds: s.jds.filter((j) => !idSet.has(j.id)), lastDeletedJD: null };
-      }),
+        const removed = get().jds.filter((j) => idSet.has(j.id));
+        if (removed.length) useRecycleStore.getState().push('jd', currentOperatorName(), removed.map((j) => ({ label: j.title, data: j })));
+        set((s) => ({ jds: s.jds.filter((j) => !idSet.has(j.id)), lastDeletedJD: null }));
+      },
       undoDeleteJD: () => set((s) => {
         if (!s.lastDeletedJD) return {};
         return { jds: [...s.jds, s.lastDeletedJD], lastDeletedJD: null };
