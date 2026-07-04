@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StageKanbanBoard } from './StageKanbanBoard';
 import { WeekGridView } from './WeekGridView';
 import { useInterviewStore } from '@/store/interview-store';
@@ -8,7 +8,7 @@ import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
 import type { CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES } from '@/types/interview';
-import { X, Bell, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet } from 'lucide-react';
+import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
 import { buildTodayScheduleTable, parseInterviewReport } from '@/lib/interview-report';
@@ -19,7 +19,6 @@ export function InterviewCalendarPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [addStage, setAddStage] = useState<string>('');
   const [form, setForm] = useState({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
-  const [notification, setNotification] = useState<{ name: string; time: string } | null>(null);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
   const [todayOnly, setTodayOnly] = useState(false);
@@ -32,7 +31,6 @@ export function InterviewCalendarPage() {
     name: '', jdTitle: '', organization: '', department: '', score: '', interviewDate: '',
     interviewer: '', contactEmail: '', notes: '', salary: '', onboardDate: '',
   });
-  const remindedRef = useRef<Set<string>>(new Set());
 
   const candidates = useInterviewStore((s) => s.candidates);
   const moveCandidate = useInterviewStore((s) => s.moveCandidate);
@@ -63,28 +61,7 @@ export function InterviewCalendarPage() {
     return () => clearTimeout(t);
   }, [lastDeletedCandidate]);
 
-  useEffect(() => {
-    const checkReminders = () => {
-      const now = new Date();
-      for (const c of candidates) {
-        if (c.interviewDate && !remindedRef.current.has(c.id)) {
-          const diffMs = new Date(c.interviewDate).getTime() - now.getTime();
-          const diffMin = Math.floor(diffMs / 60000);
-          if (diffMin >= 0 && diffMin <= 15) {
-            remindedRef.current.add(c.id);
-            setNotification({ name: c.name, time: c.interviewDate });
-          }
-        }
-      }
-    };
-    checkReminders();
-    const interval = setInterval(checkReminders, 30000);
-    return () => clearInterval(interval);
-  }, [candidates]);
-
-  useEffect(() => {
-    if (notification) { const t = setTimeout(() => setNotification(null), 8000); return () => clearTimeout(t); }
-  }, [notification]);
+  // 面试提醒逻辑已上移到全局 <InterviewReminder />（根布局），任意页面都生效并发浏览器系统通知。
 
   useEffect(() => {
     if (copyMsg) { const t = setTimeout(() => setCopyMsg(null), 3000); return () => clearTimeout(t); }
@@ -236,21 +213,6 @@ export function InterviewCalendarPage() {
     <div className="animate-fade-in space-y-6 max-w-7xl mx-auto">
       <datalist id="org-options">{orgOptions.map((o) => <option key={o} value={o} />)}</datalist>
       <datalist id="dept-options">{deptOptions.map((d) => <option key={d} value={d} />)}</datalist>
-      {notification && (
-        <div className="fixed top-20 right-6 z-50 animate-slide-in-right">
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl shadow-xl p-4 max-w-sm">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0"><Bell className="w-5 h-5 text-amber-600" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-800">面试提醒</p>
-                <p className="text-sm text-amber-700 mt-1"><span className="font-medium">{notification.name}</span> 的面试即将开始</p>
-                <p className="text-xs text-amber-500 mt-0.5">{new Date(notification.time).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-              </div>
-              <button onClick={() => setNotification(null)} className="p-1 rounded-lg hover:bg-amber-100 text-amber-400"><X className="w-4 h-4" /></button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {copyMsg && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">

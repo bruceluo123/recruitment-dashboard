@@ -26,8 +26,7 @@ function idsOf(arr: Array<{ id?: string }>): string[] {
 // 导致空数据被当成合法清空下发、把 JD 库整个清空并回灌 KV（2026-07-04 线上事故）。
 // 结论：跨端「整组清空」是极边缘场景，不值得冒数据丢失风险。
 // 真正的删除走墓碑按 id 传播，不依赖整组清空，因此此保护不影响删除生效。
-// readOk 参数保留但当前不参与判断（空永不覆盖非空）。
-function shouldApply(incoming: unknown[], currentLen: number, _readOk: boolean): boolean {
+function shouldApply(incoming: unknown[], currentLen: number): boolean {
   return !(incoming.length === 0 && currentLen > 0);
 }
 
@@ -55,7 +54,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const prevCompanies = useRef<string[]>([]);
 
   useEffect(() => {
-    startSync((type, data, _version, readOk) => {
+    startSync((type, data) => {
       skipPush.current = true;
       if (type === 'jds') {
         const normalized = (data as Array<Record<string, unknown>>).map((jd: Record<string, unknown>) => {
@@ -74,29 +73,29 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         });
         // Only apply remote if it's not empty mock，且不会用空覆盖本地非空
         const typedJds = normalized as unknown as JD[];
-        if (!isMockJds(typedJds) && shouldApply(typedJds, useJDStore.getState().jds.length, readOk)) {
+        if (!isMockJds(typedJds) && shouldApply(typedJds, useJDStore.getState().jds.length)) {
           useJDStore.setState({ jds: typedJds });
         }
       }
       if (type === 'candidates') {
         const d = data as Candidate[];
-        if (shouldApply(d, useInterviewStore.getState().candidates.length, readOk)) useInterviewStore.setState({ candidates: d });
+        if (shouldApply(d, useInterviewStore.getState().candidates.length)) useInterviewStore.setState({ candidates: d });
       }
       if (type === 'talents') {
         const d = data as Talent[];
-        if (shouldApply(d, useTalentStore.getState().talents.length, readOk)) useTalentStore.setState({ talents: d });
+        if (shouldApply(d, useTalentStore.getState().talents.length)) useTalentStore.setState({ talents: d });
       }
       if (type === 'repush') {
         const d = data as RepushItem[];
-        if (shouldApply(d, useRepushStore.getState().items.length, readOk)) useRepushStore.setState({ items: d });
+        if (shouldApply(d, useRepushStore.getState().items.length)) useRepushStore.setState({ items: d });
       }
       if (type === 'todos') {
         const d = data as TodoItem[];
-        if (shouldApply(d, useTodoStore.getState().todos.length, readOk)) useTodoStore.setState({ todos: d });
+        if (shouldApply(d, useTodoStore.getState().todos.length)) useTodoStore.setState({ todos: d });
       }
       if (type === 'companies') {
         const d = data as Company[];
-        if (shouldApply(d, useCompanyStore.getState().companies.length, readOk)) useCompanyStore.setState({ companies: d });
+        if (shouldApply(d, useCompanyStore.getState().companies.length)) useCompanyStore.setState({ companies: d });
       }
       setTimeout(() => { skipPush.current = false; }, 1000);
     });

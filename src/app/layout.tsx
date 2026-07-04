@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { AppShell } from '@/components/layout/AppShell';
 import { SyncProvider } from '@/components/layout/SyncProvider';
+import { InterviewReminder } from '@/components/layout/InterviewReminder';
 import './globals.css';
 
 const geistSans = localFont({
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geistSans.className} bg-gray-50 text-gray-900 antialiased`}>
         <SyncProvider>
           <AppShell>{children}</AppShell>
+          <InterviewReminder />
         </SyncProvider>
       </body>
     </html>
