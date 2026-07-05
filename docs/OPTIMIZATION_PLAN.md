@@ -31,7 +31,7 @@
 - **updatedBy 全链路**（P1-6 可选增强）：在 JD/人选/候选人编辑时盖「最后由 X 修改」并在详情展示。回收站已用到 operator，此项为纯增量。
 - **飞书 bot 面试提醒**：P1-7 已接浏览器通知，飞书 bot 推送（提前1天+1小时）可作为增强。
 - **P2 拆分（部分完成）**：✅ JDLibraryPage 1005→408 行（抽出 JdPreviewCard / ImportDiffDialog / WeeklyAddedDialog / lib/jd-paste-parse）。⬜ 剩 importFromExcel(266行)拆分——需先补 replace/merge 单测再动，风险最高故留最后。
-- **P1-1 大改（需你在场）**：简历资产全链路贯通。
+- **✅ P1-1 简历资产全链路贯通（2026-07-05 完成）**：动手前已做 KV 快照（`recruit:backup:*:pre-p11-2026-07-05`）。纯增量字段（RepushItem/Candidate += resumeUrl/resumeFileName/talentId）。打通四段：①推荐中心上传简历文件落 Blob 不再丢弃（Blob 失败自动回退）；②约面把简历+talentId 带进面试日历（详情可下载）；③导入人才库携带简历+亮点、回写 talentId、后台提取全文供 JD 匹配；④简历匹配死胡同打通——「存入人才库」「录入推荐」两个按钮（lib/resume-to-talent.ts，同一文件只传一次 Blob）。推荐中心卡片显示简历下载。实测上传→Blob→解析链路走通、0 报错。
 - **批次 E 拆分**：P2-1 拆 JDLibraryPage(990行)/importFromExcel(需先补测试)、抽 JdPreviewCard；P2-5 xlsx CVE 换源（需回归导入）；根目录非本项目文件（deploy_loan.py / geo/ / yifangpinpin-web 软链，需你确认可否移出）。
 - **批次 D 大改（需你在场）**：P1-1 简历资产全链路贯通（按候选人建模，动数据模型）。
 
