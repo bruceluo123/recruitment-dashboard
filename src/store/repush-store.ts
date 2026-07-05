@@ -21,6 +21,9 @@ export interface RepushItem {
   rawText?: string;            // 录入时粘贴的简历原文（截断保存，便于回看）
   dataUrl?: string;            // 旧版 base64，仅兼容历史数据（新增项不再写入）
   highlights?: string;         // AI 从简历中提取的候选人亮点摘要（仅内部可见）
+  resumeUrl?: string;          // 简历文件 Blob 链接（上传文件时写入，全链路跟随候选人）
+  resumeFileName?: string;     // 简历原始文件名
+  talentId?: string;           // 导入人才库后关联的人才 id（跨模块主键）
   feedback: FeedbackStatus;
   interviewStatus?: InterviewStatus;  // 是否已约面
   interviewRound?: InterviewRound;    // 约面轮次（一面/二面/三面）
@@ -51,6 +54,8 @@ export interface NewRecommendation {
   organization?: string;
   department?: string;
   highlights?: string;   // AI 从简历中提取的候选人亮点摘要（仅内部可见）
+  resumeUrl?: string;    // 简历文件 Blob 链接（上传文件时带入）
+  resumeFileName?: string;
 }
 
 interface RepushStore {
@@ -104,6 +109,8 @@ export const useRepushStore = create<RepushStore>()(
               contactPerson: rec.contactPerson || undefined,
               rawText: rec.rawText ? rec.rawText.slice(0, 2000) : undefined,
               highlights: rec.highlights ? rec.highlights.slice(0, 1500) : undefined,
+              resumeUrl: rec.resumeUrl || undefined,
+              resumeFileName: rec.resumeFileName || undefined,
               feedback: 'pending' as const,
               interviewStatus: 'none' as const,
               organization: rec.organization || undefined,

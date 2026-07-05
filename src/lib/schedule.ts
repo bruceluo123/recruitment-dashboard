@@ -41,6 +41,10 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
     jdId: jd?.id || '',
     jdTitle,
     owner: item.column,  // 约面来源列（a=麦满分 / b=啵啵）带入候选人
+    // 简历资产全链路：推荐记录里的简历文件/人才关联跟随候选人进入面试日历
+    resumeUrl: item.resumeUrl || undefined,
+    resumeFileName: item.resumeFileName || undefined,
+    talentId: item.talentId || undefined,
     organization: item.organization || jd?.organization?.trim() || undefined,
     department: item.department || jd?.department?.trim() || undefined,
     stage: ROUND_TO_STAGE[round],

@@ -45,6 +45,9 @@ export interface Candidate {
   outcome?: CandidateOutcome;   // 最终结果；未设置=仍在流程中
   outcomeReason?: string;       // 淘汰/退出原因，供复推决策参考
   outcomeAt?: string;           // 结果标记时间
+  resumeUrl?: string;           // 简历文件 Blob 链接（从推荐记录带入，面试官可直接下载）
+  resumeFileName?: string;      // 简历原始文件名
+  talentId?: string;            // 关联人才库 id（跨模块主键）
   appliedAt: string;
   updatedAt: string;
 }

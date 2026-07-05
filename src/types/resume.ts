@@ -33,4 +33,6 @@ export interface Resume {
   uploadedAt: string;
   parsingStatus: 'pending' | 'parsing' | 'completed' | 'failed';
   parseError?: string;
+  file?: File;      // 原始文件（仅内存保留，resume-store 不持久化），供「存入人才库/录入推荐」上传 Blob
+  blobUrl?: string; // 已上传的 Blob 链接（懒上传，只传一次后复用）
 }

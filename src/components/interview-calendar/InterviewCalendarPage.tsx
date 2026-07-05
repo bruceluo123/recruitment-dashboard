@@ -379,6 +379,15 @@ export function InterviewCalendarPage() {
               <Stat label="投递时间" value={new Date(selected.appliedAt).toLocaleDateString('zh-CN')} />
               <Stat label="入职时间" value={selected.onboardDate ? new Date(selected.onboardDate).toLocaleDateString('zh-CN') : '-'} />
               <Stat label="备注" value={selected.notes || '-'} />
+              {selected.resumeUrl && (
+                <div className="p-3 rounded-lg bg-indigo-50/60">
+                  <p className="text-xs text-gray-400 mb-0.5">简历</p>
+                  <a href={selected.resumeUrl} target="_blank" rel="noreferrer"
+                    className="text-sm text-indigo-600 hover:text-indigo-700 underline truncate block">
+                    {selected.resumeFileName || '下载简历'}
+                  </a>
+                </div>
+              )}
             </div>
           )}
 

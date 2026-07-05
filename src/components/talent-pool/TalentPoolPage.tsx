@@ -105,6 +105,9 @@ export function TalentPoolPage() {
     const now = new Date().toISOString();
     let created = 0;
     let updated = 0;
+    let resumesLinked = 0;
+    // 简历资产全链路：导入后需要后台提取简历文字的人才（有 Blob 文件且尚未扫描）
+    const toScan: Array<{ talentId: string; url: string; fileName?: string }> = [];
 
     for (const item of repushItems) {
       const name = (item.candidateName || '').trim();
@@ -113,8 +116,13 @@ export function TalentPoolPage() {
       const existing = existingTalents.find((t) => t.name === name);
       const recruiter = item.contactPerson?.trim() || repushColumnNames[item.column] || undefined;
       const cats = detectCategories(jobTitle);
+      // 推荐记录里的简历文件跟随导入（已有简历的人才不覆盖）
+      const itemResume = item.resumeUrl ? { resumeUrl: item.resumeUrl, resumeFileName: item.resumeFileName } : null;
 
+      let talentId: string;
       if (existing) {
+        talentId = existing.id;
+        const attachResume = itemResume && !existing.resumeUrl;
         useTalentStore.getState().updateTalent(existing.id, {
           jobTitle: jobTitle || existing.jobTitle,
           organization: item.organization?.trim() || existing.organization,
@@ -122,11 +130,14 @@ export function TalentPoolPage() {
           phone: item.contact?.trim() || existing.phone,
           recruiter: recruiter || existing.recruiter,
           archived: false,
+          ...(attachResume ? itemResume : {}),
         });
+        if (attachResume) { resumesLinked++; if (!existing.hasResumeText) toScan.push({ talentId, url: itemResume.resumeUrl!, fileName: itemResume.resumeFileName }); }
         updated++;
       } else {
+        talentId = generateId();
         useTalentStore.getState().addTalent({
-          id: generateId(),
+          id: talentId,
           name,
           jobTitle,
           categories: cats.length ? cats : ['operations'],
@@ -136,14 +147,42 @@ export function TalentPoolPage() {
           recruiter,
           archived: false,
           tg: '',
-          notes: '',
+          // 新建时把 AI 亮点摘要一并沉淀到备注（原来这份信息在导入时丢失）
+          notes: item.highlights ? `【推荐亮点】${item.highlights}` : '',
+          ...(itemResume || {}),
           createdAt: now,
           updatedAt: now,
         });
+        if (itemResume) { resumesLinked++; toScan.push({ talentId, url: itemResume.resumeUrl!, fileName: itemResume.resumeFileName }); }
         created++;
       }
+      // 回写跨模块主键：推荐记录 ↔ 人才库 双向关联
+      if (item.talentId !== talentId) useRepushStore.getState().updateItem(item.id, { talentId });
     }
-    alert(`导入完成：新建 ${created} 位，更新 ${updated} 位`);
+
+    // 后台逐个提取简历文字（走已有 /api/talent/scan 管道），完成后标记 hasResumeText，
+    // 使「JD 匹配人选」立即可用这些新导入的简历。失败不打扰用户，人才记录已建好。
+    if (toScan.length) {
+      (async () => {
+        for (const s of toScan) {
+          try {
+            const res = await fetch('/api/talent/scan', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: s.talentId, url: s.url, fileName: s.fileName }),
+            });
+            const data = (await res.json()) as { chars?: number; error?: string };
+            if (res.ok && !data.error) {
+              useTalentStore.getState().updateTalent(s.talentId, { hasResumeText: true, resumeChars: data.chars });
+            }
+          } catch (err) {
+            console.warn('导入后简历扫描失败', s.talentId, err);
+          }
+        }
+      })();
+    }
+
+    alert(`导入完成：新建 ${created} 位，更新 ${updated} 位${resumesLinked ? `，关联简历 ${resumesLinked} 份（文字提取在后台进行）` : ''}`);
   };
 
   const handleExportFeishu = async () => {

@@ -38,6 +38,9 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [fileError, setFileError] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  // 简历文件 Blob 链接：上传成功后跟随推荐记录全链路（人才库/面试日历可直接下载）
+  const [resumeUrl, setResumeUrl] = useState('');
+  const [resumeFileName, setResumeFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setOwner(defaultOwner); }, [defaultOwner]);
@@ -64,6 +67,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     setName(''); setJobTitle(''); setContact(''); setContactPerson('');
     setOrganization(''); setDepartment(''); setHighlights(''); setHighlightsLoading(false);
     setFileStatus('idle'); setUploadedFileName(''); setFileError('');
+    setResumeUrl(''); setResumeFileName('');
   };
 
   /** 公共：把提取好的文字喂给 AI 解析联系信息，回填表单 */
@@ -107,9 +111,33 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     setFileError('');
     setFileStatus('uploading');
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
+      // 1) 先把文件本体存入 Vercel Blob（简历资产全链路的起点：文件跟随候选人，不再丢弃）。
+      //    失败不阻断——回退为纯文字解析路径，录入功能照常可用。
+      let blobUrl = '';
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const up = await fetch('/api/talent/upload', { method: 'POST', body: fd });
+        if (up.ok) {
+          const blob = (await up.json()) as { url?: string };
+          blobUrl = blob.url || '';
+        }
+      } catch { /* Blob 不可用时静默回退 */ }
+      if (blobUrl) { setResumeUrl(blobUrl); setResumeFileName(file.name); }
+
+      // 2) 提取文字：已入 Blob 则让服务端从 Blob 拉取（免二次上传），否则直传解析。
+      let res: Response;
+      if (blobUrl) {
+        res = await fetch('/api/resume/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: blobUrl, fileName: file.name }),
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('file', file);
+        res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
+      }
       const data = (await res.json()) as { text?: string; error?: string };
       if (!res.ok || data.error) {
         setFileStatus('error');
@@ -161,6 +189,8 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       organization: organization || undefined,
       department: department || undefined,
       highlights: highlights || undefined,
+      resumeUrl: resumeUrl || undefined,
+      resumeFileName: resumeFileName || undefined,
     });
     resetFields();
     setJustAdded(true);
@@ -252,7 +282,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               <p className="text-[11px] font-medium text-gray-600 text-center truncate w-full px-1">{uploadedFileName}</p>
               <p className="text-[11px] text-green-600 flex items-center gap-0.5"><Check className="w-3 h-3" />文字已填入左侧</p>
               <button
-                onClick={() => { setFileStatus('idle'); setUploadedFileName(''); setHighlights(''); setHighlightsLoading(false); }}
+                onClick={() => { setFileStatus('idle'); setUploadedFileName(''); setHighlights(''); setHighlightsLoading(false); setResumeUrl(''); setResumeFileName(''); }}
                 className="absolute top-1.5 right-1.5 p-0.5 rounded hover:bg-green-100 text-gray-400">
                 <X className="w-3.5 h-3.5" />
               </button>

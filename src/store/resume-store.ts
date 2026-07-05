@@ -61,6 +61,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       id, fileName: file.name, fileType, rawText: '',
       parsedData: { skills: [], experience: [], education: [] },
       uploadedAt: new Date().toISOString(), parsingStatus: 'parsing',
+      file, // 保留原始文件（内存），供后续「存入人才库/录入推荐」把文件本体传 Blob
     };
 
     set((s) => ({ resumes: [...s.resumes, resume], activeResumeId: id }));
@@ -77,6 +78,8 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
           handleUploadUrl: '/api/resume/blob-upload',
           contentType: file.type || 'application/octet-stream',
         });
+        // 大文件已入 Blob：记下链接，「存入人才库/录入推荐」直接复用无需再传
+        set((s) => ({ resumes: s.resumes.map((r) => r.id === id ? { ...r, blobUrl: blob.url } : r) }));
         res = await fetch('/api/resume/parse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
