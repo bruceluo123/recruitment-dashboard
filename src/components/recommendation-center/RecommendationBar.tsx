@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
@@ -60,6 +60,17 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove
 
       {/* 操作区 */}
       <div className="flex items-center gap-1.5 shrink-0">
+        {item.resumeUrl && (
+          <a
+            href={item.resumeUrl} target="_blank" rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
+            title={item.resumeFileName ? `下载简历：${item.resumeFileName}` : '下载简历'}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            简历
+          </a>
+        )}
         {item.highlights && (
           <button
             onClick={() => setShowHighlights((v) => !v)}

@@ -1,9 +1,10 @@
 'use client';
-import { Upload, FileText, Loader2, Check, AlertCircle, Trash2 } from 'lucide-react';
+import { Upload, FileText, Loader2, Check, AlertCircle, Trash2, UserPlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Resume } from '@/types/resume';
 import { MAX_RESUMES } from '@/store/resume-store';
+import { saveResumeToTalentPool } from '@/lib/resume-to-talent';
 
 interface ResumeUploaderProps {
   onFileSelected: (file: File) => void; isUploading: boolean;
@@ -18,7 +19,24 @@ const ACCEPTED_EXT = /\.(pdf|docx?)$/i;
 export function ResumeUploader({ onFileSelected, isUploading, resumes, activeResumeId, onSelectResume, onRemoveResume, resultCounts }: ResumeUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  // 存入人才库：simple state machine per resume（idle→saving→saved/error）
+  const [saveState, setSaveState] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
+  const [saveMsg, setSaveMsg] = useState('');
   const atCapacity = resumes.length >= MAX_RESUMES;
+
+  const handleSaveToTalent = async (resume: Resume) => {
+    if (saveState[resume.id] === 'saving' || saveState[resume.id] === 'saved') return;
+    setSaveState((s) => ({ ...s, [resume.id]: 'saving' }));
+    const r = await saveResumeToTalentPool(resume);
+    if (r.ok) {
+      setSaveState((s) => ({ ...s, [resume.id]: 'saved' }));
+      setSaveMsg(`${r.name} 已${r.existed ? '更新到' : '存入'}人才库（简历文件+全文已随附）`);
+    } else {
+      setSaveState((s) => ({ ...s, [resume.id]: 'error' }));
+      setSaveMsg(r.error || '存入失败');
+    }
+    setTimeout(() => setSaveMsg(''), 5000);
+  };
 
   const pickFile = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -73,7 +91,24 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
                 <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 text-[10px] font-semibold shrink-0" title="已有匹配结果">{resultCounts[r.id]} 条结果</span>
               )}
               {r.parsingStatus === 'parsing' && <Loader2 className="w-4 h-4 text-indigo-500 animate-spin shrink-0" />}
-              {r.parsingStatus === 'completed' && <Check className="w-4 h-4 text-green-500 shrink-0" />}
+              {r.parsingStatus === 'completed' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleSaveToTalent(r); }}
+                  disabled={saveState[r.id] === 'saving' || saveState[r.id] === 'saved'}
+                  className={cn(
+                    'shrink-0 flex items-center gap-1 px-2 h-7 rounded-lg text-[11px] font-medium transition-all',
+                    saveState[r.id] === 'saved' ? 'bg-green-50 text-green-600'
+                      : saveState[r.id] === 'saving' ? 'bg-gray-100 text-gray-400'
+                      : 'bg-amber-50 text-amber-600 hover:bg-amber-100',
+                  )}
+                  title="识别姓名并沉淀到人才库（简历文件+全文一并随附）"
+                >
+                  {saveState[r.id] === 'saving' ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : saveState[r.id] === 'saved' ? <Check className="w-3 h-3" />
+                    : <UserPlus className="w-3 h-3" />}
+                  {saveState[r.id] === 'saved' ? '已入库' : '存入人才库'}
+                </button>
+              )}
               {r.parsingStatus === 'failed' && <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />}
               {onRemoveResume && (
                 <button
@@ -86,6 +121,7 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
               )}
             </div>
           ))}
+          {saveMsg && <p className="text-xs text-amber-600 animate-fade-in">{saveMsg}</p>}
         </div>
       )}
     </div>
