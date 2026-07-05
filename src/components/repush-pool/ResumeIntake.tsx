@@ -224,7 +224,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       {/* 一体化简历入口：左侧文字框 + 右侧上传（上传后自动填入左侧） */}
       <div className="flex gap-3">
         {/* ── 左：文字输入区（主区域） ── */}
-        <div className="flex-1 min-w-0 flex gap-2" style={{ height: 100 }}>
+        <div className="flex-1 min-w-0 flex gap-2" style={{ height: 180 }}>
           <textarea
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
@@ -256,7 +256,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               onDragLeave={() => setDragOver(false)}
               onDrop={onDrop}
               className={cn(
-                'w-full h-[100px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs transition-all cursor-pointer',
+                'w-full h-[180px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs transition-all cursor-pointer',
                 dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40',
                 fileStatus === 'error' && 'border-red-300',
               )}
@@ -272,12 +272,12 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               )}
             </button>
           ) : fileIsBusy ? (
-            <div className="w-full h-[100px] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-1.5 text-xs text-gray-400">
+            <div className="w-full h-[180px] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-1.5 text-xs text-gray-400">
               <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
               <span className="text-center px-2 leading-tight">{fileLabel}</span>
             </div>
           ) : (
-            <div className="w-full h-[100px] rounded-xl border border-green-200 bg-green-50 flex flex-col items-center justify-center gap-1 px-3 relative">
+            <div className="w-full h-[180px] rounded-xl border border-green-200 bg-green-50 flex flex-col items-center justify-center gap-1 px-3 relative">
               <FileText className="w-4 h-4 text-green-500 shrink-0" />
               <p className="text-[11px] font-medium text-gray-600 text-center truncate w-full px-1">{uploadedFileName}</p>
               <p className="text-[11px] text-green-600 flex items-center gap-0.5"><Check className="w-3 h-3" />文字已填入左侧</p>
