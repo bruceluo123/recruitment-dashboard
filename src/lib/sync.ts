@@ -1,13 +1,14 @@
-// 多用户数据同步 — 浏览器直连 Upstash KV。
+// 多用户数据同步 — 混合架构：
+//   读（10秒轮询）：浏览器用「只读 token」直连 Upstash，国内链路快，且只读 token 被盗也无法写/删数据。
+//   写（保存/删除/备份）：全部改走服务端 /api/data 与 /api/sync/write（真正的读写 token 只存在于 Vercel 服务端环境变量，
+//   永不下发到浏览器）。这样浏览器 bundle 里不再包含任何有写权限的凭证。
 // 策略：按 id 合并（merge），而非整数组覆盖，确保「添加永不丢失」；
 // 删除通过墓碑（tombstone）传播，确保删除仍能在多端生效。
 
-// KV 凭证：优先读构建期环境变量（Vercel 项目设置 NEXT_PUBLIC_KV_URL / NEXT_PUBLIC_KV_TOKEN），
-// 旧硬编码值仅作过渡兜底 —— 在 Vercel 配好环境变量并轮换 Upstash token 后，应删除兜底值。
-// 注意：浏览器直连架构下 token 必然随 bundle 下发（NEXT_PUBLIC_ 前缀），
-// 长期方案是把写路径收敛到 /api/data（服务端 token），此处只保留只读轮询。
+// 只读 token：Vercel 项目设置 NEXT_PUBLIC_KV_READONLY_TOKEN（Upstash 控制台可单独生成只读 REST token）。
+// 旧的完整读写 token 仅作过渡兜底 —— 一旦 Vercel 配好只读 token，应删除这行兜底值。
 const KV_URL = process.env.NEXT_PUBLIC_KV_URL || 'https://positive-mongrel-70521.upstash.io';
-const KV_TOKEN = process.env.NEXT_PUBLIC_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
+const KV_READ_TOKEN = process.env.NEXT_PUBLIC_KV_READONLY_TOKEN || process.env.NEXT_PUBLIC_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
 
 type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
 // readOk：该类型的远端读取是否成功（HTTP 200）。用于区分「合法的空数据」与「读取故障返回空」，
@@ -37,16 +38,11 @@ let onChange: ChangeHandler | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let pushTimers: Partial<Record<DataType, ReturnType<typeof setTimeout>>> = {};
 
-async function kvCmd(cmd: string, key: string, body?: string): Promise<string | null> {
+/** 只读 GET —— 直连 Upstash（只读 token，即便泄漏也无法写/删数据）。 */
+async function kvCmd(cmd: 'get', key: string): Promise<string | null> {
   try {
     const url = `${KV_URL}/${cmd}/${encodeURIComponent(key)}`;
-    const opts: RequestInit = { headers: { Authorization: `Bearer ${KV_TOKEN}` } };
-    if (body !== undefined) {
-      opts.method = 'POST';
-      opts.headers = { ...opts.headers, 'Content-Type': 'text/plain' };
-      opts.body = body;
-    }
-    const res = await fetch(url, opts);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${KV_READ_TOKEN}` } });
     if (!res.ok) return null;
     const data = await res.json();
     return data.result;
@@ -57,7 +53,7 @@ async function kvCmd(cmd: string, key: string, body?: string): Promise<string | 
 async function kvGet(key: string): Promise<{ ok: boolean; value: string | null }> {
   try {
     const res = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
-      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+      headers: { Authorization: `Bearer ${KV_READ_TOKEN}` },
     });
     if (!res.ok) return { ok: false, value: null };
     const data = await res.json();
@@ -67,10 +63,36 @@ async function kvGet(key: string): Promise<{ ok: boolean; value: string | null }
   }
 }
 
-/** 原子自增全局版本号（Upstash INCR），杜绝并发写的 get→+1→set 竞态导致漏版本。 */
+/** 侧信道写（墓碑/版本号/今日增改/本周新增）—— 经服务端 /api/sync/write，真 token 不下发浏览器。 */
+async function apiSyncWrite(op: 'set' | 'incr', key: string, value?: string): Promise<{ ok: boolean; value?: number }> {
+  try {
+    const res = await fetch('/api/sync/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op, key, value }),
+    });
+    if (!res.ok) return { ok: false };
+    const data = await res.json();
+    return { ok: true, value: typeof data.value === 'number' ? data.value : undefined };
+  } catch { return { ok: false }; }
+}
+
+/** 主数据写（6 类业务数据）—— 经服务端 /api/data，真 token 不下发浏览器。 */
+async function apiDataWrite(type: DataType, data: unknown[]): Promise<boolean> {
+  try {
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, data }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+/** 原子自增全局版本号（Upstash INCR，服务端执行），杜绝并发写的 get→+1→set 竞态导致漏版本。 */
 async function bumpVersion(): Promise<number> {
-  const r = await kvCmd('incr', 'recruit:version');
-  return parseInt(String(r ?? '0')) || 0;
+  const r = await apiSyncWrite('incr', 'version');
+  return r.value ?? remoteVersion;
 }
 
 /** 按 id 合并：incoming 在 id 冲突时获胜；保留只存在于 base 的项（添加不丢失） */
@@ -154,7 +176,7 @@ async function pushData(type: DataType, local: unknown[]) {
   const remoteRaw = await kvCmd('get', KV_KEYS[type]);
   const remote = (safeParse(remoteRaw) as unknown[]) || [];
   const merged = applyTombstones(type, mergeById(remote, local)); // 本地获胜
-  const ok = await kvCmd('set', KV_KEYS[type], JSON.stringify(merged));
+  const ok = await apiDataWrite(type, merged);
   if (!ok) return null;
   return await bumpVersion();
 }
@@ -169,7 +191,7 @@ export async function syncDelete(type: DataType, ids: string[]) {
   // 清理过期墓碑
   for (const id of Object.keys(t)) if (now - t[id] > TOMB_TTL) delete t[id];
   tombstones = { ...tombstones, [type]: t };
-  await kvCmd('set', TOMB_KEY, JSON.stringify(tombstones));
+  await apiSyncWrite('set', 'tombstones', JSON.stringify(tombstones));
 }
 
 async function poll() {
@@ -225,7 +247,7 @@ export function syncPush(type: DataType, data: unknown[]) {
 
 /** 把今日增改 diff 写入 KV，供其他端实时拉取 */
 export async function pushImportDiff(diff: unknown): Promise<void> {
-  await kvCmd('set', 'recruit:last-import-diff', JSON.stringify(diff));
+  await apiSyncWrite('set', 'last-import-diff', JSON.stringify(diff));
   // 同时推高 version，让其他端的 10s 轮询感知到变化
   await bumpVersion();
 }
@@ -237,7 +259,7 @@ export async function fetchImportDiff(): Promise<unknown | null> {
 
 /** 把本周新增累计写入 KV */
 export async function pushWeeklyAdded(data: unknown): Promise<void> {
-  await kvCmd('set', 'recruit:weekly-added', JSON.stringify(data));
+  await apiSyncWrite('set', 'weekly-added', JSON.stringify(data));
   await bumpVersion();
 }
 
