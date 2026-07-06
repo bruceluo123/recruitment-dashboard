@@ -295,25 +295,6 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
             )}
           </GlassPanel>
 
-          {/* Requirements */}
-          <GlassPanel padding="md">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-3">
-              <AlertCircle className="w-4 h-4 text-amber-500" />岗位要求
-            </h3>
-            {editing ? (
-              <textarea value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })}
-                rows={5} placeholder="用分号；分隔多条要求" className="w-full px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 resize-none" />
-            ) : (
-              <ul className="space-y-2">
-                {jd.requirements.map((r, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                    <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 text-xs flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>{r}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </GlassPanel>
-
           {/* 关联公司研究 */}
           {!editing && orgName && (
             <GlassPanel padding="md">
