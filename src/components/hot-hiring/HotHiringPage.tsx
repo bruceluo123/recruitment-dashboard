@@ -5,7 +5,7 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
   AlertTriangle, Megaphone, X, Copy, Check,
-  ChevronDown, ChevronUp, Bell, Sparkles, RotateCcw,
+  ChevronDown, ChevronUp, Bell, Sparkles,
 } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
 import type { JDCategory } from '@/types/jd';
@@ -283,19 +283,10 @@ interface AdCopyDialogProps {
 function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps) {
   const [variant, setVariant] = useState<AdVariant>(initialVariant);
   const [hideSalary, setHideSalary] = useState(false);
-  // 被删除（不发）的岗位；删完点「生成文案」才会从 1 重新编号
-  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [generatedSegments, setGeneratedSegments] = useState<AdSegment[]>([]);
   const [generatedSig, setGeneratedSig] = useState('');
 
-  const toggleExclude = (id: string) =>
-    setExcludedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-
-  // P0 排前、P1 排后（全量，含被删的，用于清单展示与恢复）
+  // P0 排前、P1 排后。文案默认包含全部岗位（不再逐条勾选排除）
   const sortedAll = useMemo<JD[]>(
     () => [
       ...jds.filter((j) => j.priority === 'P0'),
@@ -304,20 +295,7 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
     ],
     [jds],
   );
-  // 实际进入文案的岗位 = 全量 − 被删的
-  const selectedJds = useMemo<JD[]>(
-    () => sortedAll.filter((j) => !excludedIds.has(j.id)),
-    [sortedAll, excludedIds],
-  );
-  // 清单里每个未删岗位的连续编号（删掉的不占号）
-  const numberMap = useMemo<Map<string, number>>(() => {
-    const m = new Map<string, number>();
-    let n = 0;
-    for (const jd of sortedAll) {
-      if (!excludedIds.has(jd.id)) { n += 1; m.set(jd.id, n); }
-    }
-    return m;
-  }, [sortedAll, excludedIds]);
+  const selectedJds = sortedAll;
 
   const currentSig = useMemo(
     () => `${hideSalary ? 'd' : 'n'}|${variant}|${selectedJds.map((j) => j.id).join(',')}`,
@@ -390,40 +368,11 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
           </div>
         </div>
         <div className="overflow-y-auto px-5 py-4 space-y-4">
-          {/* 岗位清单：逐条删除，删掉的可恢复 */}
-          {sortedAll.length === 0 ? (
+          {sortedAll.length === 0 && (
             <p className="text-sm text-gray-400 text-center py-6">本周暂无新增岗位，或请先勾选至少一个分类</p>
-          ) : (
-            <div className="rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 flex items-center justify-between">
-                <span>岗位清单 · {selectedJds.length} / {sortedAll.length} 个</span>
-                <span className="text-[11px] font-normal text-gray-400">删掉不想发的，再点生成</span>
-              </div>
-              <ul className="divide-y divide-gray-100 max-h-[32vh] overflow-y-auto">
-                {sortedAll.map((jd) => {
-                  const excluded = excludedIds.has(jd.id);
-                  return (
-                    <li key={jd.id} className={cn('flex items-center gap-2 px-3 py-1.5 text-xs', excluded ? 'text-gray-300' : 'text-gray-700')}>
-                      <span className="shrink-0 w-7 text-gray-400 tabular-nums text-right">{excluded ? '—' : numberMap.get(jd.id)}</span>
-                      <span className={cn('flex-1 min-w-0 truncate', excluded && 'line-through')}>{jd.title}</span>
-                      {(jd.organization || jd.department) && (
-                        <span className="text-gray-400 shrink-0 truncate max-w-[140px]">{[jd.organization, jd.department].filter(Boolean).join(' · ')}</span>
-                      )}
-                      <button
-                        onClick={() => toggleExclude(jd.id)}
-                        title={excluded ? '恢复该岗位' : '从文案中删除该岗位'}
-                        className={cn('shrink-0 p-1 rounded-md transition-colors text-gray-300', excluded ? 'hover:text-green-500 hover:bg-green-50' : 'hover:text-red-500 hover:bg-red-50')}
-                      >
-                        {excluded ? <RotateCcw className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
           )}
 
-          {/* 生成按钮：有改动时高亮提示重新生成 */}
+          {/* 生成按钮：切换风格/脱敏后高亮提示重新生成 */}
           <button
             onClick={handleGenerate}
             disabled={selectedJds.length === 0}
