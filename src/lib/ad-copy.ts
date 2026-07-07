@@ -110,16 +110,23 @@ const emojiNum = (n: number) =>
   n <= 10 ? EMOJI_NUMS[n - 1] : String(n).split('').map((d) => DIGIT_KEYCAPS[Number(d)]).join('');
 
 /**
- * 脱敏文案：flat 编号列表，不含薪资、分类、风格头部，适合对外转发。
+ * 脱敏文案：按大类分组，组内 1️⃣2️⃣ 重新编号，只列岗位名（不含薪资），适合对外转发。
+ * 分组顺序沿用 groupByCategory（AI 类靠前，其余按分组大小降序）。
  * 返回单个 AdSegment（可直接放入 segments 数组）。
  */
 export function buildDesensitizedCopy(jds: JD[]): AdSegment {
   if (jds.length === 0) return { title: '脱敏文案', text: '', count: 0 };
-  const lines = jds.map((jd, i) => `${emojiNum(i + 1)}${jd.title}`);
+  const now = new Date();
+  const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日`;
+  const blocks = groupByCategory(jds).map((group) => {
+    const heading = `${JD_CATEGORY_LABELS[group.cat]}类`;
+    const lines = group.jds.map((jd, i) => `${emojiNum(i + 1)}${jd.title}`);
+    return [heading, ...lines].join('\n');
+  });
   const text = [
-    'HR直招🚀远程工作岗位🔥',
+    `HR直招🚀远程工作岗位🔥（${dateLabel}）`,
     '',
-    ...lines,
+    blocks.join('\n\n'),
     '',
     '联系方式、欢迎小伙伴投递：',
   ].join('\n');

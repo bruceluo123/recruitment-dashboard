@@ -13,21 +13,11 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
   const [copyVariant, setCopyVariant] = useState<AdVariant>('maimanfen');
   const [copyHideSalary, setCopyHideSalary] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
-  // 文案模式下被排除的岗位（不想发的）。排除后文案会自动从 1 重新编号
-  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
 
   const weekLabel = recentWindowLabel();
 
   const handleItemClick = (jd: JD) => {
     setPreviewJd((prev) => (prev?.id === jd.id ? null : jd));
-  };
-
-  const toggleExclude = (id: string) => {
-    setExcludedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
   };
 
   // 滚动窗口内的岗位即「本周新增」，直接用于文案生成（最近的排在前面）
@@ -36,11 +26,8 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
     [recentJds],
   );
 
-  // 实际进入文案的岗位 = 本周新增 − 被排除的
-  const selectedJds = useMemo<JD[]>(
-    () => weeklyJds.filter((jd) => !excludedIds.has(jd.id)),
-    [weeklyJds, excludedIds],
-  );
+  // 文案包含全部本周新增岗位（不再逐条勾选排除）
+  const selectedJds = weeklyJds;
 
   // 文案不再自动生成：用户删完不想发的岗位后，手动点「生成文案」才出结果并从 1 重新编号
   const [generatedSegments, setGeneratedSegments] = useState<AdSegment[]>([]);
@@ -99,7 +86,7 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
             <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <Megaphone className="w-4 h-4 text-red-500" />
-              招聘文案 · 已选 {selectedJds.length} 个岗位{excludedIds.size > 0 ? `（排除 ${excludedIds.size}）` : ''}
+              招聘文案 · 共 {selectedJds.length} 个岗位
             </h4>
             <button onClick={() => setCopyMode(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0">
               <X className="w-4 h-4" />
@@ -138,38 +125,8 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
               {selectedJds.length} 个岗位 · {generatedSegments.length} 段
             </span>
           </div>
-          <p className="px-4 pt-2.5 text-[11px] text-gray-400 shrink-0">删掉不想发的岗位后点「生成文案」，会自动从 1 重新编号。</p>
           <div className="overflow-y-auto flex-1 px-4 py-3 space-y-3">
-            {/* 岗位清单：可逐条删除 */}
-            {selectedJds.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-8">{weeklyJds.length === 0 ? '本周暂无可生成文案的岗位' : '已全部删除，点右侧列表可恢复'}</p>
-            ) : (
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600">
-                  岗位清单 · {selectedJds.length} 个（删完点生成）
-                </div>
-                <ul className="divide-y divide-gray-100 max-h-[40vh] overflow-y-auto">
-                  {selectedJds.map((jd, i) => (
-                    <li key={jd.id} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700">
-                      <span className="shrink-0 w-5 text-gray-400 tabular-nums">{i + 1}</span>
-                      <span className="flex-1 min-w-0 truncate">{jd.title}</span>
-                      {(jd.organization || jd.department) && (
-                        <span className="text-gray-400 shrink-0 truncate max-w-[100px]">{[jd.organization, jd.department].filter(Boolean).join(' · ')}</span>
-                      )}
-                      <button
-                        onClick={() => toggleExclude(jd.id)}
-                        title="从文案中删除该岗位"
-                        className="shrink-0 p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* 生成按钮：有改动时高亮提示重新生成 */}
+            {/* 生成按钮：切换风格/脱敏后高亮提示重新生成 */}
             <button
               onClick={handleGenerate}
               disabled={selectedJds.length === 0}
@@ -241,30 +198,23 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
             <>
               <p className="text-gray-500 text-xs mb-3">
                 近 5 个工作日新增 <span className="font-semibold text-gray-800">{weeklyJds.length}</span> 个岗位
-                {copyMode ? '（取消勾选可从文案中排除）' : '（点击查看详情）'}
+                {copyMode ? '（已全部纳入文案）' : '（点击查看详情）'}
               </p>
               <ul className="space-y-0.5">
                 {weeklyJds.map((jd) => {
                   const isActive = previewJd?.id === jd.id;
-                  const isExcluded = excludedIds.has(jd.id);
                   return (
                     <li
                       key={jd.id}
-                      onClick={() => (copyMode ? toggleExclude(jd.id) : handleItemClick(jd))}
+                      onClick={() => (copyMode ? undefined : handleItemClick(jd))}
                       className={
-                        'text-xs flex items-baseline gap-1.5 cursor-pointer rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 transition-colors'
+                        'text-xs flex items-baseline gap-1.5 rounded-md px-1 py-0.5 -mx-1 transition-colors text-gray-700'
+                        + (copyMode ? '' : ' cursor-pointer hover:bg-gray-50')
                         + (isActive ? ' bg-indigo-50' : '')
-                        + (copyMode && isExcluded ? ' text-gray-300' : ' text-gray-700')
                       }
                     >
-                      {copyMode ? (
-                        <span className={'shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center self-center ' + (isExcluded ? 'border-gray-300 bg-white' : 'border-green-500 bg-green-500')}>
-                          {!isExcluded && <Check className="w-2.5 h-2.5 text-white" />}
-                        </span>
-                      ) : (
-                        <span className="text-green-500 shrink-0">·</span>
-                      )}
-                      <span className={(copyMode && isExcluded ? 'line-through' : 'hover:text-indigo-600') + ' transition-colors'}>{jd.title}</span>
+                      <span className="text-green-500 shrink-0">·</span>
+                      <span className={copyMode ? '' : 'hover:text-indigo-600 transition-colors'}>{jd.title}</span>
                       {(jd.organization || jd.department) && (
                         <span className="text-gray-400 shrink-0">{[jd.organization, jd.department].filter(Boolean).join(' · ')}</span>
                       )}
