@@ -2,13 +2,17 @@
 import { useState } from 'react';
 import { useJDStore } from '@/store/jd-store';
 import type { JD, JDImportResult, JDDiffItem } from '@/types/jd';
-import { Bell, X } from 'lucide-react';
+import { Bell, X, Megaphone, Copy, Check } from 'lucide-react';
+import { buildDesensitizedCopy } from '@/lib/ad-copy';
 import { JdPreviewCard } from './JdPreviewCard';
 
 // 今日增改弹窗：展示上次覆盖导入的新增/移除/异动明细，点条目左侧滑出该 JD 预览。
+// 「今日新增」可一键生成热招文案（沿用热招看板的脱敏分组格式）。
 export function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { date: string }) | null; onClose: () => void }) {
   const jds = useJDStore((s) => s.jds);
   const [previewJd, setPreviewJd] = useState<JD | null>(null);
+  const [showCopy, setShowCopy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const dateLabel = diff ? (() => {
     const d = new Date(diff.date);
@@ -23,9 +27,22 @@ export function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { 
     return jds.find((j) => j.title.trim() === item.title.trim());
   };
 
+  // 今日新增岗位映射为完整 JD（脱敏文案按大类分组需要 categories）
+  const addedJds: JD[] = (diff?.added || []).map((it) => findJd(it)).filter((j): j is JD => !!j);
+  const copyText = addedJds.length ? buildDesensitizedCopy(addedJds).text : '';
+
+  const handleCopy = () => {
+    if (!copyText) return;
+    navigator.clipboard.writeText(copyText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
   const handleItemClick = (item: JDDiffItem) => {
     const found = findJd(item);
     if (!found) return;
+    setShowCopy(false);
     setPreviewJd((prev) => (prev?.id === found.id ? null : found));
   };
 
@@ -59,7 +76,32 @@ export function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { 
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="fixed inset-0 bg-black/20" onClick={onClose} />
 
-      {previewJd && <JdPreviewCard jd={previewJd} onClose={() => setPreviewJd(null)} />}
+      {/* 左侧面板：热招文案优先于详情预览 */}
+      {showCopy ? (
+        <div className="relative z-10 w-[400px] h-full bg-white border-r border-gray-100 shadow-xl flex flex-col overflow-hidden animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-red-500" />今日新增 · 热招文案
+              <span className="text-xs font-normal text-gray-400">脱敏 · {addedJds.length} 个</span>
+            </h4>
+            <button onClick={() => setShowCopy(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="px-4 py-2.5 border-b border-gray-100 shrink-0">
+            <button
+              onClick={handleCopy}
+              disabled={!copyText}
+              className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+            >
+              {copied ? <><Check className="w-3.5 h-3.5 text-green-500" />已复制</> : <><Copy className="w-3.5 h-3.5" />复制文案</>}
+            </button>
+          </div>
+          <pre className="overflow-y-auto flex-1 px-4 py-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed select-all">
+            {copyText || '（今日新增岗位在库中未找到，可能已被移除）'}
+          </pre>
+        </div>
+      ) : (
+        previewJd && <JdPreviewCard jd={previewJd} onClose={() => setPreviewJd(null)} />
+      )}
 
       {/* Diff panel (right) */}
       <div
@@ -86,7 +128,15 @@ export function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { 
 
           {diff.added && diff.added.length > 0 && (
             <div>
-              <p className="font-semibold text-green-700 mb-2">🟢 新增 {diff.added.length} 个岗位</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-semibold text-green-700">🟢 新增 {diff.added.length} 个岗位</p>
+                <button
+                  onClick={() => { setPreviewJd(null); setShowCopy(true); }}
+                  className={`flex items-center gap-1 px-2 h-6 rounded-md text-[11px] font-medium transition-all ${showCopy ? 'bg-red-500 text-white' : 'bg-red-50 text-red-500 hover:bg-red-100'}`}
+                >
+                  <Megaphone className="w-3 h-3" />热招文案
+                </button>
+              </div>
               <ul className="space-y-0.5 pl-1">
                 {diff.added.map((d) => renderDiffItem(d, 'text-green-500', true))}
               </ul>
