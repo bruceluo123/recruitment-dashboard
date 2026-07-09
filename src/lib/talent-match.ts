@@ -3,9 +3,13 @@ import type { JDCategory } from '@/types/jd';
 import type { ScoreBreakdown } from '@/types/matching';
 import type { MatchJDInput, TalentMatchResult } from '@/types/talent-match';
 import { buildTalentMatchPrompt, type CandidateBrief } from './talent-match-prompt';
+import { aiHttpError } from './ai-fetch';
 
 const MAX_AI_CANDIDATES = 15;  // 单次 AI 调用最多精排的候选人数
 const TEXT_FETCH_CONCURRENCY = 5;
+// 单份简历正文进 prompt 的字数上限：15 份 × 6000 字远低于 4.5MB 请求体上限，防 413；
+// 匹配判断用前 6000 字已足够（技能/经历都在前部）。
+const MAX_RESUME_CHARS = 6000;
 const MATCH_MODEL = 'deepseek-chat';
 
 // ─── 本地预筛 ───
@@ -89,10 +93,9 @@ async function callAI(prompt: string, signal?: AbortSignal): Promise<string> {
     signal,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(err.error || `API ${res.status}`);
+    throw aiHttpError(res.status, await res.text().catch(() => ''));
   }
-  const data = await res.json();
+  const data = await res.json().catch(() => ({} as { error?: string; choices?: Array<{ message?: { content?: string } }> }));
   if (data.error) throw new Error(data.error);
   if (!data?.choices?.[0]?.message?.content) throw new Error('API 返回数据异常');
   return data.choices[0].message.content;
@@ -140,7 +143,7 @@ export async function matchJDToTalents(
     index: i + 1,
     name: t.name,
     jobTitle: t.jobTitle,
-    resumeText: textMap.get(t.id) || '',
+    resumeText: (textMap.get(t.id) || '').slice(0, MAX_RESUME_CHARS),
     // 结构化字段：无简历正文时作为主要匹配依据
     company: t.company,
     prevCompanies: t.prevCompanies,

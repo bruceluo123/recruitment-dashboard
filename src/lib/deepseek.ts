@@ -1,12 +1,15 @@
 import type { JD } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { buildBatchMatchingPrompt, buildMatchingPrompt, buildStreamMatchingPrompt } from './matching-prompt';
+import { aiHttpError } from './ai-fetch';
 import { prefilterJDs } from './jd-prefilter';
 import { detectCategories } from './jd-parse-core';
 
 // 一次 AI 调用最多精排的 JD 数（超出则本地预筛取 Top N）。
 // 调高到 36：JD 库可达 200+，候选集太小会让"全部"模式漏掉真正合适的岗位。
 const MAX_AI_CANDIDATES = 36;
+// 简历正文进 prompt 的字数上限，防止超大扫描件 OCR 文本把请求体撑过 4.5MB 触发 413。
+const MAX_RESUME_CHARS = 20000;
 
 // 仅匹配仍有缺口的岗位：缺口为 0（或非正数）= 不需要再招，跳过匹配
 function hasOpenGap(jd: JD): boolean {
@@ -29,11 +32,10 @@ async function callAI(
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-    throw new Error(err.error || `API ${response.status}`);
+    throw aiHttpError(response.status, await response.text().catch(() => ''));
   }
 
-  const data = await response.json();
+  const data = await response.json().catch(() => ({} as { error?: string; choices?: Array<{ message?: { content?: string } }> }));
   if (data.error) throw new Error(data.error);
   if (!data?.choices?.[0]?.message?.content) throw new Error('API 返回数据异常');
   return data.choices[0].message.content;
@@ -93,7 +95,7 @@ export async function matchResumeToJDs(
   // Single batch call for speed
   try {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const prompt = buildBatchMatchingPrompt(resumeText, candidates);
+    const prompt = buildBatchMatchingPrompt(resumeText.slice(0, MAX_RESUME_CHARS), candidates);
     const content = await callAI([{ role: 'user', content: prompt }], signal, 4500);
     const parsed = parseJson(content);
 
@@ -159,7 +161,7 @@ export async function matchResumeToJDsStream(
 
   try {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const prompt = buildStreamMatchingPrompt(resumeText, candidates);
+    const prompt = buildStreamMatchingPrompt(resumeText.slice(0, MAX_RESUME_CHARS), candidates);
     const response = await fetch('/api/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -233,7 +235,7 @@ async function matchPerJd(
     const batchResults = await Promise.all(
       batch.map(async (jd) => {
         try {
-          const prompt = buildMatchingPrompt(resumeText, jd);
+          const prompt = buildMatchingPrompt(resumeText.slice(0, MAX_RESUME_CHARS), jd);
           const content = await callAI([{ role: 'user', content: prompt }], signal);
           return buildResult(jd, resumeId, parseJson(content));
         } catch { return makeFallback(jd, resumeId); }

@@ -5,6 +5,7 @@ import { hasCategory } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { generateId } from '@/lib/utils';
 import { matchResumeToJDsStream } from '@/lib/deepseek';
+import { aiHttpError } from '@/lib/ai-fetch';
 import { useJDStore } from './jd-store';
 
 // 同时最多保留的简历数；匹配结果在完成后保留的时长（10 分钟）
@@ -90,9 +91,18 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
         formData.append('file', file);
         res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
       }
-      const data = await res.json();
+      // 先按状态处理（413 等非 JSON 错误在此转成可读文案，避免 res.json() 抛 Unexpected token）
+      if (!res.ok) {
+        const errMsg = aiHttpError(res.status, await res.text().catch(() => '')).message;
+        set((s) => ({
+          isUploading: false,
+          resumes: s.resumes.map((r) => r.id === id ? { ...r, parsingStatus: 'failed' as const, parseError: errMsg } : r),
+        }));
+        return id;
+      }
+      const data = await res.json().catch(() => ({} as { text?: string; error?: string }));
       // 解析失败（如图片型 PDF 无法识别）或正文为空 → 标记失败，保留错误信息
-      if (!res.ok || data.error || !data.text) {
+      if (data.error || !data.text) {
         const errMsg = data.error || '简历正文为空，无法解析';
         set((s) => ({
           isUploading: false,
