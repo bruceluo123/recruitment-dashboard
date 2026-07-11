@@ -104,7 +104,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
 
   const handleCopy = async () => {
     const salaryStr = jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '');
-    const text = `${jd.title}${salaryStr ? `\n薪资：${salaryStr}` : ''}\n\n岗位职责：\n${jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\n岗位需求：\n${jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}`;
+    const text = `${jd.title}${salaryStr ? `\n薪资：${salaryStr}` : ''}\n\n岗位职责：\n${jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n')}`;
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
