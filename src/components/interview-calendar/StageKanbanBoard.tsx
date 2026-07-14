@@ -14,22 +14,29 @@ interface StageKanbanBoardProps {
 export function StageKanbanBoard({ candidates, onCandidateMove, onCandidateClick, onDeleteCandidate, onAddCandidate }: StageKanbanBoardProps) {
   return (
     <div className="flex gap-4 overflow-x-auto pb-4">
-      {DEFAULT_STAGES.map((stage) => (
-        <StageKanbanColumn key={stage.id} stage={stage}
-          candidates={sortCandidatesByInterviewTime(candidates.filter((c) => c.stage === stage.id))}
-          onCandidateMove={onCandidateMove} onCandidateClick={onCandidateClick}
-          onDeleteCandidate={onDeleteCandidate} onAddCandidate={onAddCandidate} />
-      ))}
+      {DEFAULT_STAGES.map((stage) => {
+        const stageCandidates = candidates.filter((c) => c.stage === stage.id);
+        // Offer 列按入职时间(onboardDate)从前到后排；其余列按面试时间排
+        const sorted = stage.id === 'offer'
+          ? sortCandidatesByDate(stageCandidates, (c) => c.onboardDate)
+          : sortCandidatesByDate(stageCandidates, (c) => c.interviewDate);
+        return (
+          <StageKanbanColumn key={stage.id} stage={stage}
+            candidates={sorted}
+            onCandidateMove={onCandidateMove} onCandidateClick={onCandidateClick}
+            onDeleteCandidate={onDeleteCandidate} onAddCandidate={onAddCandidate} />
+        );
+      })}
     </div>
   );
 }
 
-function sortCandidatesByInterviewTime(candidates: Candidate[]): Candidate[] {
-  return [...candidates].sort((a, b) => getInterviewTime(a) - getInterviewTime(b));
+function sortCandidatesByDate(candidates: Candidate[], getDate: (c: Candidate) => string | undefined): Candidate[] {
+  return [...candidates].sort((a, b) => toTime(getDate(a)) - toTime(getDate(b)));
 }
 
-function getInterviewTime(candidate: Candidate): number {
-  if (!candidate.interviewDate) return Number.MAX_SAFE_INTEGER;
-  const time = new Date(candidate.interviewDate).getTime();
+function toTime(dateStr: string | undefined): number {
+  if (!dateStr) return Number.MAX_SAFE_INTEGER;
+  const time = new Date(dateStr).getTime();
   return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
 }
