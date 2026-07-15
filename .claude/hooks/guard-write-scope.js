@@ -11,6 +11,7 @@ const ALLOWLIST = [
   path.resolve('D:\\wiki\\个人知识库'),
   path.resolve('D:\\projects\\zimeiti-workstation'),
   path.resolve('D:\\projects\\kb-graph-site'),
+  path.resolve('D:\\projects\\督导工作站'),
   path.resolve('C:\\Users\\Administrator\\.claude\\projects\\D--projects-recruitment-dashboard\\memory'),
 ];
 
