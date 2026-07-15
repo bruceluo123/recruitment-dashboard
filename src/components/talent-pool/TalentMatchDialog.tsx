@@ -1,8 +1,9 @@
 'use client';
 import { useMemo, useRef, useState } from 'react';
-import { X, Loader2, Sparkles, FileText, Copy, Check, Search, Pause } from 'lucide-react';
+import { X, Loader2, Sparkles, FileText, Copy, Check, Search, Pause, History, Trash2, RotateCcw } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import { useJDStore } from '@/store/jd-store';
+import { useMatchHistoryStore } from '@/store/match-history-store';
 import { matchJDToTalents } from '@/lib/talent-match';
 import type { JD, JDCategory } from '@/types/jd';
 import type { MatchJDInput, TalentMatchResult } from '@/types/talent-match';
@@ -22,6 +23,17 @@ function jdToInput(jd: JD): MatchJDInput {
   };
 }
 
+/** 历史记录时间：今天显示「今天 HH:mm」，否则「M月D日 HH:mm」 */
+function formatSavedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay ? `今天 ${hh}:${mm}` : `${d.getMonth() + 1}月${d.getDate()}日 ${hh}:${mm}`;
+}
+
 function scoreColor(score: number): string {
   if (score >= 85) return 'text-green-600 bg-green-50 ring-green-200';
   if (score >= 70) return 'text-indigo-600 bg-indigo-50 ring-indigo-200';
@@ -32,6 +44,9 @@ function scoreColor(score: number): string {
 export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
   const talents = useTalentStore((s) => s.talents);
   const jds = useJDStore((s) => s.jds);
+  const history = useMatchHistoryStore((s) => s.history);
+  const addRecord = useMatchHistoryStore((s) => s.addRecord);
+  const removeRecord = useMatchHistoryStore((s) => s.removeRecord);
 
   const [mode, setMode] = useState<Mode>('library');
   const [jdSearch, setJdSearch] = useState('');
@@ -42,6 +57,8 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<TalentMatchResult[] | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // 当前展示的结果来自哪条历史记录（复看时显示横幅 + 岗位/时间）；null 表示刚跑出的新结果
+  const [viewingTitle, setViewingTitle] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const filteredJds = useMemo(() => {
@@ -60,14 +77,20 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
 
     let jdInput: MatchJDInput;
     let jdCategories: JDCategory[] = [];
+    let jdTitle = '';
+    let jdSubtitle = '';
     if (mode === 'library') {
       const jd = jds.find((j) => j.id === selectedJdId);
       if (!jd) { setError('请先选择一个岗位'); return; }
       jdInput = jdToInput(jd);
       jdCategories = jd.categories || [];
+      jdTitle = jd.title;
+      jdSubtitle = [jd.department, jd.organization].filter(Boolean).join(' · ') || '库内 JD';
     } else {
       if (!pasteText.trim()) { setError('请粘贴 JD 文本'); return; }
-      jdInput = { title: pasteTitle.trim() || '（粘贴岗位）', responsibilities: [], requirements: [pasteText.trim()] };
+      jdTitle = pasteTitle.trim() || '（粘贴岗位）';
+      jdSubtitle = '粘贴 JD 文本';
+      jdInput = { title: jdTitle, responsibilities: [], requirements: [pasteText.trim()] };
     }
 
     if (!talents.length) { setError('人才库为空，请先导入候选人'); return; }
@@ -75,10 +98,20 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
+    setViewingTitle(null);
     try {
       const res = await matchJDToTalents(jdInput, jdCategories, talents, controller.signal);
       setResults(res);
       if (!res.length) setError('未找到匹配的候选人');
+      else {
+        // 存档供复看：保留最近 5 条，退出/刷新后仍可查看，无需重新匹配
+        addRecord({
+          jdTitle, jdSubtitle, mode,
+          talentTotal: talents.length,
+          scannedCount,
+          results: res,
+        });
+      }
     } catch (err) {
       if ((err as Error).name === 'AbortError') setError('已暂停匹配');
       else setError(`匹配失败: ${(err as Error).message}`);
@@ -89,6 +122,14 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
   };
 
   const handlePause = () => abortRef.current?.abort();
+
+  const handleReview = (id: string) => {
+    const rec = history.find((r) => r.id === id);
+    if (!rec) return;
+    setResults(rec.results);
+    setViewingTitle(`${rec.jdTitle} · ${formatSavedAt(rec.savedAt)}`);
+    setError(null);
+  };
 
   const handleCopyTg = async (tg: string, id: string) => {
     try {
@@ -170,9 +211,51 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
 
           {error && <div className="px-4 py-2.5 rounded-xl bg-red-50 border border-red-100 text-sm text-red-600">{error}</div>}
 
+          {/* 历史匹配记录：退出/刷新后仍可复看，最多保留 5 条 */}
+          {!loading && history.length > 0 && (
+            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-1.5">
+              <div className="flex items-center gap-1.5 px-0.5">
+                <History className="w-3.5 h-3.5 text-gray-400" />
+                <span className="text-xs font-medium text-gray-500">历史匹配记录（保留最近 5 条）</span>
+              </div>
+              {history.map((rec) => {
+                const isActive = viewingTitle?.startsWith(rec.jdTitle) && viewingTitle.includes(formatSavedAt(rec.savedAt));
+                return (
+                  <div key={rec.id}
+                    className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors ${isActive ? 'border-indigo-200 bg-indigo-50/70' : 'border-transparent bg-white hover:bg-indigo-50/40'}`}>
+                    <button onClick={() => handleReview(rec.id)} className="flex-1 min-w-0 text-left">
+                      <p className="text-sm font-medium text-gray-700 truncate">{rec.jdTitle}
+                        <span className="ml-2 text-xs font-normal text-gray-400">{rec.results.length} 位 · {formatSavedAt(rec.savedAt)}</span>
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">{rec.jdSubtitle}</p>
+                    </button>
+                    <button onClick={() => handleReview(rec.id)}
+                      className="shrink-0 inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 px-2 py-1 rounded-md hover:bg-indigo-100/60">
+                      <RotateCcw className="w-3.5 h-3.5" />复看
+                    </button>
+                    <button onClick={() => { removeRecord(rec.id); if (isActive) { setResults(null); setViewingTitle(null); } }}
+                      className="shrink-0 p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {results && results.length > 0 && (
             <div className="space-y-3 pt-1">
-              <p className="text-sm font-medium text-gray-600">匹配结果（{results.length} 位，按分数降序）</p>
+              {viewingTitle ? (
+                <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100">
+                  <span className="text-xs text-amber-700 flex items-center gap-1.5 min-w-0">
+                    <History className="w-3.5 h-3.5 shrink-0" /><span className="truncate">复看历史结果：{viewingTitle}</span>
+                  </span>
+                  <button onClick={() => { setResults(null); setViewingTitle(null); }}
+                    className="shrink-0 text-xs text-amber-600 hover:text-amber-800 underline">收起</button>
+                </div>
+              ) : (
+                <p className="text-sm font-medium text-gray-600">匹配结果（{results.length} 位，按分数降序）</p>
+              )}
               {results.map((r) => (
                 <div key={r.id} className="rounded-xl border border-gray-100 p-4 space-y-2">
                   <div className="flex items-start justify-between gap-3">
