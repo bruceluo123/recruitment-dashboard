@@ -111,21 +111,24 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     setFileError('');
     setFileStatus('uploading');
     try {
-      // 1) 先把文件本体存入 Vercel Blob（简历资产全链路的起点：文件跟随候选人，不再丢弃）。
-      //    失败不阻断——回退为纯文字解析路径，录入功能照常可用。
+      // 1) 大文件（>4MB）经 @vercel/blob/client 从浏览器直传 Blob，绕过 Serverless 4.5MB 请求体上限；
+      //    小文件走更快的 FormData 直传路径。直传失败不阻断——静默回退到 FormData 解析。
+      const LARGE_FILE_BYTES = 4 * 1024 * 1024;
       let blobUrl = '';
-      try {
-        const fd = new FormData();
-        fd.append('file', file);
-        const up = await fetch('/api/talent/upload', { method: 'POST', body: fd });
-        if (up.ok) {
-          const blob = (await up.json()) as { url?: string };
+      if (file.size > LARGE_FILE_BYTES) {
+        try {
+          const { upload } = await import('@vercel/blob/client');
+          const blob = await upload(file.name, file, {
+            access: 'public',
+            handleUploadUrl: '/api/resume/blob-upload',
+            contentType: file.type || 'application/octet-stream',
+          });
           blobUrl = blob.url || '';
-        }
-      } catch { /* Blob 不可用时静默回退 */ }
+        } catch { /* 直传不可用时静默回退到 FormData */ }
+      }
       if (blobUrl) { setResumeUrl(blobUrl); setResumeFileName(file.name); }
 
-      // 2) 提取文字：已入 Blob 则让服务端从 Blob 拉取（免二次上传），否则直传解析。
+      // 2) 提取文字：已入 Blob 则让服务端从 Blob 拉取（免二次上传），否则 FormData 直传解析。
       let res: Response;
       if (blobUrl) {
         res = await fetch('/api/resume/parse', {
@@ -138,10 +141,18 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
         formData.append('file', file);
         res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
       }
-      const data = (await res.json()) as { text?: string; error?: string };
+      // 服务端在文件过大(413)等场景返回纯文本(如 "Request Entity Too Large")，
+      // 直接 res.json() 会抛 "Unexpected token 'R'"。先读文本再安全解析。
+      const raw = await res.text();
+      let data: { text?: string; error?: string } = {};
+      try {
+        data = raw ? (JSON.parse(raw) as { text?: string; error?: string }) : {};
+      } catch {
+        data = { error: res.status === 413 ? '简历文件过大，请压缩后重试（建议 < 4MB）' : (raw.slice(0, 120) || '文件解析失败') };
+      }
       if (!res.ok || data.error) {
         setFileStatus('error');
-        setFileError(data.error || '文件解析失败');
+        setFileError(data.error || (res.status === 413 ? '简历文件过大，请压缩后重试（建议 < 4MB）' : '文件解析失败'));
         return;
       }
       const text = data.text || '';
