@@ -15,7 +15,7 @@ const CATEGORY_EMOJI: Record<JDCategory, string> = {
   content: '✍️',
 };
 
-/** 文案风格：麦满分（@bruceluo123）/ 铁牛（@Tie_Niu66）。两者头部与署名不同。 */
+/** 文案风格：麦满分（@bruceluo123）/ 铁牛（@forforle）。两者头部与署名不同。 */
 export type AdVariant = 'maimanfen' | 'tieniu';
 
 interface VariantConfig {
@@ -48,7 +48,7 @@ const VARIANTS: Record<AdVariant, VariantConfig> = {
     buildHeader: () => '全远程居家工作—今日急招',
     buildHeading: (emoji, label) => `${emoji}${label}类`,
     buildLine: (title, salary, loc) => `- ${title}${salary ? ` ｜ ${salary}` : ''}${loc ? `  ${loc}` : ''}`,
-    signature: '欢迎自荐或转推荐，投递联系 @Tie_Niu66',
+    signature: '欢迎自荐或转推荐，投递联系 @forforle',
   },
 };
 
