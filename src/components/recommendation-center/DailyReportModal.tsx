@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Send, Loader2, CheckCircle2, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import type { RepushItem, RepushColumnId } from '@/store/repush-store';
 import type { Candidate } from '@/types/interview';
@@ -37,6 +37,30 @@ type SubmitState = 'idle' | 'submitting' | 'done' | 'error';
 
 const sum = (arr: JobLine[]) => arr.reduce((s, j) => s + (Number(j.qty) || 0), 0);
 
+// ── 草稿自动暂存：误关/切走/点到外面时不丢失填写，按「录入人 + 日期」隔离，提交成功后清除 ──
+const DRAFT_VERSION = 1;
+interface DraftState {
+  v: number;
+  recommend: JobLine[]; cv: JobLine[]; screenNew: number;
+  scheduled: ScheduledLine[]; interview: InterviewLine[];
+  offer: JobLine[]; onboard: OnboardLine[]; remark: string;
+}
+const draftKey = (name: string, date: string) => `recruitai-daily-report-draft:${name}:${date}`;
+function loadDraft(name: string, date: string): DraftState | null {
+  try {
+    const raw = localStorage.getItem(draftKey(name, date));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as DraftState;
+    return d && d.v === DRAFT_VERSION ? d : null;
+  } catch { return null; }
+}
+function saveDraft(name: string, date: string, d: Omit<DraftState, 'v'>): void {
+  try { localStorage.setItem(draftKey(name, date), JSON.stringify({ v: DRAFT_VERSION, ...d })); } catch { /* 存储不可用时忽略 */ }
+}
+function clearDraft(name: string, date: string): void {
+  try { localStorage.removeItem(draftKey(name, date)); } catch { /* 忽略 */ }
+}
+
 /** 把本系统今日数据组装成看板站日报，可编辑预览后一键提交到团队数据看板。 */
 export function DailyReportModal({ column, name, items, candidates, onClose }: DailyReportModalProps) {
   const ref = useMemo(() => new Date(), []);
@@ -51,28 +75,51 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [recommend, setRecommend] = useState<JobLine[]>(draft.recommendDetail);
-  const [cv, setCv] = useState<JobLine[]>(draft.cvDetail);
-  const [screenNew, setScreenNew] = useState<number>(draft.screenNew);
-  const [scheduled, setScheduled] = useState<ScheduledLine[]>(draft.scheduledDetail);
-  const [interview, setInterview] = useState<InterviewLine[]>(draft.interviewDetail);
+  // 打开时若存在上次未提交的草稿（同录入人 + 同一天），优先恢复它，避免误关丢失填写。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const savedDraft = useMemo(() => loadDraft(name, today), []);
+  const [restored, setRestored] = useState(!!savedDraft);
+
+  const [recommend, setRecommend] = useState<JobLine[]>(savedDraft?.recommend ?? draft.recommendDetail);
+  const [cv, setCv] = useState<JobLine[]>(savedDraft?.cv ?? draft.cvDetail);
+  const [screenNew, setScreenNew] = useState<number>(savedDraft?.screenNew ?? draft.screenNew);
+  const [scheduled, setScheduled] = useState<ScheduledLine[]>(savedDraft?.scheduled ?? draft.scheduledDetail);
+  const [interview, setInterview] = useState<InterviewLine[]>(savedDraft?.interview ?? draft.interviewDetail);
   // Offer 申请 / 入职：不自动抓取，默认为空，由使用者手动填写后随日报一并提交。
-  const [offer, setOffer] = useState<JobLine[]>([]);
-  const [onboard, setOnboard] = useState<OnboardLine[]>([]);
-  const [remark, setRemark] = useState<string>(draft.remark);
+  const [offer, setOffer] = useState<JobLine[]>(savedDraft?.offer ?? []);
+  const [onboard, setOnboard] = useState<OnboardLine[]>(savedDraft?.onboard ?? []);
+  const [remark, setRemark] = useState<string>(savedDraft?.remark ?? draft.remark);
 
   const [state, setState] = useState<SubmitState>('idle');
   const [errMsg, setErrMsg] = useState('');
-  // 是否有未提交的编辑。用于防止误点遮罩/关闭导致填写丢失。
-  const [dirty, setDirty] = useState(false);
+  // 是否有用户实际编辑（含已恢复的草稿）。仅在此为真时才自动暂存，
+  // 避免「只打开没填」也写入草稿、导致下次误弹「已恢复」。
+  const [dirty, setDirty] = useState(!!savedDraft);
   const markDirty = () => setDirty(true);
 
-  // 关闭前确认：有未提交编辑且尚未成功提交时，先二次确认，避免误点丢失记录。
-  const requestClose = () => {
-    if (dirty && state !== 'done') {
-      if (!window.confirm('有未提交的编辑内容，确定要关闭吗？关闭后本次填写将丢失。')) return;
-    }
-    onClose();
+  // 自动暂存：用户编辑后，任一可编辑字段变化即写入 localStorage（提交成功后不再写）。
+  // 由此实现「切出去 / 点到别的 / 突然关掉」都能保留填写，重开自动恢复。
+  useEffect(() => {
+    if (state === 'done' || !dirty) return;
+    saveDraft(name, today, { recommend, cv, screenNew, scheduled, interview, offer, onboard, remark });
+  }, [recommend, cv, screenNew, scheduled, interview, offer, onboard, remark, state, dirty, name, today]);
+
+  // 关闭即可，填写已自动暂存，重开会恢复。
+  const requestClose = () => onClose();
+
+  // 放弃已恢复的草稿，回到系统自动生成的初稿（并清除暂存）。
+  const discardDraft = () => {
+    clearDraft(name, today);
+    setRecommend(draft.recommendDetail);
+    setCv(draft.cvDetail);
+    setScreenNew(draft.screenNew);
+    setScheduled(draft.scheduledDetail);
+    setInterview(draft.interviewDetail);
+    setOffer([]);
+    setOnboard([]);
+    setRemark(draft.remark);
+    setRestored(false);
+    setDirty(false); // 放弃后回到初稿，且不再自动暂存（除非重新编辑）
   };
 
   const recommendTotal = sum(recommend);
@@ -110,6 +157,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
       const record = buildFinal();
       const existingId = await findExistingReportId(today, name);
       await submitRemoteRecord(existingId ? { ...record, id: existingId } : record);
+      clearDraft(name, today); // 提交成功：清除暂存草稿
       setState('done');
     } catch (error: unknown) {
       setState('error');
@@ -149,6 +197,15 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm">
+          {restored && state !== 'done' && (
+            <div className="flex items-center justify-between gap-2 text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />已恢复上次未提交的填写
+              </span>
+              <button onClick={discardDraft} className="text-xs text-indigo-500 hover:text-indigo-700 underline shrink-0">放弃，重新生成</button>
+            </div>
+          )}
+
           {!hasData && (
             <div className="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />

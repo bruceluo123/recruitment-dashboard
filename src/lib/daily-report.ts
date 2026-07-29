@@ -61,7 +61,7 @@ export function emptyOnboardLine(onboardDate: string): OnboardLine {
     interviewer: '', education: '本科', recruitTeam: '寻英渠道', source: '',
     teamLead: 'ojisamer', manager: 'evelyn',
     probationSalary: '', probationCurrency: 'CNY', regularSalary: '', regularCurrency: 'CNY',
-    score: '', workMode: '到岗', employmentStatus: '已入职', leftDate: '',
+    score: '', workMode: '远程', employmentStatus: '已入职', leftDate: '',
     onboardDate, priority: '',
   };
 }
