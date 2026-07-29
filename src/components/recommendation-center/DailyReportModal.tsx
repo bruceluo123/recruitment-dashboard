@@ -14,6 +14,10 @@ import {
   isInterviewPassed,
   INTERVIEW_PENDING,
   INTERVIEW_STATUS_OPTIONS,
+  emptyOnboardLine,
+  ONBOARD_WORKMODE_OPTIONS,
+  ONBOARD_CHANNEL_OPTIONS,
+  ONBOARD_STATUS_OPTIONS,
   type JobLine,
   type ScheduledLine,
   type InterviewLine,
@@ -214,33 +218,46 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
             onAdd={() => addJob(setOffer)}
           />
 
-          {/* 入职明细（手动填写，默认空；到岗日期默认今天） */}
+          {/* 入职明细（字段与团队数据看板一致；到岗日期默认今天，学历/组长/主管/到岗方式已按团队约定预填） */}
           <EditSection
             title={`入职明细（当天入职 ${onboard.length}）`}
-            onAdd={() => { markDirty(); setOnboard((a) => [...a, {
-              jobName: '', candidateName: '', department: '',
-              probationSalary: '', probationCurrency: 'CNY',
-              regularSalary: '', regularCurrency: 'CNY',
-              source: '', score: '', onboardDate: today, responsibleHr: name, remark: '',
-            }]); }}
+            onAdd={() => { markDirty(); setOnboard((a) => [...a, emptyOnboardLine(today)]); }}
           >
             {onboard.map((o, i) => (
-              <div key={i} className="px-2 py-2 space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <input className={inputCls} placeholder="岗位名称" value={o.jobName} onChange={(e) => patch(setOnboard, i, { jobName: e.target.value })} />
-                  <input className={inputCls} placeholder="姓名/花名" value={o.candidateName} onChange={(e) => patch(setOnboard, i, { candidateName: e.target.value })} />
-                  <input className="w-24 px-2 h-8 rounded-lg border border-gray-200" placeholder="部门" value={o.department} onChange={(e) => patch(setOnboard, i, { department: e.target.value })} />
+              <div key={i} className="px-2 py-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-gray-400">入职人选 #{i + 1}</span>
                   <DropBtn onClick={() => drop(setOnboard, i)} />
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <input className={inputCls} placeholder="试用期月薪" value={o.probationSalary} onChange={(e) => patch(setOnboard, i, { probationSalary: e.target.value })} />
-                  <input className={inputCls} placeholder="转正后月薪" value={o.regularSalary} onChange={(e) => patch(setOnboard, i, { regularSalary: e.target.value })} />
-                  <input className="w-24 px-2 h-8 rounded-lg border border-gray-200" placeholder="招聘来源" value={o.source} onChange={(e) => patch(setOnboard, i, { source: e.target.value })} />
-                  <input className="w-16 px-2 h-8 rounded-lg border border-gray-200" placeholder="如8.5" value={o.score} onChange={(e) => patch(setOnboard, i, { score: e.target.value })} />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <label className="text-xs text-gray-400 shrink-0">到岗日期</label>
-                  <input type="date" className="px-2 h-8 rounded-lg border border-gray-200" value={o.onboardDate} onChange={(e) => patch(setOnboard, i, { onboardDate: e.target.value })} />
+                <div className="grid grid-cols-4 gap-1.5">
+                  <input className={gridInput} placeholder="岗位名称" value={o.jobName} onChange={(e) => patch(setOnboard, i, { jobName: e.target.value })} />
+                  {/* 花名默认跟随简历名：改简历名时同步花名（除非花名已被单独改动） */}
+                  <input className={gridInput} placeholder="简历名" value={o.candidateName} onChange={(e) => patch(setOnboard, i, { candidateName: e.target.value, ...(o.nickname === o.candidateName ? { nickname: e.target.value } : {}) })} />
+                  <input className={gridInput} placeholder="花名" value={o.nickname} onChange={(e) => patch(setOnboard, i, { nickname: e.target.value })} />
+                  <input className={gridInput} placeholder="编制组织" value={o.department} onChange={(e) => patch(setOnboard, i, { department: e.target.value })} />
+
+                  <input className={gridInput} placeholder="面试官" value={o.interviewer} onChange={(e) => patch(setOnboard, i, { interviewer: e.target.value })} />
+                  <input className={gridInput} placeholder="学历" value={o.education} onChange={(e) => patch(setOnboard, i, { education: e.target.value })} />
+                  <input className={gridInput} placeholder="寻英渠道" value={o.recruitTeam} onChange={(e) => patch(setOnboard, i, { recruitTeam: e.target.value })} />
+                  <select className={gridInput + ' bg-white'} value={ONBOARD_CHANNEL_OPTIONS.includes(o.source as typeof ONBOARD_CHANNEL_OPTIONS[number]) ? o.source : ''} onChange={(e) => patch(setOnboard, i, { source: e.target.value })}>
+                    <option value="">招聘来源</option>
+                    {ONBOARD_CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+
+                  <input className={gridInput} placeholder="招聘组长" value={o.teamLead} onChange={(e) => patch(setOnboard, i, { teamLead: e.target.value })} />
+                  <input className={gridInput} placeholder="招聘主管" value={o.manager} onChange={(e) => patch(setOnboard, i, { manager: e.target.value })} />
+                  <input className={gridInput} placeholder="试用期月薪" value={o.probationSalary} onChange={(e) => patch(setOnboard, i, { probationSalary: e.target.value })} />
+                  <input className={gridInput} placeholder="转正后月薪" value={o.regularSalary} onChange={(e) => patch(setOnboard, i, { regularSalary: e.target.value })} />
+
+                  <input className={gridInput} placeholder="到岗评分 如8.5" value={o.score} onChange={(e) => patch(setOnboard, i, { score: e.target.value })} />
+                  <select className={gridInput + ' bg-white'} value={o.workMode} onChange={(e) => patch(setOnboard, i, { workMode: e.target.value })}>
+                    <option value="">到岗方式</option>
+                    {ONBOARD_WORKMODE_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                  <select className={gridInput + ' bg-white'} value={o.employmentStatus} onChange={(e) => patch(setOnboard, i, { employmentStatus: e.target.value })}>
+                    {ONBOARD_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <input type="date" className={gridInput} value={o.onboardDate} onChange={(e) => patch(setOnboard, i, { onboardDate: e.target.value })} />
                 </div>
               </div>
             ))}
@@ -285,6 +302,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 }
 
 const inputCls = 'flex-1 min-w-0 px-2 h-8 rounded-lg border border-gray-200';
+// 入职明细网格里的紧凑输入框（4 列布局，字段较多）
+const gridInput = 'min-w-0 px-2 h-8 rounded-lg border border-gray-200 text-xs';
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (

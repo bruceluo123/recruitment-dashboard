@@ -21,20 +21,49 @@ export interface JobLine { name: string; department: string; jobKey: string; qty
 export interface ScheduledLine { job: string; person: string; date: string; time: string; tz: string; }
 export interface InterviewLine { name: string; department: string; jobKey: string; person: string; status: string; }
 
-/** 入职人选明细，字段与团队数据看板（remote_records）一致。 */
+/**
+ * 入职人选明细，字段与团队数据看板（remote_records）的 normalizeOnboardDetail 完全一致。
+ * 看板站入职台账依据这些 key 渲染/导出，缺字段会显示为空，故此处需与看板同步。
+ */
 export interface OnboardLine {
   jobName: string;
-  candidateName: string;
-  department: string;
+  candidateName: string;   // 简历名
+  nickname: string;        // 花名（默认同简历名）
+  department: string;      // 编制组织 / 入职部门
+  center: string;          // 中心
+  interviewer: string;     // 面试官
+  education: string;       // 学历
+  recruitTeam: string;     // 寻英渠道
+  source: string;          // 招聘来源（渠道）
+  teamLead: string;        // 招聘组长
+  manager: string;         // 招聘主管
   probationSalary: string;
   probationCurrency: string;
   regularSalary: string;
   regularCurrency: string;
-  source: string;
-  score: string;
-  onboardDate: string;
-  responsibleHr: string;
-  remark: string;
+  score: string;           // 到岗评分
+  workMode: string;        // 到岗 / 远程 / 其他
+  employmentStatus: string;// 在职状态（默认 已入职）
+  leftDate: string;        // 离职日期
+  onboardDate: string;     // 到岗日期
+  priority: string;        // 优先级
+}
+
+/** 看板站入职下拉选项，保持与远端一致。 */
+export const ONBOARD_WORKMODE_OPTIONS = ['到岗', '远程'] as const;
+export const ONBOARD_CHANNEL_OPTIONS = ['TG', '转介绍', 'Indeed', '小红书', '简历储备', '内推', '猎聘', '人才库', '社群', 'BOSS直聘'] as const;
+export const ONBOARD_STATUS_OPTIONS = ['已入职', '待入职', '已离职'] as const;
+
+/** 一行入职明细的默认值：按团队约定预填，减少手工录入。 */
+export function emptyOnboardLine(onboardDate: string): OnboardLine {
+  return {
+    jobName: '', candidateName: '', nickname: '', department: '', center: '',
+    interviewer: '', education: '本科', recruitTeam: '寻英渠道', source: '',
+    teamLead: 'ojisamer', manager: 'evelyn',
+    probationSalary: '', probationCurrency: 'CNY', regularSalary: '', regularCurrency: 'CNY',
+    score: '', workMode: '到岗', employmentStatus: '已入职', leftDate: '',
+    onboardDate, priority: '',
+  };
 }
 
 /** 业务面试状态：与看板站一致，已通过(pass) / 待反馈(pending)。 */
