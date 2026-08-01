@@ -221,6 +221,23 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setter((arr) => [...arr, { name: '', department: '', jobKey: '', qty: 1, channel: pickRandomChannel(), priority: pickRandomPriority() }]);
   };
 
+  // 推荐 ↔ 收取「渠道 / 优先级」联动：同岗位（jobKey）改一处，另一处同步。数量各自独立不联动。
+  const syncCP = (setter: React.Dispatch<React.SetStateAction<JobLine[]>>, jobKey: string, p: Partial<JobLine>) => {
+    const cp: Partial<JobLine> = {};
+    if ('channel' in p) cp.channel = p.channel;
+    if ('priority' in p) cp.priority = p.priority;
+    if (!Object.keys(cp).length) return;
+    setter((arr) => arr.map((r) => makeJobKey(r.name, r.department) === jobKey ? { ...r, ...cp } : r));
+  };
+  const patchRecommend = (i: number, p: Partial<JobLine>) => {
+    patch(setRecommend, i, p);
+    syncCP(setCv, makeJobKey(recommend[i].name, recommend[i].department), p);
+  };
+  const patchCv = (i: number, p: Partial<JobLine>) => {
+    patch(setCv, i, p);
+    syncCP(setRecommend, makeJobKey(cv[i].name, cv[i].department), p);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={requestClose}>
       <div
@@ -278,7 +295,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           <JobSection
             title="各岗位推荐明细"
             rows={recommend}
-            onPatch={(i, p) => patch(setRecommend, i, p)}
+            onPatch={patchRecommend}
             onDrop={(i) => drop(setRecommend, i)}
             onAdd={() => addJob(setRecommend)}
           />
@@ -286,7 +303,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           <JobSection
             title="各岗位收取明细"
             rows={cv}
-            onPatch={(i, p) => patch(setCv, i, p)}
+            onPatch={patchCv}
             onDrop={(i) => drop(setCv, i)}
             onAdd={() => addJob(setCv)}
           />
