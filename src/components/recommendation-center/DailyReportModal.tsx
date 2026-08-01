@@ -18,6 +18,10 @@ import {
   ONBOARD_WORKMODE_OPTIONS,
   ONBOARD_CHANNEL_OPTIONS,
   ONBOARD_STATUS_OPTIONS,
+  REPORT_CHANNEL_OPTIONS,
+  REPORT_PRIORITY_OPTIONS,
+  pickRandomChannel,
+  pickRandomPriority,
   type JobLine,
   type ScheduledLine,
   type InterviewLine,
@@ -214,7 +218,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 
   const addJob = (setter: React.Dispatch<React.SetStateAction<JobLine[]>>) => {
     markDirty();
-    setter((arr) => [...arr, { name: '', department: '', jobKey: '', qty: 1 }]);
+    setter((arr) => [...arr, { name: '', department: '', jobKey: '', qty: 1, channel: pickRandomChannel(), priority: pickRandomPriority() }]);
   };
 
   return (
@@ -288,13 +292,15 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           />
 
           {/* 约面明细 */}
-          <EditSection title="约面明细" onAdd={() => { markDirty(); setScheduled((a) => [...a, { job: '', person: '', date: selectedDate, time: '', tz: '北京时间' }]); }}>
+          <EditSection title="约面明细" onAdd={() => { markDirty(); setScheduled((a) => [...a, { job: '', person: '', date: selectedDate, time: '', tz: '北京时间', channel: pickRandomChannel(), priority: pickRandomPriority() }]); }}>
             {scheduled.map((s, i) => (
-              <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
+              <div key={i} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
                 <input className={inputCls} placeholder="人选" value={s.person} onChange={(e) => patch(setScheduled, i, { person: e.target.value })} />
                 <input className={inputCls} placeholder="岗位" value={s.job} onChange={(e) => patch(setScheduled, i, { job: e.target.value })} />
-                <input type="date" className="w-36 px-2 h-8 rounded-lg border border-gray-200" value={s.date} onChange={(e) => patch(setScheduled, i, { date: e.target.value })} />
-                <input className="w-20 px-2 h-8 rounded-lg border border-gray-200" placeholder="时间" value={s.time} onChange={(e) => patch(setScheduled, i, { time: e.target.value })} />
+                <input type="date" className="w-32 px-2 h-8 rounded-lg border border-gray-200" value={s.date} onChange={(e) => patch(setScheduled, i, { date: e.target.value })} />
+                <input className="w-16 px-2 h-8 rounded-lg border border-gray-200" placeholder="时间" value={s.time} onChange={(e) => patch(setScheduled, i, { time: e.target.value })} />
+                <ChannelSelect value={s.channel} onChange={(v) => patch(setScheduled, i, { channel: v })} />
+                <PrioritySelect value={s.priority} onChange={(v) => patch(setScheduled, i, { priority: v })} />
                 <DropBtn onClick={() => drop(setScheduled, i)} />
               </div>
             ))}
@@ -303,15 +309,17 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           {/* 业务面试明细（含 pass/pending 统计） */}
           <EditSection
             title={`业务面试明细（通过 ${passCount} · 待反馈 ${pendingCount}）`}
-            onAdd={() => { markDirty(); setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: INTERVIEW_PENDING }]); }}
+            onAdd={() => { markDirty(); setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: INTERVIEW_PENDING, channel: pickRandomChannel(), priority: pickRandomPriority() }]); }}
           >
             {interview.map((v, i) => (
-              <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
+              <div key={i} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
                 <input className={inputCls} placeholder="人选" value={v.person} onChange={(e) => patch(setInterview, i, { person: e.target.value })} />
                 <input className={inputCls} placeholder="岗位" value={v.name} onChange={(e) => patch(setInterview, i, { name: e.target.value })} />
-                <select className="w-28 px-2 h-8 rounded-lg border border-gray-200 bg-white" value={v.status} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
+                <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white text-xs" value={v.status} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
                   {INTERVIEW_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
+                <ChannelSelect value={v.channel} onChange={(x) => patch(setInterview, i, { channel: x })} />
+                <PrioritySelect value={v.priority} onChange={(x) => patch(setInterview, i, { priority: x })} />
                 <DropBtn onClick={() => drop(setInterview, i)} />
               </div>
             ))}
@@ -366,6 +374,10 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
                     {ONBOARD_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <input type="date" className={gridInput} value={o.onboardDate} onChange={(e) => patch(setOnboard, i, { onboardDate: e.target.value })} />
+                  <select className={gridInput + ' bg-white'} value={o.priority} onChange={(e) => patch(setOnboard, i, { priority: e.target.value })}>
+                    <option value="">优先级</option>
+                    {REPORT_PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
                 </div>
               </div>
             ))}
@@ -449,16 +461,18 @@ function JobSection({ title, rows, onPatch, onDrop, onAdd }: JobSectionProps) {
   return (
     <EditSection title={title} onAdd={onAdd}>
       {rows.map((j, i) => (
-        <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
+        <div key={i} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
           <input className={inputCls} placeholder="岗位名" value={j.name} onChange={(e) => onPatch(i, { name: e.target.value })} />
-          <input className="w-28 px-2 h-8 rounded-lg border border-gray-200" placeholder="部门" value={j.department} onChange={(e) => onPatch(i, { department: e.target.value })} />
+          <input className="w-24 px-2 h-8 rounded-lg border border-gray-200" placeholder="部门" value={j.department} onChange={(e) => onPatch(i, { department: e.target.value })} />
           <input
             type="number"
             min={0}
-            className="w-16 px-2 h-8 rounded-lg border border-gray-200 text-center"
+            className="w-14 px-2 h-8 rounded-lg border border-gray-200 text-center"
             value={j.qty}
             onChange={(e) => onPatch(i, { qty: Number(e.target.value) })}
           />
+          <ChannelSelect value={j.channel} onChange={(v) => onPatch(i, { channel: v })} />
+          <PrioritySelect value={j.priority} onChange={(v) => onPatch(i, { priority: v })} />
           <DropBtn onClick={() => onDrop(i)} />
         </div>
       ))}
@@ -485,5 +499,25 @@ function DropBtn({ onClick }: { onClick: () => void }) {
     <button onClick={onClick} className="shrink-0 text-gray-300 hover:text-red-500 p-1">
       <Trash2 className="w-4 h-4" />
     </button>
+  );
+}
+
+// 渠道下拉：各明细通用（与数据看板渠道一致）
+function ChannelSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white text-xs" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">渠道</option>
+      {REPORT_CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+    </select>
+  );
+}
+
+// 优先级下拉：各明细通用（存 p0/p1/p2，显示 P0/P1/P2）
+function PrioritySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select className="w-20 px-2 h-8 rounded-lg border border-gray-200 bg-white text-xs" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">优先级</option>
+      {REPORT_PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+    </select>
   );
 }

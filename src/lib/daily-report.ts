@@ -17,9 +17,11 @@ const SUPABASE_URL = 'https://scjlplyuucysdhrfatrp.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_IIHJnxZQIF3AcSUG7wHKFg_KDgDmxjA';
 const TABLE = 'remote_records';
 
-export interface JobLine { name: string; department: string; jobKey: string; qty: number; }
-export interface ScheduledLine { job: string; person: string; date: string; time: string; tz: string; }
-export interface InterviewLine { name: string; department: string; jobKey: string; person: string; status: string; }
+// 各明细行统一带「渠道 channel」+「优先级 priority」，与数据看板每个环节字段一致。
+// priority 存小写 'p0' | 'p1' | 'p2'（空为未选），channel 取 CHANNEL_OPTIONS 文本。
+export interface JobLine { name: string; department: string; jobKey: string; qty: number; channel: string; priority: string; }
+export interface ScheduledLine { job: string; person: string; date: string; time: string; tz: string; channel: string; priority: string; }
+export interface InterviewLine { name: string; department: string; jobKey: string; person: string; status: string; channel: string; priority: string; }
 
 /**
  * 入职人选明细，字段与团队数据看板（remote_records）的 normalizeOnboardDetail 完全一致。
@@ -54,15 +56,35 @@ export const ONBOARD_WORKMODE_OPTIONS = ['到岗', '远程'] as const;
 export const ONBOARD_CHANNEL_OPTIONS = ['TG', '转介绍', 'Indeed', '小红书', '简历储备', '内推', '猎聘', '人才库', '社群', 'BOSS直聘'] as const;
 export const ONBOARD_STATUS_OPTIONS = ['已入职', '待入职', '已离职'] as const;
 
-/** 一行入职明细的默认值：按团队约定预填，减少手工录入。 */
-export function emptyOnboardLine(onboardDate: string): OnboardLine {
+// 各明细行渠道下拉：与看板站 CHANNEL_OPTIONS 一致（供推荐/收取/约面/面试/Offer/入职复用）。
+export const REPORT_CHANNEL_OPTIONS = ONBOARD_CHANNEL_OPTIONS;
+// 优先级下拉：看板存小写 'p0'|'p1'|'p2'，此处 value=存储值 label=展示值。
+export const REPORT_PRIORITY_OPTIONS = [
+  { value: 'p0', label: 'P0' },
+  { value: 'p1', label: 'P1' },
+  { value: 'p2', label: 'P2' },
+] as const;
+
+// 「一键」随机默认渠道池：只在这几个常用渠道里随机（用户可再改成任意选项）。
+const RANDOM_CHANNEL_POOL = ['人才库', 'BOSS直聘', '转介绍'] as const;
+/** 随机取一个默认渠道（人才库 / BOSS直聘 / 转介绍）。 */
+export function pickRandomChannel(rng: () => number = Math.random): string {
+  return RANDOM_CHANNEL_POOL[Math.floor(rng() * RANDOM_CHANNEL_POOL.length)];
+}
+/** 随机取一个默认优先级（p0 / p1）。 */
+export function pickRandomPriority(rng: () => number = Math.random): string {
+  return rng() < 0.5 ? 'p0' : 'p1';
+}
+
+/** 一行入职明细的默认值：按团队约定预填，减少手工录入。渠道/优先级随机默认（可改）。 */
+export function emptyOnboardLine(onboardDate: string, rng: () => number = Math.random): OnboardLine {
   return {
     jobName: '', candidateName: '', nickname: '', department: '', center: '',
-    interviewer: '', education: '本科', recruitTeam: '寻英渠道', source: '',
+    interviewer: '', education: '本科', recruitTeam: '寻英渠道', source: pickRandomChannel(rng),
     teamLead: 'ojisamer', manager: 'evelyn',
     probationSalary: '', probationCurrency: 'CNY', regularSalary: '', regularCurrency: 'CNY',
     score: '', workMode: '远程', employmentStatus: '已入职', leftDate: '',
-    onboardDate, priority: '',
+    onboardDate, priority: pickRandomPriority(rng),
   };
 }
 
@@ -167,7 +189,7 @@ export function aggregateRecommendations(items: RepushItem[]): JobLine[] {
     const key = makeJobKey(name, department);
     const cur = map.get(key);
     if (cur) cur.qty += 1;
-    else map.set(key, { name, department, jobKey: key, qty: 1 });
+    else map.set(key, { name, department, jobKey: key, qty: 1, channel: '', priority: '' });
   }
   return Array.from(map.values());
 }
@@ -197,9 +219,12 @@ export interface BuildOptions {
 /** 组装一条可直接提交到看板站的远程日报记录。 */
 export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
   const rng = opts.rng ?? Math.random;
-  const recommendDetail = aggregateRecommendations(opts.recommendations);
+  // 「一键」随机默认：整份日报用一个随机渠道，各明细行各自随机 P0/P1（均可手改）。
+  const draftChannel = pickRandomChannel(rng);
+  const recommendDetail = aggregateRecommendations(opts.recommendations)
+    .map((j) => ({ ...j, channel: draftChannel, priority: pickRandomPriority(rng) }));
   const recommendTotal = sum(recommendDetail);
-  const cvDetail = buildCvDetail(recommendDetail, rng);
+  const cvDetail = buildCvDetail(recommendDetail, rng); // 深拷贝自推荐，渠道/优先级随之带入
   const cvTotal = sum(cvDetail);
   const screenNew = cvTotal > 0 ? cvTotal + rand1to2(rng) : 0;
 
@@ -210,6 +235,8 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
     date: localDate(c.interviewDate!),
     time: localTime(c.interviewDate!),
     tz: '北京时间',
+    channel: draftChannel,
+    priority: pickRandomPriority(rng),
   }));
   const interviewDetail: InterviewLine[] = opts.interviews.map((c) => ({
     name: c.jdTitle,
@@ -217,6 +244,8 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
     jobKey: makeJobKey(c.jdTitle, c.department || ''),
     person: c.name,
     status: c.stage === 'offer' ? '已通过' : '待反馈',
+    channel: draftChannel,
+    priority: pickRandomPriority(rng),
   }));
 
   return {
