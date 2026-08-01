@@ -61,63 +61,100 @@ function clearDraft(name: string, date: string): void {
   try { localStorage.removeItem(draftKey(name, date)); } catch { /* 忽略 */ }
 }
 
+const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 /** 把本系统今日数据组装成看板站日报，可编辑预览后一键提交到团队数据看板。 */
 export function DailyReportModal({ column, name, items, candidates, onClose }: DailyReportModalProps) {
-  const ref = useMemo(() => new Date(), []);
-  const today = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}-${String(ref.getDate()).padStart(2, '0')}`;
+  const todayStr = useMemo(() => localDateStr(new Date()), []);
 
-  // 仅用一次自动算出的初稿来初始化可编辑状态；之后全部以编辑态为准。
-  const draft = useMemo(() => {
-    const recommendations = todaysRecommendations(items, ref, column);
-    const interviews = todaysInterviews(candidates, ref, column);
-    const scheduled = scheduledToday(candidates, ref, column);
-    return buildRemoteRecord({ date: today, name, recommendations, interviews, scheduled });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // 构造某一天的「参考时刻」（当天正午，避免时区把日期算偏）。
+  const refFor = (dateStr: string) => new Date(`${dateStr}T12:00:00`);
 
-  // 打开时若存在上次未提交的草稿（同录入人 + 同一天），优先恢复它，避免误关丢失填写。
+  // 计算某一天的自动初稿：按该天过滤推荐 / 约面 / 业务面试，组装成日报记录。
+  const computeAutoDraft = (dateStr: string): RemoteRecord => {
+    const r = refFor(dateStr);
+    const recommendations = todaysRecommendations(items, r, column);
+    const interviews = todaysInterviews(candidates, r, column);
+    const sched = scheduledToday(candidates, r, column);
+    return buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched });
+  };
+
+  // 选中日期：默认今天，可切到昨天/前几天——拉取并录入「那一天」的数据，日报日期也随之改为那天。
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+
+  // 初始化（针对今天）：优先今天已存的未提交草稿，否则用自动初稿。仅执行一次。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const savedDraft = useMemo(() => loadDraft(name, today), []);
-  const [restored, setRestored] = useState(!!savedDraft);
+  const initial = useMemo(() => ({ auto: computeAutoDraft(todayStr), saved: loadDraft(name, todayStr) }), []);
 
-  const [recommend, setRecommend] = useState<JobLine[]>(savedDraft?.recommend ?? draft.recommendDetail);
-  const [cv, setCv] = useState<JobLine[]>(savedDraft?.cv ?? draft.cvDetail);
-  const [screenNew, setScreenNew] = useState<number>(savedDraft?.screenNew ?? draft.screenNew);
-  const [scheduled, setScheduled] = useState<ScheduledLine[]>(savedDraft?.scheduled ?? draft.scheduledDetail);
-  const [interview, setInterview] = useState<InterviewLine[]>(savedDraft?.interview ?? draft.interviewDetail);
+  // 提交所用记录 id：按天各自独立，避免不同日期共用 id 导致相互覆盖。
+  const [recordId, setRecordId] = useState<string>(initial.auto.id);
+  const [restored, setRestored] = useState(!!initial.saved);
+
+  const [recommend, setRecommend] = useState<JobLine[]>(initial.saved?.recommend ?? initial.auto.recommendDetail);
+  const [cv, setCv] = useState<JobLine[]>(initial.saved?.cv ?? initial.auto.cvDetail);
+  const [screenNew, setScreenNew] = useState<number>(initial.saved?.screenNew ?? initial.auto.screenNew);
+  const [scheduled, setScheduled] = useState<ScheduledLine[]>(initial.saved?.scheduled ?? initial.auto.scheduledDetail);
+  const [interview, setInterview] = useState<InterviewLine[]>(initial.saved?.interview ?? initial.auto.interviewDetail);
   // Offer 申请 / 入职：不自动抓取，默认为空，由使用者手动填写后随日报一并提交。
-  const [offer, setOffer] = useState<JobLine[]>(savedDraft?.offer ?? []);
-  const [onboard, setOnboard] = useState<OnboardLine[]>(savedDraft?.onboard ?? []);
-  const [remark, setRemark] = useState<string>(savedDraft?.remark ?? draft.remark);
+  const [offer, setOffer] = useState<JobLine[]>(initial.saved?.offer ?? []);
+  const [onboard, setOnboard] = useState<OnboardLine[]>(initial.saved?.onboard ?? []);
+  const [remark, setRemark] = useState<string>(initial.saved?.remark ?? initial.auto.remark);
 
   const [state, setState] = useState<SubmitState>('idle');
   const [errMsg, setErrMsg] = useState('');
   // 是否有用户实际编辑（含已恢复的草稿）。仅在此为真时才自动暂存，
   // 避免「只打开没填」也写入草稿、导致下次误弹「已恢复」。
-  const [dirty, setDirty] = useState(!!savedDraft);
+  const [dirty, setDirty] = useState(!!initial.saved);
   const markDirty = () => setDirty(true);
 
-  // 自动暂存：用户编辑后，任一可编辑字段变化即写入 localStorage（提交成功后不再写）。
+  // 把某一天的数据套用到编辑态：优先该天已存草稿，否则用自动初稿。
+  const applyDate = (dateStr: string) => {
+    const auto = computeAutoDraft(dateStr);
+    const saved = loadDraft(name, dateStr);
+    setRecordId(auto.id);
+    setRecommend(saved?.recommend ?? auto.recommendDetail);
+    setCv(saved?.cv ?? auto.cvDetail);
+    setScreenNew(saved?.screenNew ?? auto.screenNew);
+    setScheduled(saved?.scheduled ?? auto.scheduledDetail);
+    setInterview(saved?.interview ?? auto.interviewDetail);
+    setOffer(saved?.offer ?? []);
+    setOnboard(saved?.onboard ?? []);
+    setRemark(saved?.remark ?? auto.remark);
+    setRestored(!!saved);
+    setDirty(!!saved);
+    setState('idle');
+    setErrMsg('');
+  };
+
+  const handleDateChange = (newDate: string) => {
+    if (!newDate || newDate === selectedDate) return;
+    setSelectedDate(newDate);
+    applyDate(newDate);
+  };
+
+  // 自动暂存：用户编辑后，任一可编辑字段变化即写入 localStorage（按「录入人 + 选中日期」隔离，提交成功后不再写）。
   // 由此实现「切出去 / 点到别的 / 突然关掉」都能保留填写，重开自动恢复。
   useEffect(() => {
     if (state === 'done' || !dirty) return;
-    saveDraft(name, today, { recommend, cv, screenNew, scheduled, interview, offer, onboard, remark });
-  }, [recommend, cv, screenNew, scheduled, interview, offer, onboard, remark, state, dirty, name, today]);
+    saveDraft(name, selectedDate, { recommend, cv, screenNew, scheduled, interview, offer, onboard, remark });
+  }, [recommend, cv, screenNew, scheduled, interview, offer, onboard, remark, state, dirty, name, selectedDate]);
 
   // 关闭即可，填写已自动暂存，重开会恢复。
   const requestClose = () => onClose();
 
-  // 放弃已恢复的草稿，回到系统自动生成的初稿（并清除暂存）。
+  // 放弃已恢复的草稿，回到当天系统自动生成的初稿（并清除暂存）。
   const discardDraft = () => {
-    clearDraft(name, today);
-    setRecommend(draft.recommendDetail);
-    setCv(draft.cvDetail);
-    setScreenNew(draft.screenNew);
-    setScheduled(draft.scheduledDetail);
-    setInterview(draft.interviewDetail);
+    clearDraft(name, selectedDate);
+    const auto = computeAutoDraft(selectedDate);
+    setRecordId(auto.id);
+    setRecommend(auto.recommendDetail);
+    setCv(auto.cvDetail);
+    setScreenNew(auto.screenNew);
+    setScheduled(auto.scheduledDetail);
+    setInterview(auto.interviewDetail);
     setOffer([]);
     setOnboard([]);
-    setRemark(draft.remark);
+    setRemark(auto.remark);
     setRestored(false);
     setDirty(false); // 放弃后回到初稿，且不再自动暂存（除非重新编辑）
   };
@@ -131,8 +168,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const hasData = recommendTotal > 0 || scheduled.length > 0 || interview.length > 0 || offerTotal > 0 || onboard.length > 0;
 
   const buildFinal = (): RemoteRecord => ({
-    id: draft.id,
-    date: today,
+    id: recordId,
+    date: selectedDate,
     name,
     cvDetail: cv.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
     cvTotal,
@@ -155,9 +192,9 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setErrMsg('');
     try {
       const record = buildFinal();
-      const existingId = await findExistingReportId(today, name);
+      const existingId = await findExistingReportId(selectedDate, name);
       await submitRemoteRecord(existingId ? { ...record, id: existingId } : record);
-      clearDraft(name, today); // 提交成功：清除暂存草稿
+      clearDraft(name, selectedDate); // 提交成功：清除暂存草稿
       setState('done');
     } catch (error: unknown) {
       setState('error');
@@ -187,11 +224,25 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold text-gray-800">
-            一键看板 · <span className="text-indigo-600">{name}</span>
-            <span className="ml-2 text-sm font-normal text-gray-400">{today}</span>
-          </h3>
-          <button onClick={requestClose} className="text-gray-400 hover:text-gray-600">
+          <div className="flex items-center gap-3 min-w-0">
+            <h3 className="text-base font-semibold text-gray-800 shrink-0">
+              一键看板 · <span className="text-indigo-600">{name}</span>
+            </h3>
+            {/* 日报日期：可选今天 / 昨天 / 前几天，拉取并录入那一天的数据 */}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={selectedDate}
+                max={todayStr}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className="h-8 px-2 rounded-lg border border-gray-200 text-sm text-gray-600 focus:outline-none focus:border-indigo-300"
+              />
+              {selectedDate !== todayStr && (
+                <span className="text-[11px] text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 whitespace-nowrap">补录 · 非今日</span>
+              )}
+            </div>
+          </div>
+          <button onClick={requestClose} className="text-gray-400 hover:text-gray-600 shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -237,7 +288,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           />
 
           {/* 约面明细 */}
-          <EditSection title="约面明细" onAdd={() => { markDirty(); setScheduled((a) => [...a, { job: '', person: '', date: today, time: '', tz: '北京时间' }]); }}>
+          <EditSection title="约面明细" onAdd={() => { markDirty(); setScheduled((a) => [...a, { job: '', person: '', date: selectedDate, time: '', tz: '北京时间' }]); }}>
             {scheduled.map((s, i) => (
               <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
                 <input className={inputCls} placeholder="人选" value={s.person} onChange={(e) => patch(setScheduled, i, { person: e.target.value })} />
@@ -278,7 +329,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
           {/* 入职明细（字段与团队数据看板一致；到岗日期默认今天，学历/组长/主管/到岗方式已按团队约定预填） */}
           <EditSection
             title={`入职明细（当天入职 ${onboard.length}）`}
-            onAdd={() => { markDirty(); setOnboard((a) => [...a, emptyOnboardLine(today)]); }}
+            onAdd={() => { markDirty(); setOnboard((a) => [...a, emptyOnboardLine(selectedDate)]); }}
           >
             {onboard.map((o, i) => (
               <div key={i} className="px-2 py-2.5 space-y-1.5">
