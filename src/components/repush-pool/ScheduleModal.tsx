@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { CalendarPlus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RepushItem, InterviewRound } from '@/store/repush-store';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface ScheduleModalProps {
   item: RepushItem;
@@ -26,12 +27,13 @@ export function ScheduleModal({ item, onClose, onConfirm }: ScheduleModalProps) 
     : defaultLocalTime());
   const [interviewer, setInterviewer] = useState('');
   const [round, setRound] = useState<InterviewRound>(item.interviewRound || '一面');
+  useEscapeClose(onClose);
 
   const base = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">

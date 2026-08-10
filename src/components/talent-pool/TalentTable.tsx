@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
 import type { Talent } from '@/types/talent';
 import { Pencil, Trash2, Sparkles, X, Loader2 } from 'lucide-react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface TalentTableProps {
   talents: Talent[];
@@ -18,6 +19,7 @@ interface TalentTableProps {
 function HighlightsModal({ talent, onClose }: { talent: Talent; onClose: () => void }) {
   const [resumeText, setResumeText] = useState('');
   const [loading, setLoading] = useState(true);
+  useEscapeClose(onClose);
 
   useEffect(() => {
     fetch(`/api/talent/text?id=${encodeURIComponent(talent.id)}`)
@@ -28,12 +30,9 @@ function HighlightsModal({ talent, onClose }: { talent: Talent; onClose: () => v
   }, [talent.id]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/30" />
-      <div
-        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-amber-100 flex flex-col max-h-[80vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-amber-100 flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-amber-500" />
@@ -82,6 +81,7 @@ function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selecte
                     className="w-4 h-4 rounded border-gray-300 text-indigo-500 focus:ring-indigo-200" aria-label="全选当前列表" />
                 </th>
               )}
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">编号</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">姓名</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">分类</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase tracking-wider">岗位</th>
@@ -104,6 +104,17 @@ function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selecte
                       className="w-4 h-4 rounded border-gray-300 text-indigo-500 focus:ring-indigo-200" aria-label={`选择${t.name}`} />
                   </td>
                 )}
+
+                {/* 编号 */}
+                <td className="py-3 px-4">
+                  {t.candidateCode ? (
+                    <span className="inline-flex max-w-[120px] truncate px-2 py-1 rounded-lg bg-slate-100 text-xs font-medium text-slate-500">
+                      {t.candidateCode}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-gray-300">-</span>
+                  )}
+                </td>
 
                 {/* 姓名 */}
                 <td className="py-3 px-4">

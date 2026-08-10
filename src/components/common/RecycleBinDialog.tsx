@@ -6,6 +6,7 @@ import { generateId } from '@/lib/utils';
 import type { JD } from '@/types/jd';
 import type { Talent } from '@/types/talent';
 import { Trash2, RotateCcw, X, Archive } from 'lucide-react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface RecycleBinDialogProps {
   type: RecycleType;
@@ -28,6 +29,7 @@ function timeAgo(iso: string): string {
 export function RecycleBinDialog({ type, open, onClose }: RecycleBinDialogProps) {
   const entries = useRecycleStore((s) => s.entries).filter((e) => e.type === type);
   const remove = useRecycleStore((s) => s.remove);
+  useEscapeClose(onClose, open);
 
   // 恢复：赋新 id 后重新加入对应 store。
   // 必须换新 id —— 原 id 已进 KV 墓碑，沿用会被 applyTombstones 再次过滤掉（数据事故同源教训）。
@@ -46,7 +48,7 @@ export function RecycleBinDialog({ type, open, onClose }: RecycleBinDialogProps)
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-lg max-h-[80vh] flex flex-col bg-white border border-gray-200 rounded-2xl shadow-2xl animate-fade-in">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">

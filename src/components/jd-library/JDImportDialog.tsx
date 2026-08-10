@@ -4,6 +4,7 @@ import { X, Upload, Link, FileSpreadsheet, AlertCircle, Check, Loader2, FileText
 import { useJDStore } from '@/store/jd-store';
 import type { JDImportResult } from '@/types/jd';
 import { parsePastedTable, pastedRowsToFile } from '@/lib/panel-paste';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface JDImportDialogProps { isOpen: boolean; onClose: () => void; }
 
@@ -19,6 +20,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
   const progress = useJDStore((s) => s.importProgress);
   const importFromExcel = useJDStore((s) => s.importFromExcel);
   const cancelImport = useJDStore((s) => s.cancelImport);
+  useEscapeClose(onClose, isOpen && !isImporting);
 
   if (!isOpen) return null;
 
@@ -76,7 +78,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={isImporting ? undefined : onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-xl animate-fade-in">
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
           <h2 className="text-lg font-semibold text-gray-800">导入 JD 数据</h2>

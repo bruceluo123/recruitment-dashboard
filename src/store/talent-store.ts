@@ -368,11 +368,18 @@ export function useFilteredTalents(): Talent[] {
     if (view === 'active' && t.archived) return false;
     if (view === 'archived' && !t.archived) return false;
 
-    if (filter.category !== 'all' && !(t.categories || []).includes(filter.category)) return false;
+    const code = t.candidateCode?.trim().toUpperCase() || '';
+    if (filter.category === 'coded') {
+      if (!code) return false;
+    } else if (filter.category === 'coded-mmf') {
+      if (!code.includes('MMF')) return false;
+    } else if (filter.category === 'coded-bb') {
+      if (!code.includes('BB')) return false;
+    } else if (filter.category !== 'all' && !(t.categories || []).includes(filter.category)) return false;
     if (filter.search) {
       const q = filter.search.toLowerCase();
       const haystack = [
-        t.name, t.jobTitle, t.tg, t.notes,
+        t.candidateCode, t.name, t.jobTitle, t.tg, t.notes,
         t.company, t.department, t.techDirection, t.school, t.major, t.location,
         t.organization, t.approvalNo,
         ...(t.prevCompanies || []),
@@ -385,7 +392,7 @@ export function useFilteredTalents(): Talent[] {
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')), [talents, filter]);
 }
 
-export function useTalentCategoryCounts(): { id: JDCategory | 'all'; label: string; count: number }[] {
+export function useTalentCategoryCounts(): { id: TalentFilter['category']; label: string; count: number }[] {
   const talents = useTalentStore((s) => s.talents);
   const filter = useTalentStore((s) => s.filter);
   return useMemo(() => {
@@ -400,7 +407,13 @@ export function useTalentCategoryCounts(): { id: JDCategory | 'all'; label: stri
     for (const t of pool) {
       for (const cat of t.categories || []) counts.set(cat, (counts.get(cat) || 0) + 1);
     }
-    const entries: { id: JDCategory | 'all'; label: string; count: number }[] = [{ id: 'all', label: '全部', count: pool.length }];
+    const codedCount = pool.filter((t) => !!t.candidateCode?.trim()).length;
+    const mmfCount = pool.filter((t) => (t.candidateCode || '').toUpperCase().includes('MMF')).length;
+    const bbCount = pool.filter((t) => (t.candidateCode || '').toUpperCase().includes('BB')).length;
+    const entries: { id: TalentFilter['category']; label: string; count: number }[] = [{ id: 'all', label: '全部', count: pool.length }];
+    if (codedCount > 0) entries.push({ id: 'coded', label: '已编号的人才', count: codedCount });
+    if (mmfCount > 0) entries.push({ id: 'coded-mmf', label: '麦满分 MMF', count: mmfCount });
+    if (bbCount > 0) entries.push({ id: 'coded-bb', label: '啵啵 BB', count: bbCount });
     for (const cat of ALL_CATEGORIES) {
       const count = counts.get(cat) || 0;
       if (count > 0) entries.push({ id: cat, label: JD_CATEGORY_LABELS[cat], count });

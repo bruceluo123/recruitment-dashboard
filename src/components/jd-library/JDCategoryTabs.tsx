@@ -4,6 +4,9 @@ import type { JDCategory } from '@/types/jd';
 
 const CAT_TAB_COLORS: Record<string, { active: string; idle: string }> = {
   all:        { active: 'bg-gray-800 text-white border-gray-800', idle: 'text-gray-500 border-gray-200' },
+  coded:      { active: 'bg-indigo-500 text-white border-indigo-500', idle: 'text-indigo-600 border-indigo-200' },
+  'coded-mmf': { active: 'bg-indigo-500 text-white border-indigo-500', idle: 'text-indigo-600 border-indigo-200' },
+  'coded-bb':  { active: 'bg-fuchsia-500 text-white border-fuchsia-500', idle: 'text-fuchsia-600 border-fuchsia-200' },
   frontend:   { active: 'bg-blue-500 text-white border-blue-500', idle: 'text-blue-600 border-blue-200' },
   backend:    { active: 'bg-emerald-500 text-white border-emerald-500', idle: 'text-emerald-600 border-emerald-200' },
   testing:    { active: 'bg-yellow-500 text-white border-yellow-500', idle: 'text-yellow-600 border-yellow-200' },
@@ -34,13 +37,13 @@ const CAT_TAB_COLORS: Record<string, { active: string; idle: string }> = {
   content:    { active: 'bg-emerald-600 text-white border-emerald-600', idle: 'text-emerald-700 border-emerald-300' },
 };
 
-interface JDCategoryTabsProps {
-  categories: { id: JDCategory | 'all'; label: string; count: number }[];
-  activeCategory: JDCategory | 'all';
-  onCategoryChange: (category: JDCategory | 'all') => void;
+interface JDCategoryTabsProps<T extends string = JDCategory | 'all'> {
+  categories: { id: T; label: string; count: number }[];
+  activeCategory: T;
+  onCategoryChange: (category: T) => void;
 }
 
-export function JDCategoryTabs({ categories, activeCategory, onCategoryChange }: JDCategoryTabsProps) {
+export function JDCategoryTabs<T extends string = JDCategory | 'all'>({ categories, activeCategory, onCategoryChange }: JDCategoryTabsProps<T>) {
   return (
     <div className="flex gap-1.5 flex-wrap pb-1">
       {categories.map((cat) => {

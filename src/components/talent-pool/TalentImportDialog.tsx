@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { X, Upload, AlertCircle, Check, Loader2, FileText } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import type { TalentImportResult } from '@/types/talent';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface TalentImportDialogProps { isOpen: boolean; onClose: () => void; }
 
@@ -13,6 +14,7 @@ export function TalentImportDialog({ isOpen, onClose }: TalentImportDialogProps)
   const progress = useTalentStore((s) => s.importProgress);
   const importFromFiles = useTalentStore((s) => s.importFromFiles);
   const cancelImport = useTalentStore((s) => s.cancelImport);
+  useEscapeClose(onClose, isOpen && !isImporting);
 
   if (!isOpen) return null;
 
@@ -28,7 +30,7 @@ export function TalentImportDialog({ isOpen, onClose }: TalentImportDialogProps)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={isImporting ? undefined : onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-xl animate-fade-in">
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
           <h2 className="text-lg font-semibold text-gray-800">批量导入简历</h2>

@@ -22,12 +22,14 @@ import {
   REPORT_PRIORITY_OPTIONS,
   pickRandomChannel,
   pickRandomPriority,
+  spreadDefaultChannels,
   type JobLine,
   type ScheduledLine,
   type InterviewLine,
   type OnboardLine,
   type RemoteRecord,
 } from '@/lib/daily-report';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface DailyReportModalProps {
   column: RepushColumnId;     // 当前查看的推荐人列（作为日报数据来源）
@@ -64,6 +66,27 @@ function saveDraft(name: string, date: string, d: Omit<DraftState, 'v'>): void {
 function clearDraft(name: string, date: string): void {
   try { localStorage.removeItem(draftKey(name, date)); } catch { /* 忽略 */ }
 }
+function normalizeDraft(d: DraftState | null): DraftState | null {
+  if (!d) return null;
+  return {
+    ...d,
+    recommend: spreadDefaultChannels(d.recommend),
+    cv: spreadDefaultChannels(d.cv),
+    scheduled: spreadDefaultChannels(d.scheduled),
+    interview: spreadDefaultChannels(d.interview),
+    offer: spreadDefaultChannels(d.offer),
+  };
+}
+function normalizeAutoRecord(record: RemoteRecord): RemoteRecord {
+  return {
+    ...record,
+    recommendDetail: spreadDefaultChannels(record.recommendDetail),
+    cvDetail: spreadDefaultChannels(record.cvDetail),
+    scheduledDetail: spreadDefaultChannels(record.scheduledDetail),
+    interviewDetail: spreadDefaultChannels(record.interviewDetail),
+    offerDetail: spreadDefaultChannels(record.offerDetail),
+  };
+}
 
 const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -80,7 +103,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     const recommendations = todaysRecommendations(items, r, column);
     const interviews = todaysInterviews(candidates, r, column);
     const sched = scheduledToday(candidates, r, column);
-    return buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched });
+    return normalizeAutoRecord(buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched }));
   };
 
   // 选中日期：默认今天，可切到昨天/前几天——拉取并录入「那一天」的数据，日报日期也随之改为那天。
@@ -88,7 +111,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 
   // 初始化（针对今天）：优先今天已存的未提交草稿，否则用自动初稿。仅执行一次。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const initial = useMemo(() => ({ auto: computeAutoDraft(todayStr), saved: loadDraft(name, todayStr) }), []);
+  const initial = useMemo(() => ({ auto: computeAutoDraft(todayStr), saved: normalizeDraft(loadDraft(name, todayStr)) }), []);
 
   // 提交所用记录 id：按天各自独立，避免不同日期共用 id 导致相互覆盖。
   const [recordId, setRecordId] = useState<string>(initial.auto.id);
@@ -114,7 +137,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   // 把某一天的数据套用到编辑态：优先该天已存草稿，否则用自动初稿。
   const applyDate = (dateStr: string) => {
     const auto = computeAutoDraft(dateStr);
-    const saved = loadDraft(name, dateStr);
+    const saved = normalizeDraft(loadDraft(name, dateStr));
     setRecordId(auto.id);
     setRecommend(saved?.recommend ?? auto.recommendDetail);
     setCv(saved?.cv ?? auto.cvDetail);
@@ -145,6 +168,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 
   // 关闭即可，填写已自动暂存，重开会恢复。
   const requestClose = () => onClose();
+  useEscapeClose(requestClose);
 
   // 放弃已恢复的草稿，回到当天系统自动生成的初稿（并清除暂存）。
   const discardDraft = () => {
@@ -239,10 +263,9 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={requestClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[88vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3 min-w-0">

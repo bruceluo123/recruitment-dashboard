@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Sparkles, X, Loader2, Search } from 'lucide-react';
 import { researchCompany } from '@/lib/company-research';
 import { useCompanyStore } from '@/store/company-store';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface CompanyResearchDialogProps {
   isOpen: boolean;
@@ -17,6 +18,7 @@ export function CompanyResearchDialog({ isOpen, onClose, onDone }: CompanyResear
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const upsertCompanyByName = useCompanyStore((s) => s.upsertCompanyByName);
+  useEscapeClose(onClose, isOpen && !loading);
 
   useEffect(() => {
     if (!isOpen) {
@@ -53,7 +55,7 @@ export function CompanyResearchDialog({ isOpen, onClose, onDone }: CompanyResear
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={loading ? undefined : onClose} />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative w-full max-w-md rounded-2xl bg-white shadow-xl border border-gray-100 animate-fade-in">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">

@@ -12,6 +12,7 @@ export interface TalentLinks {
 
 export interface Talent {
   id: string;
+  candidateCode?: string;   // 候选人编码（来自推荐语，复推/人才库共用）
   name: string;             // 姓名（中文或英文）
   jobTitle: string;         // 最近一份岗位 title
   categories: JDCategory[]; // 人选分类（复用 JD 的 28 个分类）
@@ -64,7 +65,7 @@ export interface Talent {
 
 export interface TalentFilter {
   search: string;
-  category: JDCategory | 'all';
+  category: JDCategory | 'all' | 'coded' | 'coded-mmf' | 'coded-bb';
 }
 
 export interface TalentImportResult {

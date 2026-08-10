@@ -22,10 +22,11 @@ import {
 
 import type { JD } from '@/types/jd';
 import {
-  buildAdCopy, buildDesensitizedCopy, adVariantLabel, getCategoryEmoji,
+  buildAdCopy, buildDesensitizedCopy, renumberDesensitizedText, adVariantLabel, getCategoryEmoji,
   type AdSegment, type AdVariant,
 } from '@/lib/ad-copy';
 import { cn } from '@/lib/utils';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 function parseGap(gap?: string): number {
   if (!gap) return 0;
@@ -285,6 +286,7 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
   const [hideSalary, setHideSalary] = useState(false);
   const [generatedSegments, setGeneratedSegments] = useState<AdSegment[]>([]);
   const [generatedSig, setGeneratedSig] = useState('');
+  useEscapeClose(onClose);
 
   // P0 排前、P1 排后。文案默认包含全部岗位（不再逐条勾选排除）
   const sortedAll = useMemo<JD[]>(
@@ -325,10 +327,9 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div
         className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
@@ -391,7 +392,16 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
 
           {/* 生成结果 */}
           {generatedSegments.length > 0
-            ? generatedSegments.map((seg, i) => <AdSegmentCard key={i} segment={seg} />)
+            ? generatedSegments.map((seg, i) => (
+              <AdSegmentCard
+                key={i}
+                segment={seg}
+                editable={hideSalary}
+                onChange={(next) => {
+                  setGeneratedSegments((prev) => prev.map((item, idx) => (idx === i ? next : item)));
+                }}
+              />
+            ))
             : <p className="text-sm text-gray-400 text-center py-6">点上方「生成文案」出结果</p>
           }
         </div>
@@ -401,7 +411,15 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
 }
 
 
-function AdSegmentCard({ segment }: { segment: AdSegment }) {
+function AdSegmentCard({
+  segment,
+  editable = false,
+  onChange,
+}: {
+  segment: AdSegment;
+  editable?: boolean;
+  onChange?: (segment: AdSegment) => void;
+}) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -414,19 +432,51 @@ function AdSegmentCard({ segment }: { segment: AdSegment }) {
     }
   };
 
+  const handleTextChange = (text: string) => {
+    onChange?.({ ...segment, text });
+  };
+
+  const handleRenumber = () => {
+    const next = renumberDesensitizedText(segment.text);
+    onChange?.({
+      ...segment,
+      text: next.text,
+      count: next.count || segment.count,
+    });
+  };
+
   return (
     <div className="rounded-xl border border-gray-200 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
         <span className="text-xs font-medium text-gray-500">{segment.title} · {segment.count} 个岗位</span>
-        <button
-          onClick={handleCopy}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium text-indigo-600 hover:bg-indigo-50"
-        >
-          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? '已复制' : '复制'}
-        </button>
+        <div className="flex items-center gap-1">
+          {editable && (
+            <button
+              onClick={handleRenumber}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium text-gray-600 hover:bg-gray-100"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              重新编号
+            </button>
+          )}
+          <button
+            onClick={handleCopy}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? '已复制' : '复制'}
+          </button>
+        </div>
       </div>
-      <pre className="px-3 py-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{segment.text}</pre>
+      {editable ? (
+        <textarea
+          value={segment.text}
+          onChange={(e) => handleTextChange(e.target.value)}
+          className="block w-full min-h-[420px] px-3 py-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed bg-white outline-none resize-y"
+        />
+      ) : (
+        <pre className="px-3 py-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{segment.text}</pre>
+      )}
     </div>
   );
 }

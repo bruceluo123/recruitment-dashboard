@@ -10,6 +10,7 @@ import {
   isInterviewPassed,
 } from '@/lib/daily-report';
 import { buildTodayReportTemplate, type TodayReportInput } from '@/lib/daily-report-text';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface TodayReportModalProps {
   column: RepushColumnId;   // 当前推荐人列
@@ -23,6 +24,7 @@ interface TodayReportModalProps {
 export function TodayReportModal({ column, name, items, candidates, onClose }: TodayReportModalProps) {
   const ref = useMemo(() => new Date(), []);
   const [copied, setCopied] = useState(false);
+  useEscapeClose(onClose);
 
   const input: TodayReportInput = useMemo(() => {
     const recs = todaysRecommendations(items, ref, column);
@@ -49,8 +51,8 @@ export function TodayReportModal({ column, name, items, candidates, onClose }: T
   const passCount = input.interviews.filter((v) => isInterviewPassed(v.status)).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[88vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[88vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-800">
             今日日报 · <span className="text-emerald-600">{name}</span>

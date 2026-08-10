@@ -5,6 +5,7 @@ import type { JD, JDImportResult, JDDiffItem } from '@/types/jd';
 import { Bell, X, Megaphone, Copy, Check } from 'lucide-react';
 import { buildDesensitizedCopy } from '@/lib/ad-copy';
 import { JdPreviewCard } from './JdPreviewCard';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 // 今日增改弹窗：展示上次覆盖导入的新增/移除/异动明细，点条目左侧滑出该 JD 预览。
 // 「今日新增」可一键生成热招文案（沿用热招看板的脱敏分组格式）。
@@ -13,6 +14,7 @@ export function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { 
   const [previewJd, setPreviewJd] = useState<JD | null>(null);
   const [showCopy, setShowCopy] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEscapeClose(onClose);
 
   const dateLabel = diff ? (() => {
     const d = new Date(diff.date);
@@ -74,7 +76,7 @@ export function ImportDiffDialog({ diff, onClose }: { diff: (JDImportResult & { 
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="fixed inset-0 bg-black/20" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/20" />
 
       {/* 左侧面板：热招文案优先于详情预览 */}
       {showCopy ? (

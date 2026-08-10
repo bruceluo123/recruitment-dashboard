@@ -23,6 +23,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const [owner, setOwner] = useState<RepushColumnId>(defaultOwner);
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState(false);
+  const [candidateCode, setCandidateCode] = useState('');
   const [name, setName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [contact, setContact] = useState('');
@@ -64,7 +65,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
 
   const resetFields = () => {
     setRawText(''); setParsed(false);
-    setName(''); setJobTitle(''); setContact(''); setContactPerson('');
+    setCandidateCode(''); setName(''); setJobTitle(''); setContact(''); setContactPerson('');
     setOrganization(''); setDepartment(''); setHighlights(''); setHighlightsLoading(false);
     setFileStatus('idle'); setUploadedFileName(''); setFileError('');
     setResumeUrl(''); setResumeFileName('');
@@ -73,6 +74,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   /** 公共：把提取好的文字喂给 AI 解析联系信息，回填表单 */
   const applyParsedInfo = async (text: string) => {
     const info = await extractRecommendationInfo(text);
+    setCandidateCode(info.candidateCode);
     setName(info.name);
     setJobTitle(info.jobTitle);
     setContact(info.contact);
@@ -192,6 +194,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
     if (!name.trim()) return;
     onAdd({
       column: owner,
+      candidateCode: candidateCode.trim() || undefined,
       candidateName: name.trim(),
       jdTitle: jobTitle.trim() || undefined,
       contact: contact.trim() || undefined,
@@ -256,7 +259,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
         </div>
 
         {/* ── 右：上传简历（提取文字后填入左侧） ── */}
-        <div className="shrink-0 w-[180px]">
+        <div className="shrink-0 w-[360px]">
           <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={onFileInput} />
 
           {fileStatus === 'idle' || fileStatus === 'error' ? (
@@ -304,7 +307,10 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
 
       {/* 解析结果表单 */}
       {parsed && (
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end animate-fade-in">
+        <div className="mt-4 grid grid-cols-2 md:grid-cols-7 gap-3 items-end animate-fade-in">
+          <Field label="编码">
+            <input value={candidateCode} onChange={(e) => setCandidateCode(e.target.value)} placeholder="候选人编码" className="intake-input" />
+          </Field>
           <Field label="姓名 *">
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="姓名" className="intake-input" />
           </Field>
@@ -335,7 +341,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
           <Field label="简历对接人">
             <input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="对接人" className="intake-input" />
           </Field>
-          <div className="col-span-2 md:col-span-6 flex items-center justify-end gap-3">
+          <div className="col-span-2 md:col-span-7 flex items-center justify-end gap-3">
             {highlightsLoading && (
               <span className="flex items-center gap-1.5 text-xs text-amber-500">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />亮点提取中，稍等再录入效果更好

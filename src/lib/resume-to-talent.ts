@@ -46,6 +46,7 @@ export async function saveResumeToTalentPool(resume: Resume): Promise<SaveTalent
     const store = useTalentStore.getState();
     const existing = store.talents.find((t) => t.name === name);
     const jobTitle = (info.jobTitle || '').trim();
+    const candidateCode = (info.candidateCode || '').trim() || undefined;
     const cats = detectCategories(jobTitle || resume.rawText.slice(0, 500));
 
     let talentId: string;
@@ -53,6 +54,7 @@ export async function saveResumeToTalentPool(resume: Resume): Promise<SaveTalent
       talentId = existing.id;
       store.updateTalent(existing.id, {
         jobTitle: jobTitle || existing.jobTitle,
+        candidateCode: candidateCode || existing.candidateCode,
         phone: info.contact || existing.phone,
         archived: false,
         ...(url && !existing.resumeUrl ? { resumeUrl: url, resumeFileName: resume.fileName } : {}),
@@ -62,6 +64,7 @@ export async function saveResumeToTalentPool(resume: Resume): Promise<SaveTalent
       const now = new Date().toISOString();
       store.addTalent({
         id: talentId,
+        candidateCode,
         name,
         jobTitle,
         categories: cats.length ? cats : ['operations'],
@@ -110,6 +113,7 @@ export async function recordRecommendationFromMatch(resume: Resume, jd: JD, owne
     const column = owner || usePrefStore.getState().activeOwner;
     useRepushStore.getState().addRecommendation({
       column,
+      candidateCode: info.candidateCode || undefined,
       candidateName: name,
       jdTitle: jd.title,
       contact: info.contact || undefined,

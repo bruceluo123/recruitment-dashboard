@@ -34,6 +34,9 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove
       {/* 主信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
+          {item.candidateCode && (
+            <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium shrink-0">{item.candidateCode}</span>
+          )}
           <span className="text-sm font-semibold text-gray-800 truncate">{base}</span>
           {item.interviewRound && (
             <span className="px-1.5 py-0.5 rounded-md bg-green-50 text-green-600 text-[11px] font-medium shrink-0">{item.interviewRound}</span>

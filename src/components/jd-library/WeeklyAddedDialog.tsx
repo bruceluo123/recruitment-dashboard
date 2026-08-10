@@ -5,6 +5,7 @@ import { Bell, X, Megaphone, Sparkles, Copy, Check } from 'lucide-react';
 import { buildAdCopy, buildDesensitizedCopy, adVariantLabel, type AdVariant, type AdSegment } from '@/lib/ad-copy';
 import { recentWindowLabel } from '@/lib/jd-recent';
 import { JdPreviewCard } from './JdPreviewCard';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 // 本周新增弹窗：近 5 工作日新增岗位列表，可切「招聘文案」模式，删减岗位后生成/复制文案。
 export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onClose: () => void }) {
@@ -13,6 +14,7 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
   const [copyVariant, setCopyVariant] = useState<AdVariant>('maimanfen');
   const [copyHideSalary, setCopyHideSalary] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  useEscapeClose(onClose);
 
   const weekLabel = recentWindowLabel();
 
@@ -76,7 +78,7 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="fixed inset-0 bg-black/20" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/20" />
 
       {previewJd && !copyMode && <JdPreviewCard jd={previewJd} onClose={() => setPreviewJd(null)} />}
 

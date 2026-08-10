@@ -8,6 +8,7 @@ import { generateId } from '@/lib/utils';
 import {
   parseEnrichFileName, findTalentMatch, enrichResumeText, type EnrichFields,
 } from '@/lib/resume-enrich';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -256,6 +257,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
     setIsRunning(false);
     onClose();
   }, [isRunning, onClose]);
+  useEscapeClose(handleClose, isOpen && !isRunning);
 
   if (!isOpen) return null;
 
@@ -268,7 +270,7 @@ export function TalentEnrichDialog({ isOpen, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={isRunning ? undefined : handleClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-2xl bg-white border border-gray-200 rounded-2xl shadow-xl flex flex-col max-h-[85vh]">
 
         {/* Header */}

@@ -4,6 +4,7 @@ import type { JD } from '@/types/jd';
 import { splitOrgDept } from '@/lib/jd-parse-core';
 
 export interface ExtractedRecommendation {
+  candidateCode: string;
   name: string;
   jobTitle: string;
   contact: string;
@@ -81,6 +82,7 @@ export function parseStructuredResume(text: string): ExtractedRecommendation {
   const organization = orgSplit.org || rawOrg;
   const department = rawDept || orgSplit.dept;
   return {
+    candidateCode: labelValue(text, ['候选人编码', '候选编码', '人选编码', '编号', '编码']),
     name: labelValue(text, ['候选人姓名', '候选姓名', '姓名', 'name']),
     jobTitle: labelValue(text, ['应聘岗位', '应聘职位', '意向岗位', '意向职位', '求职意向', '目标岗位', '推荐岗位', '岗位', '职位']),
     contact: labelValue(text, ['候选人联系方式', '联系方式', '联系电话', '手机号', '手机', '电话', '微信', 'wechat', 'TG', 'telegram']),
@@ -102,6 +104,12 @@ function fallbackName(text: string): string {
     if (en) return en[0];
   }
   return '';
+}
+
+/** 启发式兜底：抓候选人编码。 */
+function fallbackCandidateCode(text: string): string {
+  const m = text.match(/(?:候选人编码|候选编码|人选编码|编号|编码)[:：]\s*([A-Za-z0-9_-]+)/);
+  return m ? m[1].trim() : '';
 }
 
 /** 启发式兜底：抓应聘/意向岗位，其次任意「岗位：xxx」。 */
@@ -139,6 +147,7 @@ export async function extractRecommendationInfo(rawText: string): Promise<Extrac
   if (s.name && s.jobTitle) return s;
   // 2) 结构化结果作为优先回退，缺的字段再用启发式补
   const fb: ExtractedRecommendation = {
+    candidateCode: s.candidateCode || fallbackCandidateCode(text),
     name: s.name || fallbackName(text),
     jobTitle: s.jobTitle || fallbackJobTitle(text),
     contact: s.contact || fallbackContact(text),
@@ -155,12 +164,13 @@ ${text}
 
 ## 要求
 - name: 候选人姓名（中文或英文，只要姓名本身）
+- candidateCode: 候选人编码。若文本里有"候选人编码/候选编码/编号/编码"，取其后的完整编码；没有则空字符串
 - jobTitle: 候选人应聘/意向的岗位名称。若简历写有"应聘岗位/应聘职位/意向岗位/求职意向/目标岗位"等字样，优先取其后的岗位名；否则取最近一份工作的岗位 title
 - contact: 候选人本人的联系方式，手机号优先，其次邮箱或微信号，取其一，没有则空字符串
 - contactPerson: 简历对接人/推荐人/联系人（即把这份简历交过来或负责对接的人，非候选人本人），没有则空字符串
 
 ## 输出严格JSON（不要markdown代码块）：
-{"name": "", "jobTitle": "", "contact": "", "contactPerson": ""}`;
+{"candidateCode": "", "name": "", "jobTitle": "", "contact": "", "contactPerson": ""}`;
 
     const res = await fetch('/api/match', {
       method: 'POST',
@@ -172,6 +182,7 @@ ${text}
     if (!content) return fb;
     const parsed = JSON.parse(cleanJson(content));
     return {
+      candidateCode: String(parsed.candidateCode || '').trim() || fb.candidateCode,
       name: String(parsed.name || '').trim() || fb.name,
       jobTitle: String(parsed.jobTitle || '').trim() || fb.jobTitle,
       contact: String(parsed.contact || '').trim() || fb.contact,

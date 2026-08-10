@@ -4,6 +4,7 @@ import { Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TodoItem, TodoOwner, TodoPriority, TodoCategory } from '@/types/todo';
 import { TODO_PRIORITY_LABEL, TODO_CATEGORY_LABEL } from '@/types/todo';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface EditTodoModalProps {
   todo: TodoItem;
@@ -22,6 +23,7 @@ export function EditTodoModal({ todo, ownerNames, onClose, onSave }: EditTodoMod
   const [priority, setPriority] = useState<TodoPriority>(todo.priority);
   const [category, setCategory] = useState<TodoCategory>(todo.category);
   const [note, setNote] = useState(todo.note || '');
+  useEscapeClose(onClose);
 
   const ownerLabel = (o: TodoOwner) => (o === 'both' ? '共同' : ownerNames[o]);
 
@@ -40,7 +42,7 @@ export function EditTodoModal({ todo, ownerNames, onClose, onSave }: EditTodoMod
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">

@@ -15,6 +15,7 @@ import { generateId } from '@/lib/utils';
 import { detectCategories } from '@/lib/jd-parse-core';
 import { exportTalentsToFeishuXlsx } from '@/lib/talent-feishu-export';
 import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download, Archive, UserPlus, Wand2 } from 'lucide-react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
@@ -115,6 +116,7 @@ export function TalentPoolPage() {
       const jobTitle = (item.jdTitle || '').trim();
       const existing = existingTalents.find((t) => t.name === name);
       const recruiter = item.contactPerson?.trim() || repushColumnNames[item.column] || undefined;
+      const candidateCode = item.candidateCode?.trim() || undefined;
       const cats = detectCategories(jobTitle);
       // 推荐记录里的简历文件跟随导入（已有简历的人才不覆盖）
       const itemResume = item.resumeUrl ? { resumeUrl: item.resumeUrl, resumeFileName: item.resumeFileName } : null;
@@ -125,6 +127,7 @@ export function TalentPoolPage() {
         const attachResume = itemResume && !existing.resumeUrl;
         useTalentStore.getState().updateTalent(existing.id, {
           jobTitle: jobTitle || existing.jobTitle,
+          candidateCode: candidateCode || existing.candidateCode,
           organization: item.organization?.trim() || existing.organization,
           department: item.department?.trim() || existing.department,
           phone: item.contact?.trim() || existing.phone,
@@ -138,6 +141,7 @@ export function TalentPoolPage() {
         talentId = generateId();
         useTalentStore.getState().addTalent({
           id: talentId,
+          candidateCode,
           name,
           jobTitle,
           categories: cats.length ? cats : ['operations'],
@@ -198,6 +202,7 @@ export function TalentPoolPage() {
     });
     setEditId(id);
   };
+  useEscapeClose(() => setArchiveConfirm(false), archiveConfirm);
 
   // 水合守卫：放在所有 hook 之后，避免条件调用 hook
   if (!mounted) return null;
@@ -349,7 +354,7 @@ export function TalentPoolPage() {
       {/* 归档确认弹窗 */}
       {archiveConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30" onClick={() => setArchiveConfirm(false)} />
+          <div className="fixed inset-0 bg-black/30" />
           <div className="relative bg-white rounded-2xl shadow-xl border border-gray-200 p-6 max-w-sm w-full space-y-4 animate-fade-in">
             <div className="flex items-center gap-3">
               <Archive className="w-5 h-5 text-amber-500" />

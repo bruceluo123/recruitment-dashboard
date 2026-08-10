@@ -7,6 +7,7 @@ import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory
 import type { Company, CompanyDimension, CompanySource } from '@/types/company';
 import { emptyDimensions } from '@/types/company';
 import { X, Pencil, Check, Trash2, Copy, Link as LinkIcon, Building2, Clock, FileSearch } from 'lucide-react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface CompanyDetailPanelProps { company: Company | null; isOpen: boolean; onClose: () => void; }
 
@@ -32,6 +33,7 @@ export function CompanyDetailPanel({ company, isOpen, onClose }: CompanyDetailPa
   const [copied, setCopied] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const companyId = company?.id || '';
+  useEscapeClose(onClose, isOpen && !!company);
 
   const [form, setForm] = useState({
     name: '', industry: '', summary: '',
@@ -92,7 +94,7 @@ export function CompanyDetailPanel({ company, isOpen, onClose }: CompanyDetailPa
 
   return (
     <>
-      {isOpen && <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />}
+      {isOpen && <div className="fixed inset-0 bg-black/20 z-40" />}
       <div className={cn(
         'fixed right-0 top-0 h-full w-full max-w-xl bg-white border-l border-gray-200 z-50 transition-transform duration-300 overflow-y-auto shadow-2xl',
         isOpen ? 'translate-x-0' : 'translate-x-full',

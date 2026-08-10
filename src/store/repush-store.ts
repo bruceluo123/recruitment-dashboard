@@ -14,6 +14,7 @@ export interface RepushItem {
   id: string;
   column: RepushColumnId;       // 推荐人（a/b 两列）
   fileName: string;            // 显示名（文本录入时为「姓名-岗位」，文件拖入时为文件名）
+  candidateCode?: string;       // 候选人编码（复推时沿用）
   candidateName?: string;      // 推荐人姓名（简历提取）
   jdTitle?: string;            // 推荐岗位（简历提取）
   contact?: string;            // 候选人联系方式（约面用）
@@ -46,6 +47,7 @@ export interface UnfeedbackSnapshot {
 /** 简历入口录入一条推荐记录所需字段 */
 export interface NewRecommendation {
   column: RepushColumnId;
+  candidateCode?: string;
   candidateName: string;
   jdTitle?: string;
   contact?: string;
@@ -103,6 +105,7 @@ export const useRepushStore = create<RepushStore>()(
               id: generateId(),
               column: rec.column,
               fileName: displayName,
+              candidateCode: rec.candidateCode || undefined,
               candidateName: rec.candidateName,
               jdTitle: rec.jdTitle || undefined,
               contact: rec.contact || undefined,

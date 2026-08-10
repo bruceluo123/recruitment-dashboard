@@ -4,6 +4,7 @@ import { Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JD } from '@/types/jd';
 import type { RepushItem, RepushColumnId } from '@/store/repush-store';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface EditRecommendationModalProps {
   item: RepushItem;
@@ -17,6 +18,7 @@ interface EditRecommendationModalProps {
 
 export function EditRecommendationModal({ item, columnNames, orgOptions, deptOptions, jds, onClose, onSave }: EditRecommendationModalProps) {
   const initialName = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+  const [candidateCode, setCandidateCode] = useState(item.candidateCode || '');
   const [name, setName] = useState(initialName);
   const [jobTitle, setJobTitle] = useState(item.jdTitle || '');
   const [organization, setOrganization] = useState(item.organization || '');
@@ -24,6 +26,7 @@ export function EditRecommendationModal({ item, columnNames, orgOptions, deptOpt
   const [contact, setContact] = useState(item.contact || '');
   const [contactPerson, setContactPerson] = useState(item.contactPerson || '');
   const [column, setColumn] = useState<RepushColumnId>(item.column);
+  useEscapeClose(onClose);
 
   const jdTitleOptions = useMemo(() => {
     const set = new Set<string>();
@@ -37,6 +40,7 @@ export function EditRecommendationModal({ item, columnNames, orgOptions, deptOpt
     const fileName = jt ? `${name.trim()}-${jt}` : name.trim();
     onSave(item.id, {
       fileName,
+      candidateCode: candidateCode.trim() || undefined,
       candidateName: name.trim(),
       jdTitle: jt || undefined,
       organization: organization || undefined,
@@ -50,7 +54,7 @@ export function EditRecommendationModal({ item, columnNames, orgOptions, deptOpt
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
@@ -61,6 +65,9 @@ export function EditRecommendationModal({ item, columnNames, orgOptions, deptOpt
         </div>
 
         <div className="grid grid-cols-2 gap-3">
+          <Field label="候选人编码">
+            <input value={candidateCode} onChange={(e) => setCandidateCode(e.target.value)} className="edit-input" placeholder="如 XYMMF00002" />
+          </Field>
           <Field label="姓名 *">
             <input value={name} onChange={(e) => setName(e.target.value)} className="edit-input" placeholder="姓名" />
           </Field>

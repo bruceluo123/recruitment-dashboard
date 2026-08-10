@@ -6,6 +6,7 @@ import type { JD } from '@/types/jd';
 import type { RepushItem } from '@/store/repush-store';
 import { matchJDByTitle } from '@/lib/recommendation';
 import { displayName } from '@/lib/repush-format';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 export interface RepushArgs {
   jdTitle: string;
@@ -32,6 +33,7 @@ export function RepushModal({ item, orgOptions, deptOptions, jds, onClose, onCon
   const [jobTitle, setJobTitle] = useState('');
   const [organization, setOrganization] = useState('');
   const [department, setDepartment] = useState('');
+  useEscapeClose(onClose);
 
   const jdTitleOptions = useMemo(() => {
     const set = new Set<string>();
@@ -57,7 +59,7 @@ export function RepushModal({ item, orgOptions, deptOptions, jds, onClose, onCon
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
         <div className="flex items-center justify-between mb-1.5">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">

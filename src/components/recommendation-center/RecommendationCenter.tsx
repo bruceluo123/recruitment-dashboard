@@ -93,6 +93,7 @@ export function RecommendationCenter() {
     if (!repushing) return;
     addRecommendation({
       column: repushing.column,
+      candidateCode: repushing.candidateCode,
       candidateName: repushing.candidateName || displayName(repushing),
       jdTitle: args.jdTitle || undefined,
       contact: repushing.contact,

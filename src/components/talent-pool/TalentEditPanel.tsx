@@ -6,6 +6,7 @@ import type { Talent } from '@/types/talent';
 import type { JDCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES } from '@/types/jd';
 import { useTalentStore } from '@/store/talent-store';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface TalentEditPanelProps {
   talent: Talent | null;
@@ -14,6 +15,7 @@ interface TalentEditPanelProps {
 }
 
 interface EditForm {
+  candidateCode: string;
   name: string;
   jobTitle: string;
   categories: JDCategory[];
@@ -57,6 +59,7 @@ interface EditForm {
 }
 
 const EMPTY: EditForm = {
+  candidateCode: '',
   name: '', jobTitle: '', categories: [], tg: '', notes: '', resumeUrl: '', resumeFileName: '',
   company: '', department: '', techDirection: '', eduLevel: '', school: '', major: '', gradYear: '',
   location: '', prevCompanies: '', email: '', phone: '',
@@ -71,10 +74,12 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
   const [form, setForm] = useState<EditForm>(EMPTY);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  useEscapeClose(onClose, isOpen && !!talent);
 
   useEffect(() => {
     if (talent) {
       setForm({
+        candidateCode: talent.candidateCode || '',
         name: talent.name || '',
         jobTitle: talent.jobTitle || '',
         categories: talent.categories || [],
@@ -162,6 +167,7 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
     const hasLinks = Object.values(links).some(Boolean);
     updateTalent(talent.id, {
       name: form.name.trim(),
+      candidateCode: t(form.candidateCode),
       jobTitle: form.jobTitle.trim(),
       categories: form.categories.length > 0 ? form.categories : ['operations'],
       tg: form.tg.trim(),
@@ -201,7 +207,7 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/20" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/20" />
       <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800">编辑人选</h3>
@@ -209,7 +215,12 @@ export function TalentEditPanel({ talent, isOpen, onClose }: TalentEditPanelProp
         </div>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">编号</label>
+              <input value={form.candidateCode} onChange={(e) => setForm({ ...form, candidateCode: e.target.value })}
+                className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
+            </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">姓名</label>
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}

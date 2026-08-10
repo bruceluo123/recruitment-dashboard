@@ -77,7 +77,7 @@ ${buildJDList(jds)}
 
 ${SCORING_RUBRIC}
 
-reasoning 控制在25字内。**按 score 从高到低**逐个岗位输出。
+reasoning 控制在25字内。优先输出明显匹配的岗位；不要求全局排序，前端会按 score 自动排序。
 输出格式：每行一个独立的 JSON 对象（JSONL），不要数组、不要markdown代码块、不要任何额外说明文字。每行示例：
 {"jdIndex":1,"score":88,"breakdown":{"skillsMatch":85,"experienceMatch":90,"domainMatch":92,"seniorityMatch":80,"overallFit":88},"reasoning":"AI产品方向高度对口","highlights":["有Agent架构经验，对应Multi-Agent要求"],"concerns":["薪资期望略高"]}`;
 }

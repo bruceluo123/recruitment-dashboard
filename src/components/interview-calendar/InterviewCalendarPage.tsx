@@ -12,6 +12,7 @@ import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, File
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
 import { buildTodayScheduleTable, parseInterviewReport } from '@/lib/interview-report';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
@@ -206,6 +207,9 @@ export function InterviewCalendarPage() {
   const secondInterviewCount = ownerCandidates.filter((c) => c.stage === 'interview-2').length;
   const offerCount = ownerCandidates.filter((c) => c.stage === 'offer').length;
   const isEditing = editingId === selectedId;
+  useEscapeClose(() => setShowImport(false), showImport);
+  useEscapeClose(() => setShowAddForm(false), showAddForm);
+  useEscapeClose(() => { setSelectedId(null); setEditingId(null); }, !!selected);
 
   if (!mounted) return null;
 
@@ -282,7 +286,7 @@ export function InterviewCalendarPage() {
 
       {showImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/20" onClick={() => setShowImport(false)} />
+          <div className="fixed inset-0 bg-black/20" />
           <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><ClipboardPaste className="w-5 h-5 text-indigo-500" />导入约面数据</h3>
@@ -305,7 +309,7 @@ export function InterviewCalendarPage() {
 
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/20" onClick={() => setShowAddForm(false)} />
+          <div className="fixed inset-0 bg-black/20" />
           <div className="relative w-full max-w-sm bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-800">添加候选人</h3>
@@ -334,7 +338,7 @@ export function InterviewCalendarPage() {
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30" onClick={() => { setSelectedId(null); setEditingId(null); }} />
+          <div className="fixed inset-0 bg-black/30" />
           <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold text-gray-800">

@@ -7,6 +7,7 @@ import { useMatchHistoryStore } from '@/store/match-history-store';
 import { matchJDToTalents } from '@/lib/talent-match';
 import type { JD, JDCategory } from '@/types/jd';
 import type { MatchJDInput, TalentMatchResult } from '@/types/talent-match';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface TalentMatchDialogProps { isOpen: boolean; onClose: () => void; }
 
@@ -60,6 +61,7 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
   // 当前展示的结果来自哪条历史记录（复看时显示横幅 + 岗位/时间）；null 表示刚跑出的新结果
   const [viewingTitle, setViewingTitle] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  useEscapeClose(onClose, isOpen && !loading);
 
   const filteredJds = useMemo(() => {
     const q = jdSearch.trim().toLowerCase();
@@ -141,7 +143,7 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={loading ? undefined : onClose} />
+      <div className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-3xl max-h-[88vh] flex flex-col bg-white border border-gray-200 rounded-2xl shadow-xl animate-fade-in">
         <div className="flex items-center justify-between p-6 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">

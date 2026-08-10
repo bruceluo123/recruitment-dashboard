@@ -17,6 +17,7 @@ import { recentlyAddedJds } from '@/lib/jd-recent';
 import { ImportDiffDialog } from './ImportDiffDialog';
 import { WeeklyAddedDialog } from './WeeklyAddedDialog';
 import { detectCat, parseSalary, parseRawJD } from '@/lib/jd-paste-parse';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
@@ -28,6 +29,7 @@ export function JDLibraryPage() {
   const [batchMode, setBatchMode] = useState(false);
   const [recycleOpen, setRecycleOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  useEscapeClose(() => setAddOpen(false), addOpen);
   // Excel 式列筛选：空集合 = 不筛选
   const [orgFilter, setOrgFilter] = useState<Set<string>>(new Set());
   const [serviceFilter, setServiceFilter] = useState<Set<string>>(new Set());
@@ -311,7 +313,7 @@ export function JDLibraryPage() {
       {/* Add JD Dialog */}
       {addOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/20" onClick={() => setAddOpen(false)} />
+          <div className="fixed inset-0 bg-black/20" />
           <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-800">添加岗位</h3>

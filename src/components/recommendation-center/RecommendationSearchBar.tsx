@@ -3,8 +3,9 @@ import { useMemo } from 'react';
 import { Search, X } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 
-/** 六项查找条件：均为「输入 + 下拉」（datalist），留空表示不限。 */
+/** 七项查找条件：均为「输入 + 下拉」（datalist），留空表示不限。 */
 export interface RecommendationFilters {
+  code: string;
   name: string;
   job: string;
   org: string;
@@ -14,7 +15,7 @@ export interface RecommendationFilters {
 }
 
 export const EMPTY_FILTERS: RecommendationFilters = {
-  name: '', job: '', org: '', dept: '', contact: '', handler: '',
+  code: '', name: '', job: '', org: '', dept: '', contact: '', handler: '',
 };
 
 interface RecommendationSearchBarProps {
@@ -36,6 +37,7 @@ function nameOf(it: RepushItem): string {
 }
 
 export function RecommendationSearchBar({ items, filters, onChange }: RecommendationSearchBarProps) {
+  const codeOpts = useMemo(() => distinctValues(items, (it) => it.candidateCode), [items]);
   const nameOpts = useMemo(() => distinctValues(items, nameOf), [items]);
   const jobOpts = useMemo(() => distinctValues(items, (it) => it.jdTitle), [items]);
   const orgOpts = useMemo(() => distinctValues(items, (it) => it.organization), [items]);
@@ -47,6 +49,7 @@ export function RecommendationSearchBar({ items, filters, onChange }: Recommenda
   const hasAny = Object.values(filters).some((v) => v.trim());
 
   const fields: Array<{ key: keyof RecommendationFilters; label: string; opts: string[] }> = [
+    { key: 'code', label: '编码', opts: codeOpts },
     { key: 'name', label: '姓名', opts: nameOpts },
     { key: 'job', label: '岗位', opts: jobOpts },
     { key: 'org', label: '编制', opts: orgOpts },
@@ -67,7 +70,7 @@ export function RecommendationSearchBar({ items, filters, onChange }: Recommenda
           </button>
         )}
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
         {fields.map((f) => (
           <div key={f.key}>
             <input
@@ -87,7 +90,7 @@ export function RecommendationSearchBar({ items, filters, onChange }: Recommenda
   );
 }
 
-/** 按六项条件（子串、忽略大小写）过滤推荐记录；空条件不限。 */
+/** 按七项条件（子串、忽略大小写）过滤推荐记录；空条件不限。 */
 export function filterRecommendations(items: RepushItem[], filters: RecommendationFilters): RepushItem[] {
   const norm = (s: string) => s.trim().toLowerCase();
   const match = (value: string | undefined, query: string) => {
@@ -96,6 +99,7 @@ export function filterRecommendations(items: RepushItem[], filters: Recommendati
     return (value || '').toLowerCase().includes(q);
   };
   return items.filter((it) =>
+    match(it.candidateCode, filters.code) &&
     match(nameOf(it), filters.name) &&
     match(it.jdTitle, filters.job) &&
     match(it.organization, filters.org) &&

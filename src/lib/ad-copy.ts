@@ -109,6 +109,34 @@ const DIGIT_KEYCAPS = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️�
 const emojiNum = (n: number) =>
   n <= 10 ? EMOJI_NUMS[n - 1] : String(n).split('').map((d) => DIGIT_KEYCAPS[Number(d)]).join('');
 
+const KEYCAP_NUMBER_PATTERN = '(?:[0-9]\\uFE0F?\\u20E3)+';
+const NUMBER_PREFIX_RE = new RegExp(
+  `^\\s*(?:🔟|${KEYCAP_NUMBER_PATTERN}|\\d{1,3}(?:[.、)）]|\\s+))\\s*`,
+);
+
+export function renumberDesensitizedText(text: string): { text: string; count: number } {
+  let groupCount = 0;
+  let totalCount = 0;
+  const lines = text.split(/\r?\n/).map((line) => {
+    if (line.trim().endsWith('类') && !NUMBER_PREFIX_RE.test(line)) {
+      groupCount = 0;
+      return line;
+    }
+
+    const match = line.match(NUMBER_PREFIX_RE);
+    if (!match) return line;
+
+    const title = line.slice(match[0].length).trimStart();
+    if (!title) return line;
+
+    groupCount += 1;
+    totalCount += 1;
+    return `${emojiNum(groupCount)}${title}`;
+  });
+
+  return { text: lines.join('\n'), count: totalCount };
+}
+
 /**
  * 脱敏文案：按大类分组，组内 1️⃣2️⃣ 重新编号，只列岗位名（不含薪资），适合对外转发。
  * 分组顺序沿用 groupByCategory（AI 类靠前，其余按分组大小降序）。

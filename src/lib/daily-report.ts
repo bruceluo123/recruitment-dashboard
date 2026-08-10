@@ -53,7 +53,7 @@ export interface OnboardLine {
 
 /** 看板站入职下拉选项，保持与远端一致。 */
 export const ONBOARD_WORKMODE_OPTIONS = ['到岗', '远程'] as const;
-export const ONBOARD_CHANNEL_OPTIONS = ['TG', '转介绍', 'Indeed', '小红书', '简历储备', '内推', '猎聘', '人才库', '社群', 'BOSS直聘'] as const;
+export const ONBOARD_CHANNEL_OPTIONS = ['TG', '个人资源', 'Indeed', '小红书', '简历储备', '内推', '猎聘', '社群', 'BOSS直聘'] as const;
 export const ONBOARD_STATUS_OPTIONS = ['已入职', '待入职', '已离职'] as const;
 
 // 各明细行渠道下拉：与看板站 CHANNEL_OPTIONS 一致（供推荐/收取/约面/面试/Offer/入职复用）。
@@ -65,11 +65,35 @@ export const REPORT_PRIORITY_OPTIONS = [
   { value: 'p2', label: 'P2' },
 ] as const;
 
-// 「一键」随机默认渠道池：只在这几个常用渠道里随机（用户可再改成任意选项）。
-const RANDOM_CHANNEL_POOL = ['人才库', 'BOSS直聘', '转介绍'] as const;
-/** 随机取一个默认渠道（人才库 / BOSS直聘 / 转介绍）。 */
+// 「一键」默认渠道池：只在这几个常用渠道里打散（用户可再改成任意选项）。
+const RANDOM_CHANNEL_POOL = ['个人资源', 'BOSS直聘'] as const;
+const LEGACY_DEFAULT_CHANNELS = ['转介绍', '人才库'] as const;
+/** 随机取一个默认渠道（个人资源 / BOSS直聘）。 */
 export function pickRandomChannel(rng: () => number = Math.random): string {
   return RANDOM_CHANNEL_POOL[Math.floor(rng() * RANDOM_CHANNEL_POOL.length)];
+}
+
+/** 按行分配默认渠道；多行时固定轮换，彻底避免整批都一样。 */
+function pickChannelForRow(index: number): string {
+  return RANDOM_CHANNEL_POOL[index % RANDOM_CHANNEL_POOL.length];
+}
+
+function isOneClickDefaultChannel(channel: string): boolean {
+  return channel === '' ||
+    (RANDOM_CHANNEL_POOL as readonly string[]).includes(channel) ||
+    (LEGACY_DEFAULT_CHANNELS as readonly string[]).includes(channel);
+}
+
+/** 兼容旧草稿：默认渠道行打开时统一按行打散，避免整组被暂存成同一个来源。 */
+export function spreadDefaultChannels<T extends { channel: string }>(rows: T[], rng: () => number = Math.random): T[] {
+  void rng;
+  if (rows.length <= 1) return rows;
+  if (!rows.some((row) => isOneClickDefaultChannel(row.channel))) return rows;
+  return rows.map((row, i) => (
+    isOneClickDefaultChannel(row.channel)
+      ? { ...row, channel: pickChannelForRow(i) }
+      : row
+  ));
 }
 /** 随机取一个默认优先级（p0 / p1）。 */
 export function pickRandomPriority(rng: () => number = Math.random): string {
@@ -219,32 +243,31 @@ export interface BuildOptions {
 /** 组装一条可直接提交到看板站的远程日报记录。 */
 export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
   const rng = opts.rng ?? Math.random;
-  // 「一键」随机默认：整份日报用一个随机渠道，各明细行各自随机 P0/P1（均可手改）。
-  const draftChannel = pickRandomChannel(rng);
+  // 「一键」默认：渠道按行在个人资源 / BOSS直聘中打散，优先级各行随机（均可手改）。
   const recommendDetail = aggregateRecommendations(opts.recommendations)
-    .map((j) => ({ ...j, channel: draftChannel, priority: pickRandomPriority(rng) }));
+    .map((j, i) => ({ ...j, channel: pickChannelForRow(i), priority: pickRandomPriority(rng) }));
   const recommendTotal = sum(recommendDetail);
   const cvDetail = buildCvDetail(recommendDetail, rng); // 深拷贝自推荐，渠道/优先级随之带入
   const cvTotal = sum(cvDetail);
   const screenNew = cvTotal > 0 ? cvTotal + rand1to2(rng) : 0;
 
   const scheduledSource = opts.scheduled ?? opts.interviews;
-  const scheduledDetail: ScheduledLine[] = scheduledSource.map((c) => ({
+  const scheduledDetail: ScheduledLine[] = scheduledSource.map((c, i) => ({
     job: c.jdTitle,
     person: c.name,
     date: localDate(c.interviewDate!),
     time: localTime(c.interviewDate!),
     tz: '北京时间',
-    channel: draftChannel,
+    channel: pickChannelForRow(i),
     priority: pickRandomPriority(rng),
   }));
-  const interviewDetail: InterviewLine[] = opts.interviews.map((c) => ({
+  const interviewDetail: InterviewLine[] = opts.interviews.map((c, i) => ({
     name: c.jdTitle,
     department: c.department || '',
     jobKey: makeJobKey(c.jdTitle, c.department || ''),
     person: c.name,
     status: c.stage === 'offer' ? '已通过' : '待反馈',
-    channel: draftChannel,
+    channel: pickChannelForRow(i),
     priority: pickRandomPriority(rng),
   }));
 

@@ -2,12 +2,14 @@
 import { cn, formatSalary, formatDate } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, JD_STATUS_LABELS, JD_STATUS_COLORS, type JD, type JDCategory, type JDStatus, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users, ArrowRight, StickyNote } from 'lucide-react';
+import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users, ArrowRight, StickyNote, FileSearch } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useJDStore } from '@/store/jd-store';
 import { useCompanyStore } from '@/store/company-store';
 import { hasResearch } from '@/types/company';
+import { JDMatchDialog } from './JDMatchDialog';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface JDDetailPanelProps { jd: JD | null; isOpen: boolean; onClose: () => void; }
 
@@ -22,9 +24,11 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<Record<string, string>>({});
   const [showAI, setShowAI] = useState(false);
+  const [matchOpen, setMatchOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const jdId = jd?.id || '';
   const aiResult = aiResults[jdId] || null;
+  useEscapeClose(onClose, isOpen && !!jd);
 
   // Reset editing when JD changes
   useEffect(() => { setEditing(false); setConfirmingDelete(false); }, [jdId]);
@@ -136,7 +140,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
 
   return (
     <>
-      {isOpen && <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />}
+      {isOpen && <div className="fixed inset-0 bg-black/20 z-40" />}
       <div className={cn(
         'fixed right-0 top-0 h-full w-full max-w-lg bg-white border-l border-gray-200 z-50 transition-transform duration-300 overflow-y-auto shadow-2xl',
         isOpen ? 'translate-x-0' : 'translate-x-full',
@@ -206,6 +210,10 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
                 </>
               ) : (
                 <>
+                  <button onClick={() => setMatchOpen(true)}
+                    className="h-9 px-3 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition-all flex items-center gap-1.5" title="上传简历匹配该岗位">
+                    <FileSearch className="w-4 h-4" />匹配
+                  </button>
                   <button onClick={() => { if (aiResult) { setShowAI(!showAI); } else if (!aiLoading) { handleAnalyze(); } }}
                     className={`p-2 rounded-lg transition-all ${showAI ? 'bg-indigo-50 text-indigo-500' : 'hover:bg-gray-100 text-gray-400 hover:text-indigo-500'}`} title="JD要点">
                     <Sparkles className="w-5 h-5" />
@@ -365,6 +373,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
           )}
         </div>
       </div>
+      <JDMatchDialog jd={jd} isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
     </>
   );
 }
