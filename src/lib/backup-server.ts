@@ -2,7 +2,7 @@
 // 关键保护：若某类型当前为空、但已有非空 latest 备份，则跳过（绝不让"清空"传播进备份）。
 import { kvConfigured, kvGetRaw, kvSetRaw } from '@/lib/kv-server';
 
-type BackupType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos';
+type BackupType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
 
 const LIVE_KEYS: Record<BackupType, string> = {
   jds: 'recruit:jds',
@@ -10,9 +10,10 @@ const LIVE_KEYS: Record<BackupType, string> = {
   talents: 'recruit:talents',
   repush: 'recruit:repush',
   todos: 'recruit:todos',
+  companies: 'recruit:companies',
 };
 
-const ALL_TYPES: BackupType[] = ['jds', 'candidates', 'talents', 'repush', 'todos'];
+const ALL_TYPES: BackupType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies'];
 const KEEP_DAYS = 30; // 保留最近 30 天的每日快照
 const INDEX_KEY = 'recruit:backup:index';
 

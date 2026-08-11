@@ -34,10 +34,10 @@ function extractTerms(text: string): Set<string> {
  * 分类交集为空（如粘贴 JD 无分类）时跳过分类过滤，直接全量粗排。
  */
 export function prefilterTalents(jd: MatchJDInput, jdCategories: JDCategory[], talents: Talent[], limit: number): Talent[] {
-  let pool = talents;
+  let pool = talents.filter((t) => !t.archived);
   if (jdCategories.length) {
     const want = new Set(jdCategories);
-    const byCat = talents.filter((t) => (t.categories || []).some((c) => want.has(c)));
+    const byCat = pool.filter((t) => (t.categories || []).some((c) => want.has(c)));
     if (byCat.length >= 3) pool = byCat;  // 交集太少则回退全量，避免漏掉好候选人
   }
   if (pool.length <= limit) return pool;

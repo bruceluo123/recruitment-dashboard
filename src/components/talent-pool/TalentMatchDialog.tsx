@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Loader2, Sparkles, FileText, Copy, Check, Search, Pause, History, Trash2, RotateCcw } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import { useJDStore } from '@/store/jd-store';
@@ -9,7 +9,7 @@ import type { JD, JDCategory } from '@/types/jd';
 import type { MatchJDInput, TalentMatchResult } from '@/types/talent-match';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
-interface TalentMatchDialogProps { isOpen: boolean; onClose: () => void; }
+interface TalentMatchDialogProps { isOpen: boolean; onClose: () => void; initialJdId?: string | null; }
 
 type Mode = 'library' | 'paste';
 
@@ -42,7 +42,7 @@ function scoreColor(score: number): string {
   return 'text-gray-500 bg-gray-50 ring-gray-200';
 }
 
-export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
+export function TalentMatchDialog({ isOpen, onClose, initialJdId }: TalentMatchDialogProps) {
   const talents = useTalentStore((s) => s.talents);
   const jds = useJDStore((s) => s.jds);
   const history = useMatchHistoryStore((s) => s.history);
@@ -63,6 +63,17 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
   const abortRef = useRef<AbortController | null>(null);
   useEscapeClose(onClose, isOpen && !loading);
 
+  useEffect(() => {
+    if (!isOpen || !initialJdId) return;
+    const initialJd = jds.find((item) => item.id === initialJdId);
+    setMode('library');
+    setSelectedJdId(initialJdId);
+    setJdSearch(initialJd?.title || '');
+    setResults(null);
+    setViewingTitle(null);
+    setError(null);
+  }, [initialJdId, isOpen, jds]);
+
   const filteredJds = useMemo(() => {
     const q = jdSearch.trim().toLowerCase();
     const list = q ? jds.filter((j) => `${j.title} ${j.department || ''} ${j.organization || ''}`.toLowerCase().includes(q)) : jds;
@@ -71,7 +82,8 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
 
   if (!isOpen) return null;
 
-  const scannedCount = talents.filter((t) => t.hasResumeText).length;
+  const activeTalents = talents.filter((t) => !t.archived);
+  const scannedCount = activeTalents.filter((t) => t.hasResumeText).length;
 
   const handleMatch = async () => {
     setError(null);
@@ -95,21 +107,21 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
       jdInput = { title: jdTitle, responsibilities: [], requirements: [pasteText.trim()] };
     }
 
-    if (!talents.length) { setError('人才库为空，请先导入候选人'); return; }
+    if (!activeTalents.length) { setError('人才库为空，请先导入候选人'); return; }
 
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
     setViewingTitle(null);
     try {
-      const res = await matchJDToTalents(jdInput, jdCategories, talents, controller.signal);
+      const res = await matchJDToTalents(jdInput, jdCategories, activeTalents, controller.signal);
       setResults(res);
       if (!res.length) setError('未找到匹配的候选人');
       else {
         // 存档供复看：保留最近 5 条，退出/刷新后仍可查看，无需重新匹配
         addRecord({
           jdTitle, jdSubtitle, mode,
-          talentTotal: talents.length,
+          talentTotal: activeTalents.length,
           scannedCount,
           results: res,
         });
@@ -133,9 +145,9 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
     setError(null);
   };
 
-  const handleCopyTg = async (tg: string, id: string) => {
+  const handleCopyContact = async (value: string, id: string) => {
     try {
-      await navigator.clipboard.writeText(tg);
+      await navigator.clipboard.writeText(value);
       setCopiedId(id);
       setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
     } catch { /* clipboard 不可用时忽略 */ }
@@ -155,7 +167,7 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
 
         <div className="p-6 space-y-4 overflow-y-auto">
           <p className="text-xs text-gray-400">
-            从 {talents.length} 位人选中匹配（已扫描简历正文 {scannedCount} 位）。未扫描的候选人仅凭岗位名称粗判，建议先「扫描识别简历」。
+            从 {activeTalents.length} 位活跃人选中匹配（已扫描简历正文 {scannedCount} 位）。未扫描的候选人仅凭结构化字段粗判，建议先「扫描识别简历」。
           </p>
 
           {/* 模式切换 */}
@@ -286,11 +298,15 @@ export function TalentMatchDialog({ isOpen, onClose }: TalentMatchDialogProps) {
                         <FileText className="w-3.5 h-3.5" />{r.talent.resumeFileName || '简历'}
                       </a>
                     )}
-                    {r.talent.tg && (
-                      <button onClick={() => handleCopyTg(r.talent.tg!, r.id)} className="inline-flex items-center gap-1.5 text-xs text-gray-600 hover:text-indigo-600">
-                        {copiedId === r.id ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-300" />}{r.talent.tg}
+                    {[
+                      ['TG', r.talent.tg],
+                      ['电话', r.talent.phone],
+                      ['邮箱', r.talent.email],
+                    ].map(([label, value]) => value ? (
+                      <button key={label} onClick={() => handleCopyContact(value, `${r.id}-${label}`)} className="inline-flex items-center gap-1.5 text-xs text-gray-600 hover:text-indigo-600">
+                        {copiedId === `${r.id}-${label}` ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-300" />}{label}: {value}
                       </button>
-                    )}
+                    ) : null)}
                   </div>
                 </div>
               ))}

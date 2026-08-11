@@ -6,7 +6,7 @@ import { downloadBackup, parseBackup, restoreBackup, type BackupFile } from '@/l
 
 type Pending = { file: BackupFile; keys: number } | null;
 
-/** 设置页：全量数据导出/导入面板，兜底 localStorage 数据丢失。 */
+/** 设置页：完整数据导出/导入面板，兜底 localStorage 数据丢失。 */
 export function BackupPanel() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState('');
@@ -16,8 +16,8 @@ export function BackupPanel() {
   const handleExport = () => {
     setErr('');
     try {
-      const { keys } = downloadBackup();
-      setMsg(`已导出备份（${keys} 项数据），请妥善保存到网盘或 U 盘`);
+      const { keys, fileName } = downloadBackup();
+      setMsg(`已导出完整备份：${fileName}（${keys} 项数据），请妥善保存到网盘或 U 盘`);
     } catch {
       setErr('导出失败，请重试');
     }
@@ -29,7 +29,7 @@ export function BackupPanel() {
     setErr('');
     setMsg('');
     const file = e.target.files?.[0];
-    e.target.value = ''; // 允许重复选同一文件
+    e.target.value = ''; // 允许重复选同一个文件
     if (!file) return;
     try {
       const text = await file.text();
@@ -45,7 +45,7 @@ export function BackupPanel() {
     try {
       restoreBackup(pending.file);
       setPending(null);
-      setMsg('恢复成功，正在刷新…');
+      setMsg('恢复成功，正在刷新...');
       setTimeout(() => window.location.reload(), 600);
     } catch {
       setErr('恢复失败，请重试');
@@ -59,8 +59,8 @@ export function BackupPanel() {
           <ShieldCheck className="w-5 h-5 text-emerald-500" />
         </div>
         <div>
-          <h3 className="text-base font-semibold text-gray-800">数据备份与恢复</h3>
-          <p className="text-sm text-gray-500">导出 JD库 / 推荐 / 面试 / 人才库 全部数据为离线文件</p>
+          <h3 className="text-base font-semibold text-gray-800">完整数据备份与恢复</h3>
+          <p className="text-sm text-gray-500">导出 JD库 / 推荐中心 / 面试 / 人才库 / 公司库 / 待办等全部本地数据</p>
         </div>
       </div>
 
@@ -69,7 +69,7 @@ export function BackupPanel() {
           onClick={handleExport}
           className="flex items-center gap-2 px-4 h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600"
         >
-          <Download className="w-4 h-4" />导出备份
+          <Download className="w-4 h-4" />导出完整备份
         </button>
         <button
           onClick={handlePick}
@@ -81,7 +81,8 @@ export function BackupPanel() {
       </div>
 
       <p className="mt-3 text-xs text-gray-400">
-        建议每天或每次大量录入后导出一次。文件本地保存，不依赖任何服务器，换电脑/清缓存后可一键还原。
+        备份会自动收集所有企鹅岛本地数据项；后续新增的数据仓只要使用 recruitai 前缀，也会自动进入备份。
+        文件本地保存，不依赖服务器，换电脑或清缓存后可一键还原。
       </p>
 
       {msg && <div className="mt-3 text-sm text-emerald-600">{msg}</div>}

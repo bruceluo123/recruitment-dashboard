@@ -2,13 +2,13 @@
 import { cn, formatSalary, formatDate } from '@/lib/utils';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, JD_STATUS_LABELS, JD_STATUS_COLORS, type JD, type JDCategory, type JDStatus, ALL_CATEGORIES } from '@/types/jd';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users, ArrowRight, StickyNote, FileSearch } from 'lucide-react';
+import { X, MapPin, Clock, Briefcase, ListChecks, AlertCircle, Copy, Download, Check, Trash2, Pencil, Sparkles, Loader2, Building2, Users, ArrowRight, StickyNote } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useJDStore } from '@/store/jd-store';
 import { useCompanyStore } from '@/store/company-store';
 import { hasResearch } from '@/types/company';
-import { JDMatchDialog } from './JDMatchDialog';
+import { TalentMatchDialog } from '@/components/talent-pool/TalentMatchDialog';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface JDDetailPanelProps { jd: JD | null; isOpen: boolean; onClose: () => void; }
@@ -24,7 +24,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<Record<string, string>>({});
   const [showAI, setShowAI] = useState(false);
-  const [matchOpen, setMatchOpen] = useState(false);
+  const [talentMatchOpen, setTalentMatchOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const jdId = jd?.id || '';
   const aiResult = aiResults[jdId] || null;
@@ -71,9 +71,9 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const saveEdit = () => {
     if (!form.title.trim()) return;
     const salaryText = form.salary.trim();
-    // Try to parse structured range (15K-25K, 3000-5000U, 15-20k 等)
-    const cleaned = salaryText.replace(/[,，\s]/g, '');
-    const rangeMatch = cleaned.match(/^(\d+\.?\d*)\s*[-~至到]\s*(\d+\.?\d*)\s*([a-zA-Z一-龥]*)$/);
+    // Try to parse structured range (15K-25K, 3000-5000U, 15-20k etc.)
+    const cleaned = salaryText.replace(/[,\s，]/g, '');
+    const rangeMatch = cleaned.match(/^(\d+\.?\d*)[-~至到](\d+\.?\d*)([a-zA-Z\u4e00-\u9fa5]*)$/);
     let salaryRange = jd.salaryRange;
     if (rangeMatch) {
       const unit = rangeMatch[3].toUpperCase() || 'K';
@@ -115,9 +115,25 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   };
 
   const handleAnalyze = async () => {
-    setAiLoading(true); setShowAI(true);
+    setAiLoading(true);
+    setShowAI(true);
     try {
-      const prompt = `你是资深猎头顾问。请从猎头招聘视角分析以下岗位，总结JD要点。\n\n岗位：${jd.title}\n部门：${jd.department || '不限'}\n薪资：${jd.salaryText || formatSalary(jd.salaryRange)}\n${jd.responsibilities.length ? '职责：\n' + jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}\n${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}\n\n请用中文输出以下内容：\n1. **核心技能关键词**（必搜，5-8个）\n2. **加分技能**（优先，3-5个）\n3. **经验硬指标**\n4. **软性要求**\n5. **搜索建议**\n\n每项用简洁要点列出，不要大段文字。`;
+      const prompt = `你是资深猎头顾问。请从猎头招聘视角分析以下岗位，提炼 JD 要点。
+
+岗位：${jd.title}
+部门：${jd.department || '不限'}
+薪资：${jd.salaryText || formatSalary(jd.salaryRange)}
+${jd.responsibilities.length ? '职责：\n' + jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}
+${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}
+
+请用中文输出以下内容：
+1. **核心技能关键词**（必搜，5-8个）
+2. **加分技能**（优先，3-5个）
+3. **经验硬指标**
+4. **软性要求**
+5. **搜索建议**
+
+每项用简洁要点列出，不要大段文字。`;
       const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 1200 }) });
       const data = await res.json();
       if (data?.choices?.[0]?.message?.content) {
@@ -125,16 +141,20 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       } else {
         setAiResults((prev) => ({ ...prev, [jdId]: 'AI 分析暂时不可用，请稍后重试' }));
       }
-    } catch { setAiResults((prev) => ({ ...prev, [jdId]: '请求失败，请检查网络' })); }
+    } catch {
+      setAiResults((prev) => ({ ...prev, [jdId]: '请求失败，请检查网络' }));
+    }
     setAiLoading(false);
   };
 
   const handleDownloadWord = () => {
     const salaryStr = jd.salaryText || formatSalary(jd.salaryRange);
-    const content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${jd.title}</title></head><body><h1>${jd.title}</h1><p><strong>部门：</strong>${jd.department} &nbsp; <strong>地点：</strong>${jd.location || '不限'} &nbsp; <strong>薪资：</strong>${salaryStr}</p><h2>岗位职责</h2><ol>${jd.responsibilities.map((r) => `<li>${r}</li>`).join('')}</ol><h2>岗位需求</h2><ol>${jd.requirements.map((r) => `<li>${r}</li>`).join('')}</ol></body></html>`;
+    const content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${jd.title}</title></head><body><h1>${jd.title}</h1><p><strong>部门：</strong>${jd.department} &nbsp; <strong>地点：</strong>${jd.location || '不限'} &nbsp; <strong>薪资：</strong>${salaryStr}</p><h2>岗位职责</h2><ol>${jd.responsibilities.map((r) => `<li>${r}</li>`).join('')}</ol><h2>岗位要求</h2><ol>${jd.requirements.map((r) => `<li>${r}</li>`).join('')}</ol></body></html>`;
     const blob = new Blob([content], { type: 'application/msword' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `${jd.title}.doc`; a.click();
+    a.href = URL.createObjectURL(blob);
+    a.download = `${jd.title}.doc`;
+    a.click();
     URL.revokeObjectURL(a.href);
   };
 
@@ -210,9 +230,9 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
                 </>
               ) : (
                 <>
-                  <button onClick={() => setMatchOpen(true)}
-                    className="h-9 px-3 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition-all flex items-center gap-1.5" title="上传简历匹配该岗位">
-                    <FileSearch className="w-4 h-4" />匹配
+                  <button onClick={() => setTalentMatchOpen(true)}
+                    className="h-9 px-3 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition-all flex items-center gap-1.5" title="从人才库匹配该岗位">
+                    <Users className="w-4 h-4" />找人才
                   </button>
                   <button onClick={() => { if (aiResult) { setShowAI(!showAI); } else if (!aiLoading) { handleAnalyze(); } }}
                     className={`p-2 rounded-lg transition-all ${showAI ? 'bg-indigo-50 text-indigo-500' : 'hover:bg-gray-100 text-gray-400 hover:text-indigo-500'}`} title="JD要点">
@@ -330,7 +350,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
                 </div>
               ) : (
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm text-gray-400">公司库暂无「{orgName}」</p>
+                  <p className="text-sm text-gray-400">公司库暂无「{orgName}」。</p>
                   <button onClick={handleCreateCompany}
                     className="h-9 px-3 rounded-lg bg-indigo-500 text-white text-xs font-medium hover:bg-indigo-600 transition-all whitespace-nowrap">
                     建档到公司库
@@ -373,7 +393,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
           )}
         </div>
       </div>
-      <JDMatchDialog jd={jd} isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
+      <TalentMatchDialog isOpen={talentMatchOpen} onClose={() => setTalentMatchOpen(false)} initialJdId={jd.id} />
     </>
   );
 }

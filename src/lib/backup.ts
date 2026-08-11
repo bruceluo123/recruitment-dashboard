@@ -1,11 +1,17 @@
-// 全量数据备份/恢复：直接导出/还原各 Zustand store 的 localStorage 原始快照。
-// 不解析 store 内部结构，按原始字符串存取，最大程度避免版本/结构变化导致的恢复失败。
+// Full local data backup/restore: export and restore raw localStorage snapshots.
+// Keeping this key-based makes old backups resilient to store schema changes.
+const APP_KEY_PREFIX = 'recruitai-';
 
-const STORE_KEYS = [
+const CORE_STORE_KEYS = [
   'recruitai-jd-store',
   'recruitai-repush-store',
   'recruitai-interview-store',
   'recruitai-talent-store',
+  'recruitai-company-store',
+  'recruitai-todo-store',
+  'recruitai-recycle-store',
+  'recruitai-match-history',
+  'recruitai-pref-store',
 ] as const;
 
 const MAGIC = 'qieqiuzhidao-backup';
@@ -14,21 +20,41 @@ export interface BackupFile {
   __app: typeof MAGIC;
   version: 1;
   exportedAt: string;
-  data: Record<string, string>; // localStorage key -> 原始 JSON 字符串
+  data: Record<string, string>; // localStorage key -> raw stored string
+  meta?: {
+    source: 'localStorage';
+    keys: string[];
+  };
 }
 
-/** 收集当前浏览器里所有业务 store 的原始快照，组装成可下载的备份对象。 */
+function backupKeys(): string[] {
+  const keys = new Set<string>(CORE_STORE_KEYS);
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(APP_KEY_PREFIX)) keys.add(key);
+  }
+  return Array.from(keys).sort();
+}
+
+/** Collect every Penguin Island local data key into one downloadable snapshot. */
 export function collectBackup(): BackupFile {
   const data: Record<string, string> = {};
-  for (const key of STORE_KEYS) {
+  const keys = backupKeys();
+  for (const key of keys) {
     const raw = localStorage.getItem(key);
     if (raw != null) data[key] = raw;
   }
-  return { __app: MAGIC, version: 1, exportedAt: new Date().toISOString(), data };
+  return {
+    __app: MAGIC,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data,
+    meta: { source: 'localStorage', keys: Object.keys(data).sort() },
+  };
 }
 
-/** 触发浏览器下载一个 JSON 备份文件，文件名带日期。 */
-export function downloadBackup(): { keys: number } {
+/** Trigger a JSON backup download. */
+export function downloadBackup(): { keys: number; fileName: string } {
   const backup = collectBackup();
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -36,13 +62,13 @@ export function downloadBackup(): { keys: number } {
   const d = new Date();
   const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   a.href = url;
-  a.download = `企鹅岛备份-${stamp}.json`;
+  a.download = `企鹅岛完整备份-${stamp}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  return { keys: Object.keys(backup.data).length };
+  return { keys: Object.keys(backup.data).length, fileName: a.download };
 }
 
-/** 校验并解析一个备份文件文本。无效则抛出可读错误。 */
+/** Validate and parse a backup file. */
 export function parseBackup(text: string): BackupFile {
   let parsed: unknown;
   try {
@@ -57,15 +83,13 @@ export function parseBackup(text: string): BackupFile {
   return b as BackupFile;
 }
 
-/** 用备份覆盖当前 localStorage 中的业务数据。调用方应在成功后刷新页面让 store 重新水合。 */
+/** Restore every Penguin Island key present in the backup. The caller should reload afterwards. */
 export function restoreBackup(backup: BackupFile): { keys: number } {
   let count = 0;
-  for (const key of STORE_KEYS) {
-    const raw = backup.data[key];
-    if (typeof raw === 'string') {
-      localStorage.setItem(key, raw);
-      count += 1;
-    }
+  for (const [key, raw] of Object.entries(backup.data)) {
+    if (!key.startsWith(APP_KEY_PREFIX) || typeof raw !== 'string') continue;
+    localStorage.setItem(key, raw);
+    count += 1;
   }
   return { keys: count };
 }
