@@ -15,9 +15,9 @@ interface TalentQueryDialogProps {
 
 const EXAMPLES = [
   'AI + Go',
-  'AI 架构 + Agent 落地',
+  'AI 架构',
   'Go 后端 + 大模型接入',
-  'OpenAI / Claude + 工程化',
+  'Agent 落地 + 工程化',
 ];
 
 function scoreColor(score: number): string {
@@ -29,11 +29,13 @@ function scoreColor(score: number): string {
 
 export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = false }: TalentQueryDialogProps) {
   const talents = useTalentStore((s) => s.talents);
-  const [query, setQuery] = useState('AI + Go');
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [results, setResults] = useState<TalentMatchResult[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const queryRef = useRef('');
   const abortRef = useRef<AbortController | null>(null);
   const lastAutoRunRef = useRef('');
   useEscapeClose(onClose, isOpen && !loading);
@@ -41,10 +43,15 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
   const activeTalents = useMemo(() => talents.filter((t) => !t.archived), [talents]);
   const scannedCount = activeTalents.filter((t) => t.hasResumeText).length;
 
+  const updateQuery = (value: string) => {
+    queryRef.current = value;
+    setQuery(value);
+  };
+
   const runSearch = useCallback(async (overrideQuery?: string) => {
-    const q = (overrideQuery ?? query).trim();
+    const q = (overrideQuery ?? queryRef.current).trim();
     if (!q) {
-      setError('请输入要找的人才画像');
+      setError('请输入要搜索的人才关键词');
       return;
     }
     if (!activeTalents.length) {
@@ -69,27 +76,30 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
       setLoading(false);
       abortRef.current = null;
     }
-  }, [activeTalents, query]);
+  }, [activeTalents]);
 
   useEffect(() => {
     if (!isOpen) {
       lastAutoRunRef.current = '';
+      abortRef.current?.abort();
       return;
     }
-    if (!isOpen || !initialQuery) return;
-    setQuery(initialQuery);
+    const nextQuery = initialQuery || '';
+    queryRef.current = nextQuery;
+    setQuery(nextQuery);
     setError('');
     setResults([]);
-    if (autoRun && lastAutoRunRef.current !== initialQuery) {
-      lastAutoRunRef.current = initialQuery;
-      void runSearch(initialQuery);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+    if (autoRun && nextQuery && lastAutoRunRef.current !== nextQuery) {
+      lastAutoRunRef.current = nextQuery;
+      void runSearch(nextQuery);
     }
   }, [autoRun, initialQuery, isOpen, runSearch]);
 
   if (!isOpen) return null;
 
-  const handleQueryKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || loading) return;
+  const handleQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter' || loading) return;
     event.preventDefault();
     void runSearch();
   };
@@ -103,36 +113,50 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" />
-      <div className="relative w-full max-w-3xl max-h-[88vh] flex flex-col bg-white border border-gray-200 rounded-2xl shadow-xl animate-fade-in">
-        <div className="flex items-center justify-between p-6 border-b border-gray-100 shrink-0">
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[10vh]">
+      <button type="button" aria-label="关闭人才搜索" onClick={() => { if (!loading) onClose(); }} className="fixed inset-0 bg-black/30" />
+      <div className="relative w-full max-w-4xl max-h-[82vh] flex flex-col bg-white border border-gray-200 rounded-2xl shadow-xl animate-fade-in overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
             <Search className="w-5 h-5 text-indigo-500" />
-            <h2 className="text-lg font-semibold text-gray-800">人才查询助手</h2>
+            <h2 className="text-lg font-semibold text-gray-800">人才全局搜索</h2>
           </div>
           {!loading && <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>}
         </div>
 
-        <div className="p-6 space-y-4 overflow-y-auto">
+        <div className="p-5 space-y-4 overflow-y-auto">
           <p className="text-xs text-gray-400">
-            从 {activeTalents.length} 位活跃人才中搜索，已扫描简历正文 {scannedCount} 位。按 Enter 搜索，Shift+Enter 换行。
+            从 {activeTalents.length} 位活跃人才中搜索，已扫描简历正文 {scannedCount} 位。输入关键词后按 Enter 搜索。
           </p>
 
-          <div className="space-y-2">
-            <textarea
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                ref={inputRef}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => updateQuery(e.target.value)}
               onKeyDown={handleQueryKeyDown}
-              rows={3}
-              placeholder="例如：AI + Go；AI 架构 + Agent 落地；Go 后端 + 大模型接入"
-              className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 resize-none"
-            />
+                placeholder="输入 AI 架构、Go、Agent、OpenAI..."
+                className="w-full h-14 pl-12 pr-28 rounded-2xl bg-white border border-gray-200 text-base focus:outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50 transition-all"
+              />
+              {loading ? (
+                <button onClick={() => abortRef.current?.abort()}
+                  className="absolute right-2 top-2 h-10 px-3 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all flex items-center gap-2">
+                  <Pause className="w-4 h-4" />暂停
+                </button>
+              ) : (
+                <button onClick={() => runSearch()}
+                  className="absolute right-2 top-2 h-10 px-4 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />搜索
+                </button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               {EXAMPLES.map((item) => (
                 <button
                   key={item}
-                  onClick={() => setQuery(item)}
+                  onClick={() => { updateQuery(item); void runSearch(item); }}
                   className="h-8 px-3 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 transition-all"
                 >
                   {item}
@@ -141,21 +165,10 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
             </div>
           </div>
 
-          {loading ? (
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-10 rounded-xl bg-indigo-500/90 text-white text-sm font-medium flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />正在搜索人才...
-              </div>
-              <button onClick={() => abortRef.current?.abort()}
-                className="h-10 px-4 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-all flex items-center gap-2 shrink-0">
-                <Pause className="w-4 h-4" />暂停
-              </button>
+          {loading && (
+            <div className="h-10 rounded-xl bg-indigo-50 text-indigo-600 text-sm font-medium flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />正在搜索人才...
             </div>
-          ) : (
-            <button onClick={() => runSearch()}
-              className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
-              <Sparkles className="w-4 h-4" />搜索人才
-            </button>
           )}
 
           {error && <div className="px-4 py-2.5 rounded-xl bg-red-50 border border-red-100 text-sm text-red-600">{error}</div>}
