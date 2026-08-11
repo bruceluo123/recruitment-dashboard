@@ -21,7 +21,7 @@ export function TopNav() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button type="button" onClick={() => setSearchOpen(true)} className="relative hidden md:block text-left">
+          <button type="button" data-search-trigger="talent-global" onClick={() => setSearchOpen(true)} className="relative hidden md:block text-left">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <span className="block w-64 h-9 pl-9 pr-3 rounded-lg bg-gray-50 border border-gray-200 text-sm leading-9 text-gray-400 hover:border-indigo-300 hover:bg-white transition-all">快速搜索...</span>
           </button>

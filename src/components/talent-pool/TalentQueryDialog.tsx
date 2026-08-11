@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, Copy, FileText, Loader2, Pause, Search, Sparkles, X } from 'lucide-react';
+import { Check, Copy, FileText, Loader2, Maximize2, Minimize2, Pause, Search, Sparkles, X } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import { searchTalentsByQuery } from '@/lib/talent-match';
 import type { TalentMatchResult } from '@/types/talent-match';
@@ -33,6 +33,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [results, setResults] = useState<TalentMatchResult[]>([]);
+  const [minimized, setMinimized] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef('');
@@ -81,6 +82,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
   useEffect(() => {
     if (!isOpen) {
       lastAutoRunRef.current = '';
+      setMinimized(false);
       abortRef.current?.abort();
       return;
     }
@@ -98,6 +100,49 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
 
   if (!isOpen) return null;
 
+  if (minimized) {
+    const statusText = loading
+      ? '正在搜索人才...'
+      : results.length > 0
+        ? `找到 ${results.length} 位人选`
+        : error || '搜索已暂停';
+
+    return (
+      <div data-search-state="minimized" className="fixed right-4 bottom-4 z-50 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-gray-200 bg-white shadow-xl animate-fade-in">
+        <div className="p-4 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                {loading ? <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" /> : <Search className="w-4 h-4 text-indigo-500" />}
+                <p className="text-sm font-semibold text-gray-800">人才全局搜索</p>
+              </div>
+              <p className="mt-1 text-xs text-gray-500 truncate">{query || '未输入关键词'}</p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {loading && (
+                <button type="button" onClick={() => abortRef.current?.abort()} className="p-1.5 rounded-lg text-red-500 hover:bg-red-50" title="暂停搜索">
+                  <Pause className="w-4 h-4" />
+                </button>
+              )}
+              <button type="button" data-search-action="expand" onClick={() => setMinimized(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-indigo-500" title="展开搜索">
+                <Maximize2 className="w-4 h-4" />
+              </button>
+              {!loading && (
+                <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600" title="关闭">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="h-9 rounded-xl bg-gray-50 px-3 text-sm text-gray-600 flex items-center justify-between gap-3">
+            <span className="truncate">{statusText}</span>
+            <button type="button" data-search-action="expand" onClick={() => setMinimized(false)} className="text-xs font-medium text-indigo-600 hover:text-indigo-700 shrink-0">查看</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const handleQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' || loading) return;
     event.preventDefault();
@@ -113,7 +158,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[10vh]">
+    <div data-search-state="open" className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[10vh]">
       <button type="button" aria-label="关闭人才搜索" onClick={() => { if (!loading) onClose(); }} className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-4xl max-h-[82vh] flex flex-col bg-white border border-gray-200 rounded-2xl shadow-xl animate-fade-in overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
@@ -121,7 +166,12 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
             <Search className="w-5 h-5 text-indigo-500" />
             <h2 className="text-lg font-semibold text-gray-800">人才全局搜索</h2>
           </div>
-          {!loading && <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>}
+          <div className="flex items-center gap-1">
+            <button type="button" data-search-action="minimize" onClick={() => setMinimized(true)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-indigo-500" title="收起到一边">
+              <Minimize2 className="w-5 h-5" />
+            </button>
+            {!loading && <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>}
+          </div>
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
