@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { JDCategoryTabs } from '@/components/jd-library/JDCategoryTabs';
@@ -34,6 +34,8 @@ export function TalentPoolPage() {
   const [scanSummary, setScanSummary] = useState<{ scanned: number; failed: number } | null>(null);
   const [archiveView, setArchiveView] = useState<'active' | 'all' | 'archived'>('active');
   const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const submitAfterCompositionRef = useRef(false);
 
   const talents = useTalentStore((s) => s.talents);
   const filter = useTalentStore((s) => s.filter);
@@ -78,6 +80,16 @@ export function TalentPoolPage() {
     setQueryInitial(q);
     setQueryAutoRun(autoRun);
     setQueryOpen(true);
+  };
+
+  const openQueryFromSearchInput = (rawQuery?: string) => {
+    openQueryAssistant(rawQuery || searchInputRef.current?.value || filter.search, true);
+  };
+
+  const handleSearchCompositionEnd = (value: string) => {
+    if (!submitAfterCompositionRef.current) return;
+    submitAfterCompositionRef.current = false;
+    window.setTimeout(() => openQueryFromSearchInput(value), 0);
   };
 
   const handleBatchModeChange = (next: boolean) => {
@@ -256,17 +268,28 @@ export function TalentPoolPage() {
       <JDCategoryTabs categories={categories} activeCategory={filter.category} onCategoryChange={(cat) => setFilter({ category: cat })} />
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
+        <form
+          className="relative flex-1 min-w-[200px]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            openQueryFromSearchInput();
+          }}
+        >
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input value={filter.search} onChange={(e) => setFilter({ search: e.target.value })}
+          <input ref={searchInputRef} value={filter.search} onChange={(e) => setFilter({ search: e.target.value })}
             onKeyDown={(e) => {
               if (e.key !== 'Enter') return;
+              if (e.nativeEvent.isComposing) {
+                submitAfterCompositionRef.current = true;
+                return;
+              }
               e.preventDefault();
-              openQueryAssistant(filter.search, true);
+              openQueryFromSearchInput(e.currentTarget.value);
             }}
+            onCompositionEnd={(e) => handleSearchCompositionEnd(e.currentTarget.value)}
             placeholder="搜索姓名 / 岗位 / TG / 备注..."
             className="w-full h-10 pl-9 pr-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 transition-all" />
-        </div>
+        </form>
         <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
           <Sparkles className="w-4 h-4" />JD 匹配人选
         </button>
