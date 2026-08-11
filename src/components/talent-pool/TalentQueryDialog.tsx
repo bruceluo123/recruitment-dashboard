@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, Copy, FileText, Loader2, Pause, Search, Sparkles, X } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import { searchTalentsByQuery } from '@/lib/talent-match';
@@ -10,6 +10,7 @@ interface TalentQueryDialogProps {
   isOpen: boolean;
   onClose: () => void;
   initialQuery?: string;
+  autoRun?: boolean;
 }
 
 const EXAMPLES = [
@@ -26,7 +27,7 @@ function scoreColor(score: number): string {
   return 'text-gray-500 bg-gray-50 ring-gray-200';
 }
 
-export function TalentQueryDialog({ isOpen, onClose, initialQuery }: TalentQueryDialogProps) {
+export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = false }: TalentQueryDialogProps) {
   const talents = useTalentStore((s) => s.talents);
   const [query, setQuery] = useState('AI + Go');
   const [loading, setLoading] = useState(false);
@@ -34,19 +35,14 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery }: TalentQuery
   const [results, setResults] = useState<TalentMatchResult[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const lastAutoRunRef = useRef('');
   useEscapeClose(onClose, isOpen && !loading);
-
-  useEffect(() => {
-    if (isOpen && initialQuery) setQuery(initialQuery);
-  }, [initialQuery, isOpen]);
 
   const activeTalents = useMemo(() => talents.filter((t) => !t.archived), [talents]);
   const scannedCount = activeTalents.filter((t) => t.hasResumeText).length;
 
-  if (!isOpen) return null;
-
-  const runSearch = async () => {
-    const q = query.trim();
+  const runSearch = useCallback(async (overrideQuery?: string) => {
+    const q = (overrideQuery ?? query).trim();
     if (!q) {
       setError('请输入要找的人才画像');
       return;
@@ -56,6 +52,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery }: TalentQuery
       return;
     }
 
+    abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
@@ -72,6 +69,29 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery }: TalentQuery
       setLoading(false);
       abortRef.current = null;
     }
+  }, [activeTalents, query]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      lastAutoRunRef.current = '';
+      return;
+    }
+    if (!isOpen || !initialQuery) return;
+    setQuery(initialQuery);
+    setError('');
+    setResults([]);
+    if (autoRun && lastAutoRunRef.current !== initialQuery) {
+      lastAutoRunRef.current = initialQuery;
+      void runSearch(initialQuery);
+    }
+  }, [autoRun, initialQuery, isOpen, runSearch]);
+
+  if (!isOpen) return null;
+
+  const handleQueryKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey || loading) return;
+    event.preventDefault();
+    void runSearch();
   };
 
   const copyContact = async (value: string, id: string) => {
@@ -96,13 +116,14 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery }: TalentQuery
 
         <div className="p-6 space-y-4 overflow-y-auto">
           <p className="text-xs text-gray-400">
-            从 {activeTalents.length} 位活跃人才中搜索，已扫描简历正文 {scannedCount} 位。核心要素会优先命中，不按完整 JD 死板扣分。
+            从 {activeTalents.length} 位活跃人才中搜索，已扫描简历正文 {scannedCount} 位。按 Enter 搜索，Shift+Enter 换行。
           </p>
 
           <div className="space-y-2">
             <textarea
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleQueryKeyDown}
               rows={3}
               placeholder="例如：AI + Go；AI 架构 + Agent 落地；Go 后端 + 大模型接入"
               className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 resize-none"
@@ -131,7 +152,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery }: TalentQuery
               </button>
             </div>
           ) : (
-            <button onClick={runSearch}
+            <button onClick={() => runSearch()}
               className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
               <Sparkles className="w-4 h-4" />搜索人才
             </button>

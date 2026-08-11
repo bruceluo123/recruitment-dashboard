@@ -23,6 +23,8 @@ export function TalentPoolPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [matchOpen, setMatchOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
+  const [queryInitial, setQueryInitial] = useState('AI + Go');
+  const [queryAutoRun, setQueryAutoRun] = useState(false);
   const [enrichOpen, setEnrichOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
@@ -70,6 +72,13 @@ export function TalentPoolPage() {
   const editTarget = talents.find((t) => t.id === editId) || null;
   const visibleIds = filteredTalents.map((t) => t.id);
   const visibleSelectedCount = selectedIds.filter((id) => visibleIds.includes(id)).length;
+
+  const openQueryAssistant = (rawQuery?: string, autoRun = false) => {
+    const q = (rawQuery || filter.search || 'AI + Go').trim() || 'AI + Go';
+    setQueryInitial(q);
+    setQueryAutoRun(autoRun);
+    setQueryOpen(true);
+  };
 
   const handleBatchModeChange = (next: boolean) => {
     setBatchMode(next);
@@ -250,13 +259,18 @@ export function TalentPoolPage() {
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input value={filter.search} onChange={(e) => setFilter({ search: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              openQueryAssistant(filter.search, true);
+            }}
             placeholder="搜索姓名 / 岗位 / TG / 备注..."
             className="w-full h-10 pl-9 pr-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 transition-all" />
         </div>
         <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
           <Sparkles className="w-4 h-4" />JD 匹配人选
         </button>
-        <button onClick={() => setQueryOpen(true)} className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2">
+        <button onClick={() => openQueryAssistant(filter.search, false)} className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2">
           <Search className="w-4 h-4" />查询助手
         </button>
         <button onClick={async () => { setScanErrors([]); setScanSummary(null); const r = await scanResumes(); setScanSummary({ scanned: r.scanned, failed: r.failed }); setScanErrors(r.errors); }} disabled={isScanning || unscannedCount === 0}
@@ -354,7 +368,7 @@ export function TalentPoolPage() {
       <RecycleBinDialog type="talent" open={recycleOpen} onClose={() => setRecycleOpen(false)} />
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       <TalentMatchDialog isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
-      <TalentQueryDialog isOpen={queryOpen} onClose={() => setQueryOpen(false)} />
+      <TalentQueryDialog isOpen={queryOpen} onClose={() => { setQueryOpen(false); setQueryAutoRun(false); }} initialQuery={queryInitial} autoRun={queryAutoRun} />
       <TalentEnrichDialog isOpen={enrichOpen} onClose={() => setEnrichOpen(false)} />
 
       {/* 归档确认弹窗 */}
