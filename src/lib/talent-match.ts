@@ -1,62 +1,145 @@
 import type { Talent } from '@/types/talent';
-import type { JDCategory } from '@/types/jd';
+import { JD_CATEGORY_LABELS, type JDCategory } from '@/types/jd';
 import type { ScoreBreakdown } from '@/types/matching';
 import type { MatchJDInput, TalentMatchResult } from '@/types/talent-match';
 import { buildTalentMatchPrompt, type CandidateBrief } from './talent-match-prompt';
 import { aiHttpError } from './ai-fetch';
 
-const MAX_AI_CANDIDATES = 15;  // 单次 AI 调用最多精排的候选人数
+const MAX_AI_CANDIDATES = 24;
 const TEXT_FETCH_CONCURRENCY = 5;
-// 单份简历正文进 prompt 的字数上限：15 份 × 6000 字远低于 4.5MB 请求体上限，防 413；
-// 匹配判断用前 6000 字已足够（技能/经历都在前部）。
 const MAX_RESUME_CHARS = 6000;
 const MATCH_MODEL = 'deepseek-chat';
 
-// ─── 本地预筛 ───
+const EN_TOKEN = /[a-zA-Z][a-zA-Z0-9+.#-]{1,}/g;
+const SPLIT = /[\s,，;；、。()（）/|:：\n\t+-]+/;
 
-const EN_TOKEN = /[a-zA-Z][a-zA-Z0-9+.#]{1,}/g;
-const SPLIT = /[\s,，;；、。()（）/|:：\-—·•\n\t]+/;
+type TermGroup = { label: string; aliases: string[] };
+
+function unique(items: string[]): string[] {
+  return Array.from(new Set(items.map((s) => s.trim()).filter(Boolean)));
+}
 
 function extractTerms(text: string): Set<string> {
   const terms = new Set<string>();
   const lower = (text || '').toLowerCase();
-  const en = lower.match(EN_TOKEN);
-  if (en) for (const t of en) if (t.length >= 2) terms.add(t);
+  lower.match(EN_TOKEN)?.forEach((t) => {
+    if (t.length >= 2) terms.add(t);
+  });
   for (const seg of (text || '').split(SPLIT)) {
     const zh = seg.replace(/[^\u4e00-\u9fa5]/g, '');
-    for (let i = 0; i + 2 <= zh.length; i++) terms.add(zh.slice(i, i + 2));
+    if (zh.length >= 2) terms.add(zh);
+    for (let i = 0; i + 2 <= zh.length; i += 1) terms.add(zh.slice(i, i + 2));
   }
   return terms;
 }
 
-/**
- * 预筛候选人：先按分类与 JD 求交集，再用 JD 关键词对岗位名称粗排，返回 Top limit。
- * 分类交集为空（如粘贴 JD 无分类）时跳过分类过滤，直接全量粗排。
- */
+function buildTermGroups(query: string): TermGroup[] {
+  const lower = query.toLowerCase();
+  const groups: TermGroup[] = [];
+
+  if (/(^|[^a-z0-9])ai([^a-z0-9]|$)|aigc|llm|agent|openai|claude|gpt|大模型|人工智能|智能体|生成式|机器学习|深度学习|prompt|提示词/.test(lower)) {
+    groups.push({
+      label: 'AI',
+      aliases: ['ai', 'aigc', 'llm', 'agent', 'openai', 'claude', 'gpt', '大模型', '人工智能', '智能体', '生成式', '机器学习', '深度学习', 'prompt', '提示词', '模型'],
+    });
+  }
+  if (/(^|[^a-z0-9])go([^a-z0-9]|$)|golang|go语言/.test(lower)) {
+    groups.push({ label: 'Go', aliases: ['go', 'golang', 'go语言'] });
+  }
+  if (/架构|architect|architecture/.test(lower)) {
+    groups.push({ label: '架构', aliases: ['架构', 'architect', 'architecture', '系统设计', '技术方案'] });
+  }
+  if (/后端|backend|server/.test(lower)) {
+    groups.push({ label: '后端', aliases: ['后端', 'backend', 'server', '服务端'] });
+  }
+
+  const knownAliases = new Set(groups.flatMap((g) => g.aliases));
+  lower.match(EN_TOKEN)?.forEach((token) => {
+    if (token.length >= 2 && !knownAliases.has(token)) groups.push({ label: token, aliases: [token] });
+  });
+  for (const seg of query.split(SPLIT)) {
+    const clean = seg.trim();
+    if (clean.length >= 2 && !knownAliases.has(clean.toLowerCase()) && !groups.some((g) => g.label === clean)) {
+      groups.push({ label: clean, aliases: [clean] });
+    }
+  }
+
+  return groups.slice(0, 8);
+}
+
+function matchAlias(text: string, alias: string): boolean {
+  const lower = text.toLowerCase();
+  const needle = alias.toLowerCase();
+  if (/^[a-z0-9+.#-]+$/.test(needle)) {
+    return new RegExp(`(^|[^a-z0-9+.#-])${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9+.#-]|$)`, 'i').test(lower);
+  }
+  return lower.includes(needle);
+}
+
+function matchGroup(text: string, group: TermGroup): boolean {
+  return group.aliases.some((alias) => matchAlias(text, alias));
+}
+
+function structuredText(t: Talent): string {
+  const categoryLabels = (t.categories || []).map((cat) => JD_CATEGORY_LABELS[cat]).filter(Boolean);
+  return [
+    t.name, t.jobTitle, t.notes, t.company, t.department, t.techDirection,
+    t.level, t.eduLevel, t.school, t.major, t.location, t.workIntent,
+    t.monthlySalary, t.annualSalary, t.organization, t.approvalNo,
+    ...(t.prevCompanies || []),
+    ...categoryLabels,
+  ].filter(Boolean).join(' ');
+}
+
+function scoreTalentByGroups(t: Talent, groups: TermGroup[], resumeText = ''): number {
+  const fieldText = structuredText(t);
+  const allText = `${fieldText} ${resumeText}`;
+  let score = t.hasResumeText ? 1 : 0;
+  let matchedGroups = 0;
+
+  for (const group of groups) {
+    const inFields = matchGroup(fieldText, group);
+    const inResume = resumeText ? matchGroup(resumeText, group) : false;
+    if (inFields || inResume) matchedGroups += 1;
+    if (inFields) score += 18;
+    if (inResume) score += 12;
+    if (matchGroup(`${t.jobTitle} ${t.techDirection || ''}`, group)) score += 8;
+  }
+
+  if (groups.length > 0 && matchedGroups === groups.length) score += 40;
+  if (groups.length > 1 && matchedGroups === 0 && !groups.some((g) => matchGroup(allText, g))) score -= 20;
+  return score;
+}
+
+function scoreTalentByTerms(t: Talent, terms: Set<string>): number {
+  const text = extractTerms(structuredText(t));
+  let score = t.hasResumeText ? 0.5 : 0;
+  text.forEach((term) => { if (terms.has(term)) score += 1; });
+  return score;
+}
+
 export function prefilterTalents(jd: MatchJDInput, jdCategories: JDCategory[], talents: Talent[], limit: number): Talent[] {
   let pool = talents.filter((t) => !t.archived);
-  if (jdCategories.length) {
+  if (jdCategories.length && jd.mode !== 'query') {
     const want = new Set(jdCategories);
     const byCat = pool.filter((t) => (t.categories || []).some((c) => want.has(c)));
-    if (byCat.length >= 3) pool = byCat;  // 交集太少则回退全量，避免漏掉好候选人
+    if (byCat.length >= 3) pool = byCat;
   }
   if (pool.length <= limit) return pool;
 
-  const jdTerms = extractTerms(`${jd.title} ${jd.requirements.join(' ')} ${jd.responsibilities.join(' ')}`);
-  const ranked = pool
-    .map((t) => {
-      const titleTerms = extractTerms(t.jobTitle);
-      let s = 0;
-      titleTerms.forEach((term) => { if (jdTerms.has(term)) s += 1; });
-      // 已扫描出简历正文的候选人略微优先（信息更全，AI 判断更准）
-      if (t.hasResumeText) s += 0.5;
-      return { t, s };
-    })
-    .sort((a, b) => b.s - a.s);
-  return ranked.slice(0, limit).map((r) => r.t);
-}
+  const query = `${jd.searchIntent || ''} ${jd.title} ${jd.requirements.join(' ')} ${jd.responsibilities.join(' ')}`;
+  const groups = jd.coreTerms?.length ? jd.coreTerms.map((term) => ({ label: term, aliases: [term] })) : buildTermGroups(query);
+  const terms = extractTerms(query);
 
-// ─── 取简历正文 ───
+  return pool
+    .map((t) => ({
+      t,
+      score: groups.length ? scoreTalentByGroups(t, groups) : scoreTalentByTerms(t, terms),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((r) => r.t);
+}
 
 async function fetchTalentText(id: string): Promise<string> {
   try {
@@ -74,16 +157,14 @@ async function fetchTexts(talents: Talent[]): Promise<Map<string, string>> {
   let cursor = 0;
   const worker = async () => {
     while (cursor < talents.length) {
-      const t = talents[cursor++];
-      if (t.hasResumeText) map.set(t.id, await fetchTalentText(t.id));
-      else map.set(t.id, '');
+      const t = talents[cursor];
+      cursor += 1;
+      map.set(t.id, t.hasResumeText ? await fetchTalentText(t.id) : '');
     }
   };
   await Promise.all(Array.from({ length: Math.min(TEXT_FETCH_CONCURRENCY, talents.length) }, () => worker()));
   return map;
 }
-
-// ─── AI 调用与解析 ───
 
 async function callAI(prompt: string, signal?: AbortSignal): Promise<string> {
   const res = await fetch('/api/match', {
@@ -92,9 +173,7 @@ async function callAI(prompt: string, signal?: AbortSignal): Promise<string> {
     body: JSON.stringify({ model: MATCH_MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0, max_tokens: 4500 }),
     signal,
   });
-  if (!res.ok) {
-    throw aiHttpError(res.status, await res.text().catch(() => ''));
-  }
+  if (!res.ok) throw aiHttpError(res.status, await res.text().catch(() => ''));
   const data = await res.json().catch(() => ({} as { error?: string; choices?: Array<{ message?: { content?: string } }> }));
   if (data.error) throw new Error(data.error);
   if (!data?.choices?.[0]?.message?.content) throw new Error('API 返回数据异常');
@@ -129,22 +208,12 @@ function buildResult(talent: Talent, parsed: Record<string, unknown>): TalentMat
   };
 }
 
-/**
- * 用一个 JD 匹配人才库候选人：本地预筛 → 取 Top 候选人简历正文 → 单次 AI 评分 → 降序返回。
- */
-export async function matchJDToTalents(
-  jd: MatchJDInput, jdCategories: JDCategory[], talents: Talent[], signal?: AbortSignal,
-): Promise<TalentMatchResult[]> {
-  const candidates = prefilterTalents(jd, jdCategories, talents, MAX_AI_CANDIDATES);
-  if (!candidates.length) return [];
-
-  const textMap = await fetchTexts(candidates);
-  const briefs: CandidateBrief[] = candidates.map((t, i) => ({
+function buildBriefs(candidates: Talent[], textMap: Map<string, string>): CandidateBrief[] {
+  return candidates.map((t, i) => ({
     index: i + 1,
     name: t.name,
     jobTitle: t.jobTitle,
     resumeText: (textMap.get(t.id) || '').slice(0, MAX_RESUME_CHARS),
-    // 结构化字段：无简历正文时作为主要匹配依据
     company: t.company,
     prevCompanies: t.prevCompanies,
     techDirection: t.techDirection,
@@ -156,8 +225,10 @@ export async function matchJDToTalents(
     workIntent: t.workIntent,
     monthlySalary: t.monthlySalary,
   }));
+}
 
-  const prompt = buildTalentMatchPrompt(jd, briefs);
+async function rankWithAI(jd: MatchJDInput, candidates: Talent[], textMap: Map<string, string>, signal?: AbortSignal): Promise<TalentMatchResult[]> {
+  const prompt = buildTalentMatchPrompt(jd, buildBriefs(candidates, textMap));
   const content = await callAI(prompt, signal);
   const cleaned = content.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
   const parsed = JSON.parse(cleaned) as { results?: Array<Record<string, unknown>> };
@@ -170,4 +241,37 @@ export async function matchJDToTalents(
     })
     .filter((r): r is TalentMatchResult => r !== null)
     .sort((a, b) => b.score - a.score);
+}
+
+export async function matchJDToTalents(
+  jd: MatchJDInput, jdCategories: JDCategory[], talents: Talent[], signal?: AbortSignal,
+): Promise<TalentMatchResult[]> {
+  const candidates = prefilterTalents(jd, jdCategories, talents, MAX_AI_CANDIDATES);
+  if (!candidates.length) return [];
+  const textMap = await fetchTexts(candidates);
+  return rankWithAI(jd, candidates, textMap, signal);
+}
+
+export async function searchTalentsByQuery(query: string, talents: Talent[], signal?: AbortSignal): Promise<TalentMatchResult[]> {
+  const pool = talents.filter((t) => !t.archived);
+  if (!pool.length) return [];
+
+  const textMap = await fetchTexts(pool);
+  const groups = buildTermGroups(query);
+  const candidates = pool
+    .map((t) => ({ t, score: scoreTalentByGroups(t, groups, textMap.get(t.id) || '') }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_AI_CANDIDATES)
+    .map((r) => r.t);
+
+  if (!candidates.length) return [];
+  const jd: MatchJDInput = {
+    title: query,
+    requirements: [query],
+    responsibilities: [],
+    mode: 'query',
+    searchIntent: query,
+    coreTerms: unique(groups.map((g) => g.label)),
+  };
+  return rankWithAI(jd, candidates, textMap, signal);
 }

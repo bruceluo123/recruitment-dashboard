@@ -1,17 +1,14 @@
 import type { MatchJDInput } from '@/types/talent-match';
 
-/** 裁剪过长字段，控制 prompt 体积以提速 */
 function clip(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max) + '…' : text;
+  return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
-/** 候选人精简档案：喂给 AI 的单条候选人 */
 export interface CandidateBrief {
-  index: number;       // 1-based，对应返回的 candIndex
+  index: number;
   name: string;
   jobTitle: string;
-  resumeText: string;  // 已扫描的简历正文（可能为空）
-  // 结构化字段（无简历正文时作为主要匹配依据）
+  resumeText: string;
   company?: string;
   prevCompanies?: string[];
   techDirection?: string;
@@ -24,29 +21,35 @@ export interface CandidateBrief {
   monthlySalary?: string;
 }
 
-const SCORING_RUBRIC = `## 评分维度（0-100）
-- skillsMatch 技能/工具匹配：候选人掌握的技能、工具是否覆盖岗位要求
-- experienceMatch 经验/项目匹配：相关年限、项目深度、0-1经历是否匹配
-- domainMatch 行业/方向匹配：所在赛道与岗位方向是否一致
-- seniorityMatch 职级/薪资匹配：候选人级别与岗位定级、薪资是否合理（过高/过低都扣分）
-- overallFit 综合：以上的整体判断，不是简单平均
+const JSON_SHAPE = `{
+  "results": [
+    {
+      "candIndex": 1,
+      "score": 88,
+      "breakdown": {"skillsMatch": 90, "experienceMatch": 80, "domainMatch": 85, "seniorityMatch": 75, "overallFit": 88},
+      "reasoning": "AI 和 Go 两个核心要素均命中",
+      "highlights": ["简历证据：Go 后端经验，对应 Go 要素", "简历证据：AI Agent/大模型落地，对应 AI 要素"],
+      "concerns": ["未看到完整 AI 架构 owner 经历"]
+    }
+  ]
+}`;
 
-## 评分原则（重要）
-1. 优先看 技能、经验、方向 三项，这三项才是核心竞争力。
-2. 学历对多数岗位非硬性门槛，仅当岗位明确要求时才影响分数。
-3. 方向不对口要明确扣 domainMatch（如开发岗配运营简历）。
-4. 职级错配要在 seniorityMatch 体现并在 concerns 里说明。
-5. highlights 用"简历证据→对应要求"的形式，具体到简历事实。
-6. concerns 写真实短板或风险，没有就给空数组。
-7. 简历正文为空的候选人，仅凭岗位名称粗判，分数应保守并在 concerns 注明"无简历正文"。`;
+function buildNeedBlock(jd: MatchJDInput): string {
+  if (jd.mode === 'query') {
+    return `## 查询需求
+- 搜索意图：${jd.searchIntent || jd.title}
+- 核心要素：${(jd.coreTerms || []).join('、') || jd.title}
+- 判断原则：这是找人查询，不是完整 JD 匹配。优先判断候选人是否命中核心要素；薪资、部门、行业、地点等未提到的信息不要扣分。`;
+  }
 
-function buildJDBlock(jd: MatchJDInput): string {
-  return `- 职位：${jd.title}
+  return `## 岗位
+- 职位：${jd.title}
 - 部门：${jd.department || '不限'}
 - 地点：${jd.location || '不限'}
 - 薪资：${jd.salaryText || '面议'}
 - 职责：${clip(jd.responsibilities.join('；'), 400)}
-- 要求：${clip(jd.requirements.join('；'), 500)}`;
+- 要求：${clip(jd.requirements.join('；'), 500)}
+- 判断原则：先看岗位最核心的技能和方向，避免被细碎职责、软性要求、薪资等次要信息过度干扰。`;
 }
 
 function buildCandidateList(cands: CandidateBrief[]): string {
@@ -56,7 +59,6 @@ function buildCandidateList(cands: CandidateBrief[]): string {
       `- 姓名：${c.name || '未知'}`,
       `- 当前岗位：${c.jobTitle || '未知'}`,
     ];
-    // 有结构化字段时展示，无论是否有简历正文
     if (c.company) lines.push(`- 当前公司：${c.company}`);
     if (c.prevCompanies?.length) lines.push(`- 历史公司：${c.prevCompanies.join('、')}`);
     if (c.techDirection) lines.push(`- 技术方向：${c.techDirection}`);
@@ -66,39 +68,32 @@ function buildCandidateList(cands: CandidateBrief[]): string {
     if (c.location) lines.push(`- 所在地：${c.location}`);
     if (c.workIntent) lines.push(`- 求职意向：${c.workIntent}`);
     if (c.monthlySalary) lines.push(`- 薪资期望：${c.monthlySalary}`);
-
-    if (c.resumeText) {
-      lines.push(`- 简历摘要：${clip(c.resumeText, 1000)}`);
-    } else {
-      lines.push('- 简历：（无简历正文，以上结构化信息为匹配依据）');
-    }
+    lines.push(c.resumeText ? `- 简历摘要：${clip(c.resumeText, 1100)}` : '- 简历：无简历正文，仅可参考结构化字段');
     return lines.join('\n');
   }).join('\n\n');
 }
 
-/** 一个 JD vs N 个候选人，输出每个候选人的匹配评分 */
 export function buildTalentMatchPrompt(jd: MatchJDInput, cands: CandidateBrief[]): string {
-  return `你是资深猎头顾问。请评估以下${cands.length}位候选人与该岗位的匹配度。
+  const queryMode = jd.mode === 'query';
+  return `你是资深猎头顾问。请评估以下 ${cands.length} 位候选人。
 
-## 岗位
-${buildJDBlock(jd)}
+${buildNeedBlock(jd)}
 
 ## 候选人列表
 ${buildCandidateList(cands)}
 
-${SCORING_RUBRIC}
+## 评分规则
+- 0-100 分，按推荐优先级排序。
+- skillsMatch：核心技能/工具命中度。
+- experienceMatch：相关项目、落地经验、owner 深度。
+- domainMatch：方向相关度。
+- seniorityMatch：职级、年限、薪资合理度。
+- overallFit：综合可推荐程度。
+${queryMode ? '- 查询模式下，如果候选人同时命中核心要素，可以高分；不要因为没有覆盖完整 JD 的其它内容而重扣。' : '- JD 模式下，核心技能和业务方向优先，次要 JD 条件只作为微调。'}
+- highlights 必须写“简历证据 -> 对应要素”，不要泛泛而谈。
+- concerns 只写真风险；没有就给空数组。
+- 无简历正文的候选人分数要保守，并在 concerns 说明。
 
-reasoning 控制在25字内。按 score 降序排列。返回严格JSON（不要markdown代码块）：
-{
-  "results": [
-    {
-      "candIndex": 1,
-      "score": 88,
-      "breakdown": {"skillsMatch": 85, "experienceMatch": 90, "domainMatch": 92, "seniorityMatch": 80, "overallFit": 88},
-      "reasoning": "AI产品方向高度对口，0-1经验扎实",
-      "highlights": ["有Agent架构设计经验，对应Multi-Agent要求"],
-      "concerns": ["薪资期望略高于岗位区间"]
-    }
-  ]
-}`;
+reasoning 控制在 35 字以内。只返回严格 JSON，不要 markdown 代码块：
+${JSON_SHAPE}`;
 }

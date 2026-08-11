@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { useJDStore } from '@/store/jd-store';
 import { useCompanyStore } from '@/store/company-store';
 import { hasResearch } from '@/types/company';
-import { TalentMatchDialog } from '@/components/talent-pool/TalentMatchDialog';
+import { TalentQueryDialog } from '@/components/talent-pool/TalentQueryDialog';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface JDDetailPanelProps { jd: JD | null; isOpen: boolean; onClose: () => void; }
@@ -46,6 +46,12 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const matchedCompany = orgName
     ? companies.find((c) => c.name.trim() === orgName) || null
     : null;
+  const talentQuery = [
+    (jd.categories || []).includes('ai') || /ai|aigc|agent|openai|claude|gpt|大模型|智能体/i.test(`${jd.title} ${jd.responsibilities.join(' ')}`) ? 'AI' : '',
+    /\bgo\b|golang|go语言/i.test(`${jd.title} ${jd.responsibilities.join(' ')}`) ? 'Go' : '',
+    /后端|backend|服务端/i.test(jd.title) ? '后端' : '',
+    /架构|architect|architecture/i.test(`${jd.title} ${jd.responsibilities.join(' ')}`) ? '架构' : '',
+  ].filter(Boolean).join(' + ') || jd.title;
 
   const handleCreateCompany = () => {
     if (!orgName) return;
@@ -393,7 +399,7 @@ ${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 
           )}
         </div>
       </div>
-      <TalentMatchDialog isOpen={talentMatchOpen} onClose={() => setTalentMatchOpen(false)} initialJdId={jd.id} />
+      <TalentQueryDialog isOpen={talentMatchOpen} onClose={() => setTalentMatchOpen(false)} initialQuery={talentQuery} />
     </>
   );
 }

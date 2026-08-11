@@ -6,6 +6,7 @@ import { JDCategoryTabs } from '@/components/jd-library/JDCategoryTabs';
 import { TalentTable } from './TalentTable';
 import { TalentImportDialog } from './TalentImportDialog';
 import { TalentMatchDialog } from './TalentMatchDialog';
+import { TalentQueryDialog } from './TalentQueryDialog';
 import { TalentEditPanel } from './TalentEditPanel';
 import { TalentEnrichDialog } from './TalentEnrichDialog';
 import { RecycleBinDialog } from '@/components/common/RecycleBinDialog';
@@ -21,6 +22,7 @@ export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [matchOpen, setMatchOpen] = useState(false);
+  const [queryOpen, setQueryOpen] = useState(false);
   const [enrichOpen, setEnrichOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
@@ -254,6 +256,9 @@ export function TalentPoolPage() {
         <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
           <Sparkles className="w-4 h-4" />JD 匹配人选
         </button>
+        <button onClick={() => setQueryOpen(true)} className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2">
+          <Search className="w-4 h-4" />查询助手
+        </button>
         <button onClick={async () => { setScanErrors([]); setScanSummary(null); const r = await scanResumes(); setScanSummary({ scanned: r.scanned, failed: r.failed }); setScanErrors(r.errors); }} disabled={isScanning || unscannedCount === 0}
           className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50"
           title={unscannedCount === 0 ? '所有简历已扫描' : `${unscannedCount} 份待扫描`}>
@@ -349,6 +354,7 @@ export function TalentPoolPage() {
       <RecycleBinDialog type="talent" open={recycleOpen} onClose={() => setRecycleOpen(false)} />
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       <TalentMatchDialog isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
+      <TalentQueryDialog isOpen={queryOpen} onClose={() => setQueryOpen(false)} />
       <TalentEnrichDialog isOpen={enrichOpen} onClose={() => setEnrichOpen(false)} />
 
       {/* 归档确认弹窗 */}

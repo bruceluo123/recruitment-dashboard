@@ -22,4 +22,7 @@ export interface MatchJDInput {
   salaryText?: string;
   responsibilities: string[];
   requirements: string[];
+  mode?: 'jd' | 'query';
+  coreTerms?: string[];
+  searchIntent?: string;
 }
