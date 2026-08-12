@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Users, CalendarCheck, FileUp, FileText } from 'lucide-react';
+import { Users, CalendarCheck, FileUp, FileText, Loader2 } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
@@ -8,13 +8,13 @@ import { RecommendationBar } from './RecommendationBar';
 import { EditRecommendationModal } from './EditRecommendationModal';
 import { RepushModal, type RepushArgs } from './RepushModal';
 import { DailyReportModal } from './DailyReportModal';
-import { TodayReportModal } from './TodayReportModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { scheduleRecommendation } from '@/lib/schedule';
+import { exportDailyReportExcel } from '@/lib/daily-report-excel';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
 
@@ -59,7 +59,7 @@ export function RecommendationCenter() {
   const [editing, setEditing] = useState<RepushItem | null>(null);
   const [repushing, setRepushing] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
-  const [todayReporting, setTodayReporting] = useState(false);
+  const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
 
   const orgOptions = useMemo(() => {
@@ -106,6 +106,17 @@ export function RecommendationCenter() {
     setRepushing(null);
   };
 
+  const handleExportTodayReport = async () => {
+    setExportingToday(true);
+    try {
+      await exportDailyReportExcel({ column: view, items, candidates });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '导出今日日报失败，请重试');
+    } finally {
+      setExportingToday(false);
+    }
+  };
+
   return (
     <div className="animate-fade-in space-y-6 max-w-5xl mx-auto">
       <div>
@@ -142,12 +153,14 @@ export function RecommendationCenter() {
             >
               <FileUp className="w-4 h-4" />一键看板
             </button>
-            {/* 今日日报：AI 按真人模板生成一份文字日报 */}
+            {/* 今日日报：直接套用 Excel 模板导出，便于截图提交 */}
             <button
-              onClick={() => setTodayReporting(true)}
+              data-report-action="export-today"
+              onClick={handleExportTodayReport}
+              disabled={exportingToday}
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-sm font-medium hover:bg-emerald-100 transition-colors"
             >
-              <FileText className="w-4 h-4" />今日日报
+              {exportingToday ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}今日日报
             </button>
             {/* 两个推荐人切换（非并排） */}
             <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
@@ -232,15 +245,6 @@ export function RecommendationCenter() {
           items={items}
           candidates={candidates}
           onClose={() => setReporting(false)}
-        />
-      )}
-      {todayReporting && (
-        <TodayReportModal
-          column={view}
-          name={columnNames[view]}
-          items={items}
-          candidates={candidates}
-          onClose={() => setTodayReporting(false)}
         />
       )}
     </div>
