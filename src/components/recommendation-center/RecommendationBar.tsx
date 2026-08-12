@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText } from 'lucide-react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
+import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
@@ -10,14 +10,21 @@ interface RecommendationBarProps {
   onEdit: (item: RepushItem) => void;
   onRepush: (item: RepushItem) => void;
   onRemove: (id: string) => void;
+  onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove }: RecommendationBarProps) {
+export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editingContact, setEditingContact] = useState(false);
+  const [contactDraft, setContactDraft] = useState(item.contact || '');
   const [showHighlights, setShowHighlights] = useState(false);
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
+
+  useEffect(() => {
+    if (!editingContact) setContactDraft(item.contact || '');
+  }, [editingContact, item.contact]);
 
   const copyContact = async () => {
     if (!item.contact) return;
@@ -26,6 +33,30 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch { /* ignore */ }
+  };
+
+  const startEditContact = () => {
+    setCopied(false);
+    setContactDraft(item.contact || '');
+    setEditingContact(true);
+  };
+
+  const cancelEditContact = () => {
+    setContactDraft(item.contact || '');
+    setEditingContact(false);
+  };
+
+  const saveContact = () => {
+    const next = contactDraft.trim();
+    onUpdateContact(item.id, next || undefined);
+    setContactDraft(next);
+    setEditingContact(false);
+    setCopied(false);
+  };
+
+  const handleContactKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') saveContact();
+    if (event.key === 'Escape') cancelEditContact();
   };
 
   return (
@@ -49,15 +80,54 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove
         </div>
       </div>
 
-      {/* TG 号：放大显示，点击复制 */}
-      {item.contact && (
+      {/* 联系方式：空值可直接补充，有值点击复制 */}
+      {editingContact ? (
+        <div className="shrink-0 flex items-center gap-1 px-2 h-8 rounded-lg text-sm font-semibold text-indigo-600 bg-white border border-indigo-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+          <Phone className="w-4 h-4 text-indigo-400" />
+          <input
+            data-contact-editor={item.id}
+            autoFocus
+            value={contactDraft}
+            onChange={(event) => setContactDraft(event.target.value)}
+            onKeyDown={handleContactKeyDown}
+            placeholder="手机号 / 邮箱 / 微信 / TG"
+            className="w-[180px] bg-transparent outline-none text-sm font-semibold text-indigo-600 placeholder:text-gray-300"
+          />
+          <button data-contact-action="save" onClick={saveContact} className="p-0.5 rounded text-green-500 hover:bg-green-50" title="保存联系方式">
+            <Check className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={cancelEditContact} className="p-0.5 rounded text-gray-400 hover:bg-gray-100" title="取消">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : item.contact ? (
+        <div className="shrink-0 flex items-center gap-1">
+          <button
+            onClick={copyContact}
+            title="点击复制联系方式"
+            className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-colors"
+          >
+            {copied ? <Check className="w-4 h-4 text-green-500" /> : <Phone className="w-4 h-4" />}
+            <span className="max-w-[180px] truncate">{copied ? '已复制' : item.contact}</span>
+          </button>
+          <button
+            data-contact-action="edit"
+            onClick={startEditContact}
+            title="编辑联系方式"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : (
         <button
-          onClick={copyContact}
-          title="点击复制 TG 号"
-          className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-lg text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-colors"
+          data-contact-action="add"
+          onClick={startEditContact}
+          title="补充联系方式"
+          className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium text-indigo-500 bg-white border border-dashed border-indigo-200 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
         >
-          {copied ? <Check className="w-4 h-4 text-green-500" /> : <Phone className="w-4 h-4" />}
-          <span className="max-w-[180px] truncate">{copied ? '已复制' : item.contact}</span>
+          <Phone className="w-3.5 h-3.5" />
+          补联系方式
         </button>
       )}
 

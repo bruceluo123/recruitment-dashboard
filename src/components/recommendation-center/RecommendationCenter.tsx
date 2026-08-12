@@ -187,6 +187,7 @@ export function RecommendationCenter() {
                       onEdit={setEditing}
                       onRepush={setRepushing}
                       onRemove={removeItem}
+                      onUpdateContact={(id, contact) => updateItem(id, { contact })}
                     />
                   ))}
                 </div>
