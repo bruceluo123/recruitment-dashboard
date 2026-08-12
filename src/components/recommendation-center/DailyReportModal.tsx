@@ -46,7 +46,7 @@ const countPriority = <T extends { priority?: string }>(rows: T[], priority: str
 const sumPriority = (rows: JobLine[], priority: string) => rows.reduce((total, row) => total + (row.priority === priority ? Number(row.qty) || 0 : 0), 0);
 
 // ── 草稿自动暂存：误关/切走/点到外面时不丢失填写，按「录入人 + 日期」隔离，提交成功后清除 ──
-const DRAFT_VERSION = 1;
+const DRAFT_VERSION = 2;
 interface DraftState {
   v: number;
   recommend: JobLine[]; cv: JobLine[]; screenNew: number;
@@ -228,37 +228,51 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const pendingCount = interview.length - passCount;
   const hasData = recommendTotal > 0 || cvTotal > 0 || scheduledInt > 0 || interviewTotal > 0 || offerTotal > 0 || onboardTotal > 0;
 
-  const buildFinal = (): RemoteRecord => ({
-    id: recordId,
-    date: selectedDate,
-    name,
-    cvDetail: cv.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-    cvTotal: Number(cvTotal) || 0,
-    screenNew: Number(screenNew) || 0,
-    recommendDetail: recommend.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-    recommendTotal: Number(recommendTotal) || 0,
-    scheduledDetail: scheduled,
-    scheduledInt: Number(scheduledInt) || 0,
-    interviewDetail: interview.map((v) => ({ ...v, jobKey: makeJobKey(v.name, v.department) })),
-    interviewTotal: Number(interviewTotal) || 0,
-    offer: Number(offerTotal) || 0,
-    offerDetail: offer.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-    onboard: Number(onboardTotal) || 0,
-    onboardDetail: onboard.map((o) => ({ ...o, jobKey: makeJobKey(o.jobName, o.department) } as OnboardLine & { jobKey: string })),
-    remark,
-    p0rec: sumPriority(recommend, 'p0'),
-    p1rec: sumPriority(recommend, 'p1'),
-    p2rec: sumPriority(recommend, 'p2'),
-    p0sched: countPriority(scheduled, 'p0'),
-    p1sched: countPriority(scheduled, 'p1'),
-    p2sched: countPriority(scheduled, 'p2'),
-    p0int: countPriority(interview, 'p0'),
-    p1int: countPriority(interview, 'p1'),
-    p2int: countPriority(interview, 'p2'),
-    p0onboard: countPriority(onboard, 'p0'),
-    p1onboard: countPriority(onboard, 'p1'),
-    p2onboard: countPriority(onboard, 'p2'),
-  });
+  const buildFinal = (): RemoteRecord => {
+    const auto = computeAutoDraft(selectedDate);
+    const cvRows = cv.filter((j) => j.name.trim()) || [];
+    const recommendRows = recommend.filter((j) => j.name.trim()) || [];
+    const scheduledRows = scheduled.filter((s) => s.job.trim() || s.person.trim());
+    const interviewRows = interview.filter((v) => v.name.trim() || v.person.trim());
+    const offerRows = offer.filter((j) => j.name.trim());
+    const onboardRows = onboard.filter((o) => o.jobName.trim() || o.candidateName.trim());
+    const finalCv = cvRows.length ? cvRows : auto.cvDetail;
+    const finalRecommend = recommendRows.length ? recommendRows : auto.recommendDetail;
+    const finalScheduled = scheduledRows.length ? scheduledRows : auto.scheduledDetail;
+    const finalInterview = interviewRows.length ? interviewRows : auto.interviewDetail;
+
+    return {
+      id: recordId,
+      date: selectedDate,
+      name,
+      cvDetail: finalCv.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+      cvTotal: Number(cvTotal) || sum(finalCv),
+      screenNew: Number(screenNew) || 0,
+      recommendDetail: finalRecommend.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+      recommendTotal: Number(recommendTotal) || sum(finalRecommend),
+      scheduledDetail: finalScheduled,
+      scheduledInt: Number(scheduledInt) || finalScheduled.length,
+      interviewDetail: finalInterview.map((v) => ({ ...v, jobKey: makeJobKey(v.name, v.department) })),
+      interviewTotal: Number(interviewTotal) || finalInterview.length,
+      offer: Number(offerTotal) || sum(offerRows),
+      offerDetail: offerRows.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+      onboard: Number(onboardTotal) || onboardRows.length,
+      onboardDetail: onboardRows.map((o) => ({ ...o, jobKey: makeJobKey(o.jobName, o.department) } as OnboardLine & { jobKey: string })),
+      remark,
+      p0rec: sumPriority(finalRecommend, 'p0'),
+      p1rec: sumPriority(finalRecommend, 'p1'),
+      p2rec: sumPriority(finalRecommend, 'p2'),
+      p0sched: countPriority(finalScheduled, 'p0'),
+      p1sched: countPriority(finalScheduled, 'p1'),
+      p2sched: countPriority(finalScheduled, 'p2'),
+      p0int: countPriority(finalInterview, 'p0'),
+      p1int: countPriority(finalInterview, 'p1'),
+      p2int: countPriority(finalInterview, 'p2'),
+      p0onboard: countPriority(onboardRows, 'p0'),
+      p1onboard: countPriority(onboardRows, 'p1'),
+      p2onboard: countPriority(onboardRows, 'p2'),
+    };
+  };
 
   const handleSubmit = async () => {
     setState('submitting');
