@@ -46,7 +46,7 @@ const countPriority = <T extends { priority?: string }>(rows: T[], priority: str
 const sumPriority = (rows: JobLine[], priority: string) => rows.reduce((total, row) => total + (row.priority === priority ? Number(row.qty) || 0 : 0), 0);
 
 // ── 草稿自动暂存：误关/切走/点到外面时不丢失填写，按「录入人 + 日期」隔离，提交成功后清除 ──
-const DRAFT_VERSION = 2;
+const DRAFT_VERSION = 3;
 interface DraftState {
   v: number;
   recommend: JobLine[]; cv: JobLine[]; screenNew: number;
@@ -120,14 +120,14 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const [recordId, setRecordId] = useState<string>(initial.auto.id);
   const [restored, setRestored] = useState(!!initial.saved);
 
-  const [recommend, setRecommend] = useState<JobLine[]>(initial.saved?.recommend ?? initial.auto.recommendDetail);
-  const [cv, setCv] = useState<JobLine[]>(initial.saved?.cv ?? initial.auto.cvDetail);
+  const [recommend, setRecommend] = useState<JobLine[]>(initial.saved?.recommend ?? []);
+  const [cv, setCv] = useState<JobLine[]>(initial.saved?.cv ?? []);
   const [cvTotal, setCvTotal] = useState<number>(initial.saved?.cvTotal ?? initial.auto.cvTotal);
   const [screenNew, setScreenNew] = useState<number>(initial.saved?.screenNew ?? initial.auto.screenNew);
   const [recommendTotal, setRecommendTotal] = useState<number>(initial.saved?.recommendTotal ?? initial.auto.recommendTotal);
-  const [scheduled, setScheduled] = useState<ScheduledLine[]>(initial.saved?.scheduled ?? initial.auto.scheduledDetail);
+  const [scheduled, setScheduled] = useState<ScheduledLine[]>(initial.saved?.scheduled ?? []);
   const [scheduledInt, setScheduledInt] = useState<number>(initial.saved?.scheduledInt ?? initial.auto.scheduledInt);
-  const [interview, setInterview] = useState<InterviewLine[]>(initial.saved?.interview ?? initial.auto.interviewDetail);
+  const [interview, setInterview] = useState<InterviewLine[]>(initial.saved?.interview ?? []);
   const [interviewTotal, setInterviewTotal] = useState<number>(initial.saved?.interviewTotal ?? initial.auto.interviewTotal);
   // Offer 申请 / 入职：不自动抓取，默认为空，由使用者手动填写后随日报一并提交。
   const [offer, setOffer] = useState<JobLine[]>(initial.saved?.offer ?? []);
@@ -148,14 +148,14 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     const auto = computeAutoDraft(dateStr);
     const saved = normalizeDraft(loadDraft(name, dateStr));
     setRecordId(auto.id);
-    setRecommend(saved?.recommend ?? auto.recommendDetail);
-    setCv(saved?.cv ?? auto.cvDetail);
+    setRecommend(saved?.recommend ?? []);
+    setCv(saved?.cv ?? []);
     setCvTotal(saved?.cvTotal ?? auto.cvTotal);
     setScreenNew(saved?.screenNew ?? auto.screenNew);
     setRecommendTotal(saved?.recommendTotal ?? auto.recommendTotal);
-    setScheduled(saved?.scheduled ?? auto.scheduledDetail);
+    setScheduled(saved?.scheduled ?? []);
     setScheduledInt(saved?.scheduledInt ?? auto.scheduledInt);
-    setInterview(saved?.interview ?? auto.interviewDetail);
+    setInterview(saved?.interview ?? []);
     setInterviewTotal(saved?.interviewTotal ?? auto.interviewTotal);
     setOffer(saved?.offer ?? []);
     setOfferTotal(saved?.offerTotal ?? auto.offer);
@@ -205,14 +205,14 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     clearDraft(name, selectedDate);
     const auto = computeAutoDraft(selectedDate);
     setRecordId(auto.id);
-    setRecommend(auto.recommendDetail);
-    setCv(auto.cvDetail);
+    setRecommend([]);
+    setCv([]);
     setCvTotal(auto.cvTotal);
     setScreenNew(auto.screenNew);
     setRecommendTotal(auto.recommendTotal);
-    setScheduled(auto.scheduledDetail);
+    setScheduled([]);
     setScheduledInt(auto.scheduledInt);
-    setInterview(auto.interviewDetail);
+    setInterview([]);
     setInterviewTotal(auto.interviewTotal);
     setOffer([]);
     setOfferTotal(auto.offer);
@@ -229,45 +229,40 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const hasData = recommendTotal > 0 || cvTotal > 0 || scheduledInt > 0 || interviewTotal > 0 || offerTotal > 0 || onboardTotal > 0;
 
   const buildFinal = (): RemoteRecord => {
-    const auto = computeAutoDraft(selectedDate);
     const cvRows = cv.filter((j) => j.name.trim()) || [];
     const recommendRows = recommend.filter((j) => j.name.trim()) || [];
     const scheduledRows = scheduled.filter((s) => s.job.trim() || s.person.trim());
     const interviewRows = interview.filter((v) => v.name.trim() || v.person.trim());
     const offerRows = offer.filter((j) => j.name.trim());
     const onboardRows = onboard.filter((o) => o.jobName.trim() || o.candidateName.trim());
-    const finalCv = cvRows.length ? cvRows : auto.cvDetail;
-    const finalRecommend = recommendRows.length ? recommendRows : auto.recommendDetail;
-    const finalScheduled = scheduledRows.length ? scheduledRows : auto.scheduledDetail;
-    const finalInterview = interviewRows.length ? interviewRows : auto.interviewDetail;
 
     return {
       id: recordId,
       date: selectedDate,
       name,
-      cvDetail: finalCv.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-      cvTotal: Number(cvTotal) || sum(finalCv),
+      cvDetail: cvRows.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+      cvTotal: Number(cvTotal) || sum(cvRows),
       screenNew: Number(screenNew) || 0,
-      recommendDetail: finalRecommend.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-      recommendTotal: Number(recommendTotal) || sum(finalRecommend),
-      scheduledDetail: finalScheduled,
-      scheduledInt: Number(scheduledInt) || finalScheduled.length,
-      interviewDetail: finalInterview.map((v) => ({ ...v, jobKey: makeJobKey(v.name, v.department) })),
-      interviewTotal: Number(interviewTotal) || finalInterview.length,
+      recommendDetail: recommendRows.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
+      recommendTotal: Number(recommendTotal) || sum(recommendRows),
+      scheduledDetail: scheduledRows,
+      scheduledInt: Number(scheduledInt) || scheduledRows.length,
+      interviewDetail: interviewRows.map((v) => ({ ...v, jobKey: makeJobKey(v.name, v.department) })),
+      interviewTotal: Number(interviewTotal) || interviewRows.length,
       offer: Number(offerTotal) || sum(offerRows),
       offerDetail: offerRows.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
       onboard: Number(onboardTotal) || onboardRows.length,
       onboardDetail: onboardRows.map((o) => ({ ...o, jobKey: makeJobKey(o.jobName, o.department) } as OnboardLine & { jobKey: string })),
       remark,
-      p0rec: sumPriority(finalRecommend, 'p0'),
-      p1rec: sumPriority(finalRecommend, 'p1'),
-      p2rec: sumPriority(finalRecommend, 'p2'),
-      p0sched: countPriority(finalScheduled, 'p0'),
-      p1sched: countPriority(finalScheduled, 'p1'),
-      p2sched: countPriority(finalScheduled, 'p2'),
-      p0int: countPriority(finalInterview, 'p0'),
-      p1int: countPriority(finalInterview, 'p1'),
-      p2int: countPriority(finalInterview, 'p2'),
+      p0rec: sumPriority(recommendRows, 'p0'),
+      p1rec: sumPriority(recommendRows, 'p1'),
+      p2rec: sumPriority(recommendRows, 'p2'),
+      p0sched: countPriority(scheduledRows, 'p0'),
+      p1sched: countPriority(scheduledRows, 'p1'),
+      p2sched: countPriority(scheduledRows, 'p2'),
+      p0int: countPriority(interviewRows, 'p0'),
+      p1int: countPriority(interviewRows, 'p1'),
+      p2int: countPriority(interviewRows, 'p2'),
       p0onboard: countPriority(onboardRows, 'p0'),
       p1onboard: countPriority(onboardRows, 'p1'),
       p2onboard: countPriority(onboardRows, 'p2'),
