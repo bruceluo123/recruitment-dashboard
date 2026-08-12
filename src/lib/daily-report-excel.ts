@@ -18,25 +18,19 @@ interface ExportDailyReportArgs {
 }
 
 type Worksheet = import('exceljs').Worksheet;
+type Style = import('exceljs').Style;
 type ReportRow = Array<string | number>;
+type RowTemplate = {
+  height?: number;
+  styles: Array<Partial<Style>>;
+};
 
+const TEMPLATE_URL = '/templates/daily-report-cloud.xlsx';
 const START_COL = 2;
 const END_COL = 7;
 const WORK_CAPACITY = 3;
 const INTERVIEW_CAPACITY = 8;
 const OFFER_CAPACITY = 5;
-const SECTION_FILL = 'FF9999FF';
-const HEADER_FILL = 'FFCCCCFF';
-const BLACK = 'FF000000';
-
-const border = {
-  top: { style: 'thin' as const, color: { argb: BLACK } },
-  left: { style: 'thin' as const, color: { argb: BLACK } },
-  bottom: { style: 'thin' as const, color: { argb: BLACK } },
-  right: { style: 'thin' as const, color: { argb: BLACK } },
-};
-
-const center = { horizontal: 'center' as const, vertical: 'middle' as const, wrapText: true };
 
 function localDateKey(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -157,6 +151,61 @@ function buildOfferRows(candidates: Candidate[], ref: Date, column: RepushColumn
   });
 }
 
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value ?? {}));
+}
+
+function captureRowTemplate(ws: Worksheet, rowNumber: number): RowTemplate {
+  const row = ws.getRow(rowNumber);
+  const styles: Array<Partial<Style>> = [];
+  for (let col = START_COL; col <= END_COL; col++) {
+    styles.push(clone(ws.getCell(rowNumber, col).style));
+  }
+  return { height: row.height, styles };
+}
+
+function applyRowTemplate(ws: Worksheet, rowNumber: number, template: RowTemplate): void {
+  if (typeof template.height === 'number') {
+    ws.getRow(rowNumber).height = template.height;
+  }
+  for (let col = START_COL; col <= END_COL; col++) {
+    ws.getCell(rowNumber, col).style = clone(template.styles[col - START_COL]);
+  }
+}
+
+function writeCells(ws: Worksheet, rowNumber: number, values: ReportRow, template: RowTemplate): void {
+  applyRowTemplate(ws, rowNumber, template);
+  for (let col = START_COL; col <= END_COL; col++) {
+    ws.getCell(rowNumber, col).value = values[col - START_COL] ?? '';
+  }
+}
+
+function writeMergedRow(ws: Worksheet, rowNumber: number, value: string | import('exceljs').CellRichTextValue, template: RowTemplate): void {
+  applyRowTemplate(ws, rowNumber, template);
+  ws.mergeCells(rowNumber, START_COL, rowNumber, END_COL);
+  ws.getCell(rowNumber, START_COL).value = value;
+}
+
+function writeDataRows(ws: Worksheet, startRow: number, rows: ReportRow[], capacity: number, template: RowTemplate): number {
+  const count = Math.max(rows.length, capacity);
+  for (let i = 0; i < count; i++) {
+    writeCells(ws, startRow + i, rows[i] || ['', '', '', '', '', ''], template);
+  }
+  return startRow + count;
+}
+
+function clearMerges(ws: Worksheet): void {
+  const merges = [...(ws.model.merges || [])];
+  for (const merge of merges) {
+    ws.unMergeCells(merge);
+  }
+}
+
+function insertRows(ws: Worksheet, startRow: number, count: number): void {
+  if (count <= 0) return;
+  ws.spliceRows(startRow, 0, ...Array.from({ length: count }, () => []));
+}
+
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -168,65 +217,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-function fillColor(argb: string) {
-  return { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } };
-}
-
-function styleRange(ws: Worksheet, row: number, fill?: string): void {
-  for (let col = START_COL; col <= END_COL; col++) {
-    const cell = ws.getCell(row, col);
-    cell.border = border;
-    cell.alignment = center;
-    if (fill) cell.fill = fillColor(fill);
-  }
-}
-
-function writeMergedRow(ws: Worksheet, row: number, text: string, fill: string | undefined, fontSize: number): void {
-  ws.mergeCells(row, START_COL, row, END_COL);
-  ws.getCell(row, START_COL).value = text;
-  styleRange(ws, row, fill);
-  ws.getCell(row, START_COL).font = { name: 'Microsoft YaHei', size: fontSize, bold: true, color: { argb: BLACK } };
-}
-
-function writeHeaderRow(ws: Worksheet, row: number, values: string[]): void {
-  ws.getRow(row).height = 25;
-  values.forEach((value, index) => {
-    const cell = ws.getCell(row, START_COL + index);
-    cell.value = value;
-    cell.font = { name: 'Microsoft YaHei', size: 14, color: { argb: BLACK } };
-  });
-  styleRange(ws, row, HEADER_FILL);
-}
-
-function writeDataRows(ws: Worksheet, startRow: number, rows: ReportRow[], capacity: number): number {
-  const count = Math.max(rows.length, capacity);
-  for (let i = 0; i < count; i++) {
-    const rowNumber = startRow + i;
-    ws.getRow(rowNumber).height = 25;
-    const values = rows[i] || ['', '', '', '', '', ''];
-    for (let colOffset = 0; colOffset < 6; colOffset++) {
-      const cell = ws.getCell(rowNumber, START_COL + colOffset);
-      cell.value = values[colOffset] ?? '';
-      cell.font = { name: 'Microsoft YaHei', size: 14, color: { argb: BLACK } };
-    }
-    styleRange(ws, rowNumber);
-  }
-  return startRow + count;
-}
-
-function setupSheet(ws: Worksheet): void {
-  ws.getColumn(1).width = 3.5625;
-  ws.getColumn(2).width = 6.0703125;
-  ws.getColumn(3).width = 16.953125;
-  ws.getColumn(4).width = 10.078125;
-  ws.getColumn(5).width = 10.078125;
-  ws.getColumn(6).width = 8.48046875;
-  ws.getColumn(7).width = 29.10546875;
-  ws.getColumn(8).width = 11;
-  ws.getRow(1).height = 9;
-  ws.views = [{ showGridLines: true }];
-}
-
 export async function exportDailyReportExcel({
   column,
   name = '木云',
@@ -235,41 +225,58 @@ export async function exportDailyReportExcel({
   date = new Date(),
 }: ExportDailyReportArgs): Promise<void> {
   const ExcelJS = await import('exceljs');
+  const res = await fetch(TEMPLATE_URL);
+  if (!res.ok) throw new Error('日报模板下载失败');
+
   const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await res.arrayBuffer());
   workbook.creator = '企鹅岛';
   workbook.created = date;
-  const ws = workbook.addWorksheet('Sheet1');
-  setupSheet(ws);
+  const ws = workbook.worksheets[0];
+
+  const titleTemplate = captureRowTemplate(ws, 2);
+  const sectionTemplate = captureRowTemplate(ws, 3);
+  const interviewSectionTemplate = captureRowTemplate(ws, 8);
+  const headerTemplate = captureRowTemplate(ws, 4);
+  const dataTemplate = captureRowTemplate(ws, 5);
+  const offerSectionTemplate = captureRowTemplate(ws, 18);
+  const offerHeaderTemplate = captureRowTemplate(ws, 19);
+  const difficultySectionTemplate = captureRowTemplate(ws, 25);
+  const difficultyNoteTemplate = captureRowTemplate(ws, 26);
+  const offerSectionValue = clone(ws.getCell(18, START_COL).value);
 
   const workRows = buildWorkRows(items, candidates, date, column);
   const interviewRows = buildPendingInterviewRows(candidates, date, column);
   const offerRows = buildOfferRows(candidates, date, column);
+  const workExtra = Math.max(0, workRows.length - WORK_CAPACITY);
+  const interviewExtra = Math.max(0, interviewRows.length - INTERVIEW_CAPACITY);
+  const offerExtra = Math.max(0, offerRows.length - OFFER_CAPACITY);
 
-  ws.getRow(2).height = 27;
-  writeMergedRow(ws, 2, `${name}--工作日报表（${date.getMonth() + 1}月${date.getDate()}日）`, undefined, 28);
+  clearMerges(ws);
+  insertRows(ws, 8, workExtra);
+  insertRows(ws, 18 + workExtra, interviewExtra);
+  insertRows(ws, 25 + workExtra + interviewExtra, offerExtra);
+
+  writeMergedRow(ws, 2, `${name}--工作日报表（${date.getMonth() + 1}月${date.getDate()}日）`, titleTemplate);
 
   let row = 3;
-  ws.getRow(row).height = 28;
-  writeMergedRow(ws, row++, '一、日常工作', SECTION_FILL, 22);
-  writeHeaderRow(ws, row++, ['序号', '负责岗位名称', '推荐简历', '邀约', '面试', '录用']);
-  row = writeDataRows(ws, row, workRows, WORK_CAPACITY);
+  writeMergedRow(ws, row++, '一、日常工作', sectionTemplate);
+  writeCells(ws, row++, ['序号', '负责岗位名称', '推荐简历', '邀约', '面试', '录用'], headerTemplate);
+  row = writeDataRows(ws, row, workRows, WORK_CAPACITY, dataTemplate);
 
-  ws.getRow(row).height = 34;
-  writeMergedRow(ws, row++, '二、待面试清单', SECTION_FILL, 22);
-  writeHeaderRow(ws, row++, ['序号', '渠道', '面试日期', '面试时间', '姓名', '岗位']);
-  row = writeDataRows(ws, row, interviewRows, INTERVIEW_CAPACITY);
+  writeMergedRow(ws, row++, '二、待面试清单', interviewSectionTemplate);
+  writeCells(ws, row++, ['序号', '渠道', '面试日期', '面试时间', '姓名', '岗位'], headerTemplate);
+  row = writeDataRows(ws, row, interviewRows, INTERVIEW_CAPACITY, dataTemplate);
 
-  ws.getRow(row).height = 25;
-  writeMergedRow(ws, row++, '三、OFFER及入职明细（写上今天入职的人明细及今天offer的人明细）', SECTION_FILL, 18);
-  writeHeaderRow(ws, row++, ['序号', '岗位名称', '候选人', '待入职时间', '是否入职', '入职时间']);
-  row = writeDataRows(ws, row, offerRows, OFFER_CAPACITY);
+  writeMergedRow(ws, row++, offerSectionValue as import('exceljs').CellRichTextValue, offerSectionTemplate);
+  writeCells(ws, row++, ['序号', '岗位名称', '候选人', '待入职时间', '是否入职', '入职时间'], offerHeaderTemplate);
+  row = writeDataRows(ws, row, offerRows, OFFER_CAPACITY, dataTemplate);
 
-  ws.getRow(row).height = 25;
-  writeMergedRow(ws, row++, '四、有无困难点', SECTION_FILL, 22);
+  writeMergedRow(ws, row++, '四、有无困难点', difficultySectionTemplate);
+  applyRowTemplate(ws, row, difficultyNoteTemplate);
+  applyRowTemplate(ws, row + 1, difficultyNoteTemplate);
   ws.mergeCells(row, START_COL, row + 1, END_COL);
-  ws.getRow(row).height = 25;
-  ws.getRow(row + 1).height = 25;
-  for (let r = row; r <= row + 1; r++) styleRange(ws, r);
+  ws.getCell(row, START_COL).value = '';
 
   const output = await workbook.xlsx.writeBuffer();
   const filename = `${name}-工作日报-${localDateKey(date)}.xlsx`;
