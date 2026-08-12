@@ -42,12 +42,15 @@ interface DailyReportModalProps {
 type SubmitState = 'idle' | 'submitting' | 'done' | 'error';
 
 const sum = (arr: JobLine[]) => arr.reduce((s, j) => s + (Number(j.qty) || 0), 0);
+const countPriority = <T extends { priority?: string }>(rows: T[], priority: string) => rows.filter((row) => row.priority === priority).length;
+const sumPriority = (rows: JobLine[], priority: string) => rows.reduce((total, row) => total + (row.priority === priority ? Number(row.qty) || 0 : 0), 0);
 
 // ── 草稿自动暂存：误关/切走/点到外面时不丢失填写，按「录入人 + 日期」隔离，提交成功后清除 ──
 const DRAFT_VERSION = 1;
 interface DraftState {
   v: number;
   recommend: JobLine[]; cv: JobLine[]; screenNew: number;
+  cvTotal?: number; recommendTotal?: number; scheduledInt?: number; interviewTotal?: number; offerTotal?: number; onboardTotal?: number;
   scheduled: ScheduledLine[]; interview: InterviewLine[];
   offer: JobLine[]; onboard: OnboardLine[]; remark: string;
 }
@@ -119,12 +122,18 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 
   const [recommend, setRecommend] = useState<JobLine[]>(initial.saved?.recommend ?? initial.auto.recommendDetail);
   const [cv, setCv] = useState<JobLine[]>(initial.saved?.cv ?? initial.auto.cvDetail);
+  const [cvTotal, setCvTotal] = useState<number>(initial.saved?.cvTotal ?? initial.auto.cvTotal);
   const [screenNew, setScreenNew] = useState<number>(initial.saved?.screenNew ?? initial.auto.screenNew);
+  const [recommendTotal, setRecommendTotal] = useState<number>(initial.saved?.recommendTotal ?? initial.auto.recommendTotal);
   const [scheduled, setScheduled] = useState<ScheduledLine[]>(initial.saved?.scheduled ?? initial.auto.scheduledDetail);
+  const [scheduledInt, setScheduledInt] = useState<number>(initial.saved?.scheduledInt ?? initial.auto.scheduledInt);
   const [interview, setInterview] = useState<InterviewLine[]>(initial.saved?.interview ?? initial.auto.interviewDetail);
+  const [interviewTotal, setInterviewTotal] = useState<number>(initial.saved?.interviewTotal ?? initial.auto.interviewTotal);
   // Offer 申请 / 入职：不自动抓取，默认为空，由使用者手动填写后随日报一并提交。
   const [offer, setOffer] = useState<JobLine[]>(initial.saved?.offer ?? []);
+  const [offerTotal, setOfferTotal] = useState<number>(initial.saved?.offerTotal ?? initial.auto.offer);
   const [onboard, setOnboard] = useState<OnboardLine[]>(initial.saved?.onboard ?? []);
+  const [onboardTotal, setOnboardTotal] = useState<number>(initial.saved?.onboardTotal ?? initial.auto.onboard);
   const [remark, setRemark] = useState<string>(initial.saved?.remark ?? initial.auto.remark);
 
   const [state, setState] = useState<SubmitState>('idle');
@@ -141,11 +150,17 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setRecordId(auto.id);
     setRecommend(saved?.recommend ?? auto.recommendDetail);
     setCv(saved?.cv ?? auto.cvDetail);
+    setCvTotal(saved?.cvTotal ?? auto.cvTotal);
     setScreenNew(saved?.screenNew ?? auto.screenNew);
+    setRecommendTotal(saved?.recommendTotal ?? auto.recommendTotal);
     setScheduled(saved?.scheduled ?? auto.scheduledDetail);
+    setScheduledInt(saved?.scheduledInt ?? auto.scheduledInt);
     setInterview(saved?.interview ?? auto.interviewDetail);
+    setInterviewTotal(saved?.interviewTotal ?? auto.interviewTotal);
     setOffer(saved?.offer ?? []);
+    setOfferTotal(saved?.offerTotal ?? auto.offer);
     setOnboard(saved?.onboard ?? []);
+    setOnboardTotal(saved?.onboardTotal ?? auto.onboard);
     setRemark(saved?.remark ?? auto.remark);
     setRestored(!!saved);
     setDirty(!!saved);
@@ -163,8 +178,23 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   // 由此实现「切出去 / 点到别的 / 突然关掉」都能保留填写，重开自动恢复。
   useEffect(() => {
     if (state === 'done' || !dirty) return;
-    saveDraft(name, selectedDate, { recommend, cv, screenNew, scheduled, interview, offer, onboard, remark });
-  }, [recommend, cv, screenNew, scheduled, interview, offer, onboard, remark, state, dirty, name, selectedDate]);
+    saveDraft(name, selectedDate, {
+      recommend,
+      cv,
+      cvTotal,
+      screenNew,
+      recommendTotal,
+      scheduled,
+      scheduledInt,
+      interview,
+      interviewTotal,
+      offer,
+      offerTotal,
+      onboard,
+      onboardTotal,
+      remark,
+    });
+  }, [recommend, cv, cvTotal, screenNew, recommendTotal, scheduled, scheduledInt, interview, interviewTotal, offer, offerTotal, onboard, onboardTotal, remark, state, dirty, name, selectedDate]);
 
   // 关闭即可，填写已自动暂存，重开会恢复。
   const requestClose = () => onClose();
@@ -177,42 +207,57 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setRecordId(auto.id);
     setRecommend(auto.recommendDetail);
     setCv(auto.cvDetail);
+    setCvTotal(auto.cvTotal);
     setScreenNew(auto.screenNew);
+    setRecommendTotal(auto.recommendTotal);
     setScheduled(auto.scheduledDetail);
+    setScheduledInt(auto.scheduledInt);
     setInterview(auto.interviewDetail);
+    setInterviewTotal(auto.interviewTotal);
     setOffer([]);
+    setOfferTotal(auto.offer);
     setOnboard([]);
+    setOnboardTotal(auto.onboard);
     setRemark(auto.remark);
     setRestored(false);
     setDirty(false); // 放弃后回到初稿，且不再自动暂存（除非重新编辑）
   };
 
-  const recommendTotal = sum(recommend);
-  const cvTotal = sum(cv);
-  const offerTotal = sum(offer);
   // 业务面试 pass / pending 统计
   const passCount = interview.filter((v) => isInterviewPassed(v.status)).length;
   const pendingCount = interview.length - passCount;
-  const hasData = recommendTotal > 0 || scheduled.length > 0 || interview.length > 0 || offerTotal > 0 || onboard.length > 0;
+  const hasData = recommendTotal > 0 || cvTotal > 0 || scheduledInt > 0 || interviewTotal > 0 || offerTotal > 0 || onboardTotal > 0;
 
   const buildFinal = (): RemoteRecord => ({
     id: recordId,
     date: selectedDate,
     name,
     cvDetail: cv.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-    cvTotal,
+    cvTotal: Number(cvTotal) || 0,
     screenNew: Number(screenNew) || 0,
     recommendDetail: recommend.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-    recommendTotal,
+    recommendTotal: Number(recommendTotal) || 0,
     scheduledDetail: scheduled,
-    scheduledInt: scheduled.length,
+    scheduledInt: Number(scheduledInt) || 0,
     interviewDetail: interview.map((v) => ({ ...v, jobKey: makeJobKey(v.name, v.department) })),
-    interviewTotal: interview.length,
-    offer: offerTotal,
+    interviewTotal: Number(interviewTotal) || 0,
+    offer: Number(offerTotal) || 0,
     offerDetail: offer.map((j) => ({ ...j, qty: Number(j.qty) || 0, jobKey: makeJobKey(j.name, j.department) })),
-    onboard: onboard.length,
+    onboard: Number(onboardTotal) || 0,
     onboardDetail: onboard.map((o) => ({ ...o, jobKey: makeJobKey(o.jobName, o.department) } as OnboardLine & { jobKey: string })),
     remark,
+    p0rec: sumPriority(recommend, 'p0'),
+    p1rec: sumPriority(recommend, 'p1'),
+    p2rec: sumPriority(recommend, 'p2'),
+    p0sched: countPriority(scheduled, 'p0'),
+    p1sched: countPriority(scheduled, 'p1'),
+    p2sched: countPriority(scheduled, 'p2'),
+    p0int: countPriority(interview, 'p0'),
+    p1int: countPriority(interview, 'p1'),
+    p2int: countPriority(interview, 'p2'),
+    p0onboard: countPriority(onboard, 'p0'),
+    p1onboard: countPriority(onboard, 'p1'),
+    p2onboard: countPriority(onboard, 'p2'),
   });
 
   const handleSubmit = async () => {
@@ -272,19 +317,9 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
             <h3 className="text-base font-semibold text-gray-800 shrink-0">
               一键看板 · <span className="text-indigo-600">{name}</span>
             </h3>
-            {/* 日报日期：可选今天 / 昨天 / 前几天，拉取并录入那一天的数据 */}
-            <div className="flex items-center gap-1.5">
-              <input
-                type="date"
-                value={selectedDate}
-                max={todayStr}
-                onChange={(e) => handleDateChange(e.target.value)}
-                className="h-8 px-2 rounded-lg border border-gray-200 text-sm text-gray-600 focus:outline-none focus:border-indigo-300"
-              />
-              {selectedDate !== todayStr && (
-                <span className="text-[11px] text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 whitespace-nowrap">补录 · 非今日</span>
-              )}
-            </div>
+            {selectedDate !== todayStr && (
+              <span className="text-[11px] text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 whitespace-nowrap">补录 · 非今日</span>
+            )}
           </div>
           <button onClick={requestClose} className="text-gray-400 hover:text-gray-600 shrink-0">
             <X className="w-5 h-5" />
@@ -308,120 +343,150 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
             </div>
           )}
 
-          {/* 汇总数字（推荐/收取总数自动跟随明细，沟通人数可改） */}
-          <div className="grid grid-cols-3 gap-2">
-            <Stat label="推荐总数" value={recommendTotal} />
-            <Stat label="新收简历总数" value={cvTotal} />
-            <NumStat label="新增沟通(初筛)" value={screenNew} onChange={(v) => { markDirty(); setScreenNew(v); }} />
-          </div>
+          <ReportBlock title="基础信息">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="日期">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  max={todayStr}
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  className={wideInputCls}
+                />
+              </Field>
+              <Field label="录入人">
+                <input value={name} readOnly className={wideInputCls + ' bg-gray-50 text-gray-500'} />
+              </Field>
+            </div>
+          </ReportBlock>
 
-          <JobSection
-            title="各岗位推荐明细"
-            rows={recommend}
-            onPatch={patchRecommend}
-            onDrop={(i) => drop(setRecommend, i)}
-            onAdd={() => addJob(setRecommend)}
-          />
+          <ReportBlock title="简历收取与推荐">
+            <div className="grid grid-cols-3 gap-3">
+              <NumField label="新收简历总数" value={cvTotal} onChange={(v) => { markDirty(); setCvTotal(v); }} />
+              <NumField label="新增沟通人数（初筛）" value={screenNew} onChange={(v) => { markDirty(); setScreenNew(v); }} />
+              <NumField label="推荐总数（符合JD）" value={recommendTotal} onChange={(v) => { markDirty(); setRecommendTotal(v); }} />
+            </div>
+            <div className="text-xs text-gray-400">只需填写总数即可，岗位明细选填。</div>
+            <JobSection
+              title="各岗位收取明细（选填）"
+              rows={cv}
+              onPatch={patchCv}
+              onDrop={(i) => drop(setCv, i)}
+              onAdd={() => addJob(setCv)}
+            />
+            <JobSection
+              title="各岗位推荐明细（选填）"
+              rows={recommend}
+              onPatch={patchRecommend}
+              onDrop={(i) => drop(setRecommend, i)}
+              onAdd={() => addJob(setRecommend)}
+            />
+          </ReportBlock>
 
-          <JobSection
-            title="各岗位收取明细"
-            rows={cv}
-            onPatch={patchCv}
-            onDrop={(i) => drop(setCv, i)}
-            onAdd={() => addJob(setCv)}
-          />
+          <ReportBlock title="业务面试与 Offer">
+            <div className="grid grid-cols-3 gap-3">
+              <NumField label="约面数量" value={scheduledInt} onChange={(v) => { markDirty(); setScheduledInt(v); }} />
+              <NumField label="当天业务面试数量" value={interviewTotal} onChange={(v) => { markDirty(); setInterviewTotal(v); }} />
+              <NumField label="Offer 申请数" value={offerTotal} onChange={(v) => { markDirty(); setOfferTotal(v); }} />
+            </div>
+            <div className="text-xs text-gray-400">Offer 只需填写数量即可，岗位明细选填。</div>
 
-          {/* 约面明细 */}
-          <EditSection title="约面明细" onAdd={() => { markDirty(); setScheduled((a) => [...a, { job: '', person: '', date: selectedDate, time: '', tz: '北京时间', channel: pickRandomChannel(), priority: pickRandomPriority() }]); }}>
-            {scheduled.map((s, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
-                <input className={inputCls} placeholder="人选" value={s.person} onChange={(e) => patch(setScheduled, i, { person: e.target.value })} />
-                <input className={inputCls} placeholder="岗位" value={s.job} onChange={(e) => patch(setScheduled, i, { job: e.target.value })} />
-                <input type="date" className="w-32 px-2 h-8 rounded-lg border border-gray-200" value={s.date} onChange={(e) => patch(setScheduled, i, { date: e.target.value })} />
-                <input className="w-16 px-2 h-8 rounded-lg border border-gray-200" placeholder="时间" value={s.time} onChange={(e) => patch(setScheduled, i, { time: e.target.value })} />
-                <ChannelSelect value={s.channel} onChange={(v) => patch(setScheduled, i, { channel: v })} />
-                <PrioritySelect value={s.priority} onChange={(v) => patch(setScheduled, i, { priority: v })} />
-                <DropBtn onClick={() => drop(setScheduled, i)} />
-              </div>
-            ))}
-          </EditSection>
-
-          {/* 业务面试明细（含 pass/pending 统计） */}
-          <EditSection
-            title={`业务面试明细（通过 ${passCount} · 待反馈 ${pendingCount}）`}
-            onAdd={() => { markDirty(); setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: INTERVIEW_PENDING, channel: pickRandomChannel(), priority: pickRandomPriority() }]); }}
-          >
-            {interview.map((v, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
-                <input className={inputCls} placeholder="人选" value={v.person} onChange={(e) => patch(setInterview, i, { person: e.target.value })} />
-                <input className={inputCls} placeholder="岗位" value={v.name} onChange={(e) => patch(setInterview, i, { name: e.target.value })} />
-                <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white text-xs" value={v.status} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
-                  {INTERVIEW_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <ChannelSelect value={v.channel} onChange={(x) => patch(setInterview, i, { channel: x })} />
-                <PrioritySelect value={v.priority} onChange={(x) => patch(setInterview, i, { priority: x })} />
-                <DropBtn onClick={() => drop(setInterview, i)} />
-              </div>
-            ))}
-          </EditSection>
-
-          {/* Offer 申请明细（手动填写，默认空） */}
-          <JobSection
-            title={`Offer 申请明细（共 ${offerTotal}）`}
-            rows={offer}
-            onPatch={(i, p) => patch(setOffer, i, p)}
-            onDrop={(i) => drop(setOffer, i)}
-            onAdd={() => addJob(setOffer)}
-          />
-
-          {/* 入职明细（字段与团队数据看板一致；到岗日期默认今天，学历/组长/主管/到岗方式已按团队约定预填） */}
-          <EditSection
-            title={`入职明细（当天入职 ${onboard.length}）`}
-            onAdd={() => { markDirty(); setOnboard((a) => [...a, emptyOnboardLine(selectedDate)]); }}
-          >
-            {onboard.map((o, i) => (
-              <div key={i} className="px-2 py-2.5 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-gray-400">入职人选 #{i + 1}</span>
-                  <DropBtn onClick={() => drop(setOnboard, i)} />
+            <EditSection title="约面明细" onAdd={() => { markDirty(); setScheduledInt((v) => Math.max(v, scheduled.length + 1)); setScheduled((a) => [...a, { job: '', person: '', date: selectedDate, time: '', tz: '北京时间', channel: '', priority: pickRandomPriority() }]); }}>
+              {scheduled.map((s, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
+                  <input className={inputCls} placeholder="岗位名称" value={s.job} onChange={(e) => patch(setScheduled, i, { job: e.target.value })} />
+                  <input className={inputCls} placeholder="姓名" value={s.person} onChange={(e) => patch(setScheduled, i, { person: e.target.value })} />
+                  <PrioritySelect value={s.priority} onChange={(v) => patch(setScheduled, i, { priority: v })} />
+                  <input type="date" className="w-32 px-2 h-8 rounded-lg border border-gray-200" value={s.date} onChange={(e) => patch(setScheduled, i, { date: e.target.value })} />
+                  <input type="time" className="w-24 px-2 h-8 rounded-lg border border-gray-200" value={s.time} onChange={(e) => patch(setScheduled, i, { time: e.target.value })} />
+                  <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white text-xs" value={s.tz} onChange={(e) => patch(setScheduled, i, { tz: e.target.value })}>
+                    <option value="北京时间">北京时间</option>
+                    <option value="伦敦时间">伦敦时间</option>
+                  </select>
+                  <DropBtn onClick={() => drop(setScheduled, i)} />
                 </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  <input className={gridInput} placeholder="岗位名称" value={o.jobName} onChange={(e) => patch(setOnboard, i, { jobName: e.target.value })} />
-                  {/* 花名默认跟随简历名：改简历名时同步花名（除非花名已被单独改动） */}
-                  <input className={gridInput} placeholder="简历名" value={o.candidateName} onChange={(e) => patch(setOnboard, i, { candidateName: e.target.value, ...(o.nickname === o.candidateName ? { nickname: e.target.value } : {}) })} />
-                  <input className={gridInput} placeholder="花名" value={o.nickname} onChange={(e) => patch(setOnboard, i, { nickname: e.target.value })} />
-                  <input className={gridInput} placeholder="编制组织" value={o.department} onChange={(e) => patch(setOnboard, i, { department: e.target.value })} />
+              ))}
+            </EditSection>
 
-                  <input className={gridInput} placeholder="面试官" value={o.interviewer} onChange={(e) => patch(setOnboard, i, { interviewer: e.target.value })} />
-                  <input className={gridInput} placeholder="学历" value={o.education} onChange={(e) => patch(setOnboard, i, { education: e.target.value })} />
-                  <input className={gridInput} placeholder="寻英渠道" value={o.recruitTeam} onChange={(e) => patch(setOnboard, i, { recruitTeam: e.target.value })} />
-                  <select className={gridInput + ' bg-white'} value={ONBOARD_CHANNEL_OPTIONS.includes(o.source as typeof ONBOARD_CHANNEL_OPTIONS[number]) ? o.source : ''} onChange={(e) => patch(setOnboard, i, { source: e.target.value })}>
-                    <option value="">招聘来源</option>
-                    {ONBOARD_CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+            <EditSection
+              title={`业务面试明细（选填，通过 ${passCount} · 待反馈 ${pendingCount}）`}
+              onAdd={() => { markDirty(); setInterviewTotal((v) => Math.max(v, interview.length + 1)); setInterview((a) => [...a, { name: '', department: '', jobKey: '', person: '', status: INTERVIEW_PENDING, channel: pickRandomChannel(), priority: pickRandomPriority() }]); }}
+            >
+              {interview.map((v, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
+                  <input className={inputCls} placeholder="搜索或输入岗位名称..." value={v.name} onChange={(e) => patch(setInterview, i, { name: e.target.value })} />
+                  <input className={inputCls} placeholder="姓名" value={v.person} onChange={(e) => patch(setInterview, i, { person: e.target.value })} />
+                  <ChannelSelect value={v.channel} onChange={(x) => patch(setInterview, i, { channel: x })} />
+                  <PrioritySelect value={v.priority} onChange={(x) => patch(setInterview, i, { priority: x })} />
+                  <select className="w-24 px-2 h-8 rounded-lg border border-gray-200 bg-white text-xs" value={v.status} onChange={(e) => patch(setInterview, i, { status: e.target.value })}>
+                    {INTERVIEW_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
-
-                  <input className={gridInput} placeholder="招聘组长" value={o.teamLead} onChange={(e) => patch(setOnboard, i, { teamLead: e.target.value })} />
-                  <input className={gridInput} placeholder="招聘主管" value={o.manager} onChange={(e) => patch(setOnboard, i, { manager: e.target.value })} />
-                  <input className={gridInput} placeholder="试用期月薪" value={o.probationSalary} onChange={(e) => patch(setOnboard, i, { probationSalary: e.target.value })} />
-                  <input className={gridInput} placeholder="转正后月薪" value={o.regularSalary} onChange={(e) => patch(setOnboard, i, { regularSalary: e.target.value })} />
-
-                  <input className={gridInput} placeholder="到岗评分 如8.5" value={o.score} onChange={(e) => patch(setOnboard, i, { score: e.target.value })} />
-                  <select className={gridInput + ' bg-white'} value={o.workMode} onChange={(e) => patch(setOnboard, i, { workMode: e.target.value })}>
-                    <option value="">到岗方式</option>
-                    {ONBOARD_WORKMODE_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
-                  </select>
-                  <select className={gridInput + ' bg-white'} value={o.employmentStatus} onChange={(e) => patch(setOnboard, i, { employmentStatus: e.target.value })}>
-                    {ONBOARD_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <input type="date" className={gridInput} value={o.onboardDate} onChange={(e) => patch(setOnboard, i, { onboardDate: e.target.value })} />
-                  <select className={gridInput + ' bg-white'} value={o.priority} onChange={(e) => patch(setOnboard, i, { priority: e.target.value })}>
-                    <option value="">优先级</option>
-                    {REPORT_PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                  </select>
+                  <DropBtn onClick={() => drop(setInterview, i)} />
                 </div>
-              </div>
-            ))}
-          </EditSection>
+              ))}
+            </EditSection>
+
+            <JobSection
+              title="Offer 申请明细（选填）"
+              rows={offer}
+              onPatch={(i, p) => patch(setOffer, i, p)}
+              onDrop={(i) => drop(setOffer, i)}
+              onAdd={() => { setOfferTotal((v) => Math.max(v, sum(offer) + 1)); addJob(setOffer); }}
+            />
+          </ReportBlock>
+
+          <ReportBlock title="入职">
+            <div className="max-w-xs">
+              <NumField label="当天入职数" value={onboardTotal} onChange={(v) => { markDirty(); setOnboardTotal(v); }} />
+            </div>
+            <div className="text-xs text-gray-400">填写数量后，请补充入职明细。</div>
+            <EditSection
+              title="入职人选详情"
+              onAdd={() => { markDirty(); setOnboardTotal((v) => Math.max(v, onboard.length + 1)); setOnboard((a) => [...a, emptyOnboardLine(selectedDate)]); }}
+            >
+              {onboard.map((o, i) => (
+                <div key={i} className="px-2 py-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-gray-400">入职人选 #{i + 1}</span>
+                    <DropBtn onClick={() => drop(setOnboard, i)} />
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    <input className={gridInput} placeholder="岗位名称" value={o.jobName} onChange={(e) => patch(setOnboard, i, { jobName: e.target.value })} />
+                    <input className={gridInput} placeholder="简历名" value={o.candidateName} onChange={(e) => patch(setOnboard, i, { candidateName: e.target.value, ...(o.nickname === o.candidateName ? { nickname: e.target.value } : {}) })} />
+                    <input className={gridInput} placeholder="花名" value={o.nickname} onChange={(e) => patch(setOnboard, i, { nickname: e.target.value })} />
+                    <input className={gridInput} placeholder="编制组织" value={o.department} onChange={(e) => patch(setOnboard, i, { department: e.target.value })} />
+
+                    <input className={gridInput} placeholder="面试官" value={o.interviewer} onChange={(e) => patch(setOnboard, i, { interviewer: e.target.value })} />
+                    <input className={gridInput} placeholder="学历" value={o.education} onChange={(e) => patch(setOnboard, i, { education: e.target.value })} />
+                    <input className={gridInput} placeholder="寻英渠道" value={o.recruitTeam} onChange={(e) => patch(setOnboard, i, { recruitTeam: e.target.value })} />
+                    <select className={gridInput + ' bg-white'} value={ONBOARD_CHANNEL_OPTIONS.includes(o.source as typeof ONBOARD_CHANNEL_OPTIONS[number]) ? o.source : ''} onChange={(e) => patch(setOnboard, i, { source: e.target.value })}>
+                      <option value="">招聘来源</option>
+                      {ONBOARD_CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+
+                    <input className={gridInput} placeholder="招聘组长" value={o.teamLead} onChange={(e) => patch(setOnboard, i, { teamLead: e.target.value })} />
+                    <input className={gridInput} placeholder="招聘主管" value={o.manager} onChange={(e) => patch(setOnboard, i, { manager: e.target.value })} />
+                    <input className={gridInput} placeholder="试用期月薪" value={o.probationSalary} onChange={(e) => patch(setOnboard, i, { probationSalary: e.target.value })} />
+                    <input className={gridInput} placeholder="转正后月薪" value={o.regularSalary} onChange={(e) => patch(setOnboard, i, { regularSalary: e.target.value })} />
+
+                    <input className={gridInput} placeholder="到岗评分 如8.5" value={o.score} onChange={(e) => patch(setOnboard, i, { score: e.target.value })} />
+                    <select className={gridInput + ' bg-white'} value={o.workMode} onChange={(e) => patch(setOnboard, i, { workMode: e.target.value })}>
+                      <option value="">到岗方式</option>
+                      {ONBOARD_WORKMODE_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
+                    </select>
+                    <select className={gridInput + ' bg-white'} value={o.employmentStatus} onChange={(e) => patch(setOnboard, i, { employmentStatus: e.target.value })}>
+                      {ONBOARD_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <input type="date" className={gridInput} value={o.onboardDate} onChange={(e) => patch(setOnboard, i, { onboardDate: e.target.value })} />
+                    <select className={gridInput + ' bg-white'} value={o.priority} onChange={(e) => patch(setOnboard, i, { priority: e.target.value })}>
+                      <option value="">优先级</option>
+                      {REPORT_PRIORITY_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </EditSection>
+          </ReportBlock>
 
           <div>
             <div className="text-xs font-medium text-gray-500 mb-1.5">备注</div>
@@ -462,30 +527,39 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
 }
 
 const inputCls = 'flex-1 min-w-0 px-2 h-8 rounded-lg border border-gray-200';
+const wideInputCls = 'w-full px-3 h-10 rounded-xl border border-gray-200 focus:outline-none focus:border-indigo-300';
 // 入职明细网格里的紧凑输入框（4 列布局，字段较多）
 const gridInput = 'min-w-0 px-2 h-8 rounded-lg border border-gray-200 text-xs';
 
-function Stat({ label, value }: { label: string; value: number }) {
+function ReportBlock({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-gray-50 px-3 py-2">
-      <div className="text-xs text-gray-400">{label}</div>
-      <div className="text-lg font-semibold text-gray-800">{value}</div>
-    </div>
+    <section className="rounded-2xl border border-gray-100 bg-white p-4 space-y-3">
+      <div className="text-sm font-semibold text-indigo-600 pb-2 border-b border-gray-100">{title}</div>
+      {children}
+    </section>
   );
 }
 
-function NumStat({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-gray-50 px-3 py-2">
-      <div className="text-xs text-gray-400">{label}</div>
+    <label className="block space-y-1.5">
+      <span className="text-xs font-medium text-gray-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function NumField({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+  return (
+    <Field label={label}>
       <input
         type="number"
         min={0}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full bg-transparent text-lg font-semibold text-gray-800 outline-none"
+        className={wideInputCls}
       />
-    </div>
+    </Field>
   );
 }
 

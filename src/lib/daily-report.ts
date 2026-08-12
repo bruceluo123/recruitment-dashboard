@@ -141,6 +141,18 @@ export interface RemoteRecord {
   onboard: number;
   onboardDetail: OnboardLine[];
   remark: string;
+  p0rec?: number;
+  p1rec?: number;
+  p2rec?: number;
+  p0sched?: number;
+  p1sched?: number;
+  p2sched?: number;
+  p0int?: number;
+  p1int?: number;
+  p2int?: number;
+  p0onboard?: number;
+  p1onboard?: number;
+  p2onboard?: number;
 }
 
 /** 与看板站一致的岗位 key：岗位名||部门 转小写。任意岗位名都可用，无需匹配岗位库。 */
