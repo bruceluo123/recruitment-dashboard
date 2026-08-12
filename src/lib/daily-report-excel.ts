@@ -1,7 +1,6 @@
 'use client';
 import type { Candidate } from '@/types/interview';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
-import type { WorkSheet } from 'xlsx';
 import {
   aggregateRecommendations,
   isSameDay,
@@ -10,24 +9,34 @@ import {
   todaysRecommendations,
 } from '@/lib/daily-report';
 
-const TEMPLATE_URL = '/templates/daily-report-cloud.xls';
-
 interface ExportDailyReportArgs {
   column: RepushColumnId;
+  name?: string;
   items: RepushItem[];
   candidates: Candidate[];
   date?: Date;
 }
 
-type XLSXModule = typeof import('xlsx');
+type Worksheet = import('exceljs').Worksheet;
+type ReportRow = Array<string | number>;
 
-const WORK_START = 4;      // row 5, 0-based
+const START_COL = 2;
+const END_COL = 7;
 const WORK_CAPACITY = 3;
-const INTERVIEW_START = 9; // row 10
 const INTERVIEW_CAPACITY = 8;
-const OFFER_START = 19;    // row 20
 const OFFER_CAPACITY = 5;
-const DIFFICULTY_HEADER = 24;
+const SECTION_FILL = 'FF9999FF';
+const HEADER_FILL = 'FFCCCCFF';
+const BLACK = 'FF000000';
+
+const border = {
+  top: { style: 'thin' as const, color: { argb: BLACK } },
+  left: { style: 'thin' as const, color: { argb: BLACK } },
+  bottom: { style: 'thin' as const, color: { argb: BLACK } },
+  right: { style: 'thin' as const, color: { argb: BLACK } },
+};
+
+const center = { horizontal: 'center' as const, vertical: 'middle' as const, wrapText: true };
 
 function localDateKey(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -86,7 +95,7 @@ function getOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId
     .sort((a, b) => (a.onboardDate || a.updatedAt).localeCompare(b.onboardDate || b.updatedAt));
 }
 
-function buildWorkRows(items: RepushItem[], candidates: Candidate[], ref: Date, column: RepushColumnId) {
+function buildWorkRows(items: RepushItem[], candidates: Candidate[], ref: Date, column: RepushColumnId): ReportRow[] {
   const recommendations = todaysRecommendations(items, ref, column);
   const invites = scheduledToday(candidates, ref, column);
   const interviews = todaysInterviews(candidates, ref, column);
@@ -115,7 +124,7 @@ function buildWorkRows(items: RepushItem[], candidates: Candidate[], ref: Date, 
   });
 }
 
-function buildPendingInterviewRows(candidates: Candidate[], ref: Date, column: RepushColumnId) {
+function buildPendingInterviewRows(candidates: Candidate[], ref: Date, column: RepushColumnId): ReportRow[] {
   return candidates
     .filter((candidate) => {
       if ((candidate.owner || 'a') !== column) return false;
@@ -133,7 +142,7 @@ function buildPendingInterviewRows(candidates: Candidate[], ref: Date, column: R
     ]);
 }
 
-function buildOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId) {
+function buildOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId): ReportRow[] {
   return getOfferRows(candidates, ref, column).map((candidate, index) => {
     const onboarded = candidate.outcome === 'onboarded';
     const rejected = candidate.outcome === 'offer-rejected' || candidate.outcome === 'failed' || candidate.outcome === 'withdrawn';
@@ -148,68 +157,6 @@ function buildOfferRows(candidates: Candidate[], ref: Date, column: RepushColumn
   });
 }
 
-function cloneCell(cell: unknown): unknown {
-  return cell ? JSON.parse(JSON.stringify(cell)) : undefined;
-}
-
-function shiftRows(ws: WorkSheet, XLSX: XLSXModule, startRow: number, count: number): void {
-  if (count <= 0 || !ws['!ref']) return;
-  const range = XLSX.utils.decode_range(ws['!ref']);
-  for (let r = range.e.r; r >= startRow; r--) {
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const from = XLSX.utils.encode_cell({ r, c });
-      const to = XLSX.utils.encode_cell({ r: r + count, c });
-      if (ws[from]) ws[to] = ws[from];
-      else delete ws[to];
-    }
-  }
-  for (let r = startRow; r < startRow + count; r++) {
-    for (let c = range.s.c; c <= range.e.c; c++) delete ws[XLSX.utils.encode_cell({ r, c })];
-  }
-  if (ws['!merges']) {
-    ws['!merges'] = ws['!merges'].map((merge) => ({
-      s: { ...merge.s, r: merge.s.r >= startRow ? merge.s.r + count : merge.s.r },
-      e: { ...merge.e, r: merge.e.r >= startRow ? merge.e.r + count : merge.e.r },
-    }));
-  }
-  range.e.r += count;
-  ws['!ref'] = XLSX.utils.encode_range(range);
-}
-
-function applyRowStyle(ws: WorkSheet, XLSX: XLSXModule, sourceRow: number, targetRow: number): void {
-  for (let c = 1; c <= 6; c++) {
-    const source = ws[XLSX.utils.encode_cell({ r: sourceRow, c })];
-    const targetAddr = XLSX.utils.encode_cell({ r: targetRow, c });
-    const target = ws[targetAddr] || { t: 's', v: '' };
-    const styleSource = cloneCell(source) as { s?: unknown; z?: unknown } | undefined;
-    ws[targetAddr] = { ...target, s: styleSource?.s, z: styleSource?.z };
-  }
-}
-
-function clearRows(ws: WorkSheet, XLSX: XLSXModule, startRow: number, capacity: number): void {
-  for (let r = startRow; r < startRow + capacity; r++) {
-    for (let c = 1; c <= 6; c++) {
-      const addr = XLSX.utils.encode_cell({ r, c });
-      const prev = ws[addr] as ({ s?: unknown; z?: unknown } & Record<string, unknown>) | undefined;
-      ws[addr] = { t: 's', v: '', s: prev?.s, z: prev?.z };
-    }
-  }
-}
-
-function writeRows(ws: WorkSheet, XLSX: XLSXModule, startRow: number, capacity: number, rows: Array<Array<string | number>>): void {
-  clearRows(ws, XLSX, startRow, Math.max(capacity, rows.length));
-  rows.forEach((row, index) => {
-    XLSX.utils.sheet_add_aoa(ws, [row], { origin: { r: startRow + index, c: 1 } });
-    applyRowStyle(ws, XLSX, startRow, startRow + index);
-  });
-}
-
-function ensureRows(ws: WorkSheet, XLSX: XLSXModule, sectionStart: number, capacity: number, required: number): number {
-  const extra = Math.max(0, required - capacity);
-  if (extra) shiftRows(ws, XLSX, sectionStart + capacity, extra);
-  return extra;
-}
-
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -221,43 +168,110 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export async function exportDailyReportExcel({ column, items, candidates, date = new Date() }: ExportDailyReportArgs): Promise<void> {
-  const XLSX = await import('xlsx');
-  const res = await fetch(TEMPLATE_URL);
-  if (!res.ok) throw new Error('日报模板下载失败');
-  const buffer = await res.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: 'array', cellStyles: true, cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
+function fillColor(argb: string) {
+  return { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } };
+}
+
+function styleRange(ws: Worksheet, row: number, fill?: string): void {
+  for (let col = START_COL; col <= END_COL; col++) {
+    const cell = ws.getCell(row, col);
+    cell.border = border;
+    cell.alignment = center;
+    if (fill) cell.fill = fillColor(fill);
+  }
+}
+
+function writeMergedRow(ws: Worksheet, row: number, text: string, fill: string | undefined, fontSize: number): void {
+  ws.mergeCells(row, START_COL, row, END_COL);
+  ws.getCell(row, START_COL).value = text;
+  styleRange(ws, row, fill);
+  ws.getCell(row, START_COL).font = { name: 'Microsoft YaHei', size: fontSize, bold: true, color: { argb: BLACK } };
+}
+
+function writeHeaderRow(ws: Worksheet, row: number, values: string[]): void {
+  ws.getRow(row).height = 25;
+  values.forEach((value, index) => {
+    const cell = ws.getCell(row, START_COL + index);
+    cell.value = value;
+    cell.font = { name: 'Microsoft YaHei', size: 14, color: { argb: BLACK } };
+  });
+  styleRange(ws, row, HEADER_FILL);
+}
+
+function writeDataRows(ws: Worksheet, startRow: number, rows: ReportRow[], capacity: number): number {
+  const count = Math.max(rows.length, capacity);
+  for (let i = 0; i < count; i++) {
+    const rowNumber = startRow + i;
+    ws.getRow(rowNumber).height = 25;
+    const values = rows[i] || ['', '', '', '', '', ''];
+    for (let colOffset = 0; colOffset < 6; colOffset++) {
+      const cell = ws.getCell(rowNumber, START_COL + colOffset);
+      cell.value = values[colOffset] ?? '';
+      cell.font = { name: 'Microsoft YaHei', size: 14, color: { argb: BLACK } };
+    }
+    styleRange(ws, rowNumber);
+  }
+  return startRow + count;
+}
+
+function setupSheet(ws: Worksheet): void {
+  ws.getColumn(1).width = 3.5625;
+  ws.getColumn(2).width = 6.0703125;
+  ws.getColumn(3).width = 16.953125;
+  ws.getColumn(4).width = 10.078125;
+  ws.getColumn(5).width = 10.078125;
+  ws.getColumn(6).width = 8.48046875;
+  ws.getColumn(7).width = 29.10546875;
+  ws.getColumn(8).width = 11;
+  ws.getRow(1).height = 9;
+  ws.views = [{ showGridLines: true }];
+}
+
+export async function exportDailyReportExcel({
+  column,
+  name = '木云',
+  items,
+  candidates,
+  date = new Date(),
+}: ExportDailyReportArgs): Promise<void> {
+  const ExcelJS = await import('exceljs');
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = '企鹅岛';
+  workbook.created = date;
+  const ws = workbook.addWorksheet('Sheet1');
+  setupSheet(ws);
 
   const workRows = buildWorkRows(items, candidates, date, column);
   const interviewRows = buildPendingInterviewRows(candidates, date, column);
   const offerRows = buildOfferRows(candidates, date, column);
 
-  let interviewStart = INTERVIEW_START;
-  let offerStart = OFFER_START;
-  let difficultyHeader = DIFFICULTY_HEADER;
+  ws.getRow(2).height = 27;
+  writeMergedRow(ws, 2, `${name}--工作日报表（${date.getMonth() + 1}月${date.getDate()}日）`, undefined, 28);
 
-  const workExtra = ensureRows(ws, XLSX, WORK_START, WORK_CAPACITY, workRows.length);
-  interviewStart += workExtra;
-  offerStart += workExtra;
-  difficultyHeader += workExtra;
+  let row = 3;
+  ws.getRow(row).height = 28;
+  writeMergedRow(ws, row++, '一、日常工作', SECTION_FILL, 22);
+  writeHeaderRow(ws, row++, ['序号', '负责岗位名称', '推荐简历', '邀约', '面试', '录用']);
+  row = writeDataRows(ws, row, workRows, WORK_CAPACITY);
 
-  const interviewExtra = ensureRows(ws, XLSX, interviewStart, INTERVIEW_CAPACITY, interviewRows.length);
-  offerStart += interviewExtra;
-  difficultyHeader += interviewExtra;
+  ws.getRow(row).height = 34;
+  writeMergedRow(ws, row++, '二、待面试清单', SECTION_FILL, 22);
+  writeHeaderRow(ws, row++, ['序号', '渠道', '面试日期', '面试时间', '姓名', '岗位']);
+  row = writeDataRows(ws, row, interviewRows, INTERVIEW_CAPACITY);
 
-  const offerExtra = ensureRows(ws, XLSX, offerStart, OFFER_CAPACITY, offerRows.length);
-  difficultyHeader += offerExtra;
+  ws.getRow(row).height = 25;
+  writeMergedRow(ws, row++, '三、OFFER及入职明细（写上今天入职的人明细及今天offer的人明细）', SECTION_FILL, 18);
+  writeHeaderRow(ws, row++, ['序号', '岗位名称', '候选人', '待入职时间', '是否入职', '入职时间']);
+  row = writeDataRows(ws, row, offerRows, OFFER_CAPACITY);
 
-  XLSX.utils.sheet_add_aoa(ws, [[`木云--工作日报表（${date.getMonth() + 1}月${date.getDate()}日）`]], { origin: 'B2' });
-  writeRows(ws, XLSX, WORK_START, WORK_CAPACITY, workRows);
-  writeRows(ws, XLSX, interviewStart, INTERVIEW_CAPACITY, interviewRows);
-  writeRows(ws, XLSX, offerStart, OFFER_CAPACITY, offerRows);
+  ws.getRow(row).height = 25;
+  writeMergedRow(ws, row++, '四、有无困难点', SECTION_FILL, 22);
+  ws.mergeCells(row, START_COL, row + 1, END_COL);
+  ws.getRow(row).height = 25;
+  ws.getRow(row + 1).height = 25;
+  for (let r = row; r <= row + 1; r++) styleRange(ws, r);
 
-  XLSX.utils.sheet_add_aoa(ws, [['四、有无困难点']], { origin: { r: difficultyHeader, c: 1 } });
-  XLSX.utils.sheet_add_aoa(ws, [['']], { origin: { r: difficultyHeader + 1, c: 1 } });
-
-  const output = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
-  const filename = `木云-工作日报-${localDateKey(date)}.xlsx`;
+  const output = await workbook.xlsx.writeBuffer();
+  const filename = `${name}-工作日报-${localDateKey(date)}.xlsx`;
   downloadBlob(new Blob([output], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
 }

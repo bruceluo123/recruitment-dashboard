@@ -109,7 +109,7 @@ export function RecommendationCenter() {
   const handleExportTodayReport = async () => {
     setExportingToday(true);
     try {
-      await exportDailyReportExcel({ column: view, items, candidates });
+      await exportDailyReportExcel({ column: view, name: columnNames[view], items, candidates });
     } catch (error) {
       alert(error instanceof Error ? error.message : '导出今日日报失败，请重试');
     } finally {
