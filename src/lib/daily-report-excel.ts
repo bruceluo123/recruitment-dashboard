@@ -56,11 +56,11 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function isOnOrAfterToday(iso: string | undefined, ref: Date): boolean {
+function isAfterToday(iso: string | undefined, ref: Date): boolean {
   if (!iso) return false;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return false;
-  return startOfDay(d).getTime() >= startOfDay(ref).getTime();
+  return startOfDay(d).getTime() > startOfDay(ref).getTime();
 }
 
 function blankZero(value: string | number): string | number {
@@ -103,11 +103,21 @@ function getOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId
     .sort((a, b) => (a.onboardDate || a.updatedAt).localeCompare(b.onboardDate || b.updatedAt));
 }
 
+function getWorkOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId): Candidate[] {
+  return candidates.filter((candidate) => {
+    if ((candidate.owner || 'a') !== column) return false;
+    if (candidate.outcome === 'onboarded') return false;
+    if (candidate.stage === 'offer' && isSameDay(candidate.updatedAt, ref)) return true;
+    if (candidate.outcome && isSameDay(candidate.outcomeAt, ref)) return true;
+    return false;
+  });
+}
+
 function buildWorkRows(items: RepushItem[], candidates: Candidate[], ref: Date, column: RepushColumnId): ReportRow[] {
   const recommendations = todaysRecommendations(items, ref, column);
   const invites = scheduledToday(candidates, ref, column);
   const interviews = todaysInterviews(candidates, ref, column);
-  const offers = getOfferRows(candidates, ref, column);
+  const offers = getWorkOfferRows(candidates, ref, column);
   const recLines = aggregateRecommendations(recommendations);
   const inviteByJob = byJob(invites);
   const interviewByJob = byJob(interviews);
@@ -137,7 +147,7 @@ function buildPendingInterviewRows(candidates: Candidate[], ref: Date, column: R
     .filter((candidate) => {
       if ((candidate.owner || 'a') !== column) return false;
       if (candidate.outcome || candidate.stage === 'offer') return false;
-      return isOnOrAfterToday(candidate.interviewDate, ref);
+      return isAfterToday(candidate.interviewDate, ref);
     })
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime())
     .map((candidate, index) => [
