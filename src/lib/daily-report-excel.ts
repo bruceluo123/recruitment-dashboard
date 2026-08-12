@@ -31,6 +31,7 @@ const END_COL = 7;
 const WORK_CAPACITY = 3;
 const INTERVIEW_CAPACITY = 8;
 const OFFER_CAPACITY = 5;
+const PENDING_INTERVIEW_CHANNELS = ['个人资源', 'boss'] as const;
 
 function localDateKey(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -62,6 +63,19 @@ function isOnOrAfterToday(iso: string | undefined, ref: Date): boolean {
   return startOfDay(d).getTime() >= startOfDay(ref).getTime();
 }
 
+function blankZero(value: string | number): string | number {
+  return value === 0 ? '' : value;
+}
+
+function pendingInterviewChannel(candidate: Candidate, index: number): string {
+  const seed = `${candidate.id}-${candidate.interviewDate || ''}-${index}`;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return PENDING_INTERVIEW_CHANNELS[hash % PENDING_INTERVIEW_CHANNELS.length];
+}
+
 function byJob<T extends { jdTitle: string }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
   for (const row of rows) {
@@ -72,7 +86,7 @@ function byJob<T extends { jdTitle: string }>(rows: T[]): Map<string, T[]> {
 }
 
 function countWithNames(rows: Candidate[]): string | number {
-  if (!rows.length) return 0;
+  if (!rows.length) return '';
   const names = rows.map((row) => row.name).filter(Boolean);
   return names.length ? `${rows.length}（${names.join('、')}）` : rows.length;
 }
@@ -110,9 +124,9 @@ function buildWorkRows(items: RepushItem[], candidates: Candidate[], ref: Date, 
     return [
       index + 1,
       name,
-      rec?.qty || 0,
-      inviteByJob.get(name)?.length || 0,
-      interviewByJob.get(name)?.length || 0,
+      blankZero(rec?.qty || 0),
+      blankZero(inviteByJob.get(name)?.length || 0),
+      blankZero(interviewByJob.get(name)?.length || 0),
       countWithNames(offerRows),
     ];
   });
@@ -128,7 +142,7 @@ function buildPendingInterviewRows(candidates: Candidate[], ref: Date, column: R
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime())
     .map((candidate, index) => [
       index + 1,
-      'boss',
+      pendingInterviewChannel(candidate, index),
       dateText(candidate.interviewDate),
       timeText(candidate.interviewDate),
       candidate.name,
@@ -176,7 +190,8 @@ function applyRowTemplate(ws: Worksheet, rowNumber: number, template: RowTemplat
 function writeCells(ws: Worksheet, rowNumber: number, values: ReportRow, template: RowTemplate): void {
   applyRowTemplate(ws, rowNumber, template);
   for (let col = START_COL; col <= END_COL; col++) {
-    ws.getCell(rowNumber, col).value = values[col - START_COL] ?? '';
+    const value = values[col - START_COL] ?? '';
+    ws.getCell(rowNumber, col).value = value === 0 ? '' : value;
   }
 }
 
