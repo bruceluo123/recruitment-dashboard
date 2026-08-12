@@ -169,7 +169,7 @@ function buildOfferRows(candidates: Candidate[], ref: Date, column: RepushColumn
       candidate.jdTitle,
       candidate.name,
       dateText(candidate.onboardDate),
-      onboarded ? '是' : rejected ? '否' : '',
+      onboarded ? '是否入职' : rejected ? '否' : '',
       onboarded ? dateText(candidate.onboardDate) : candidate.outcomeReason || '',
     ];
   });
