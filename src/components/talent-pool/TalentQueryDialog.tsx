@@ -39,7 +39,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
   const queryRef = useRef('');
   const abortRef = useRef<AbortController | null>(null);
   const lastAutoRunRef = useRef('');
-  useEscapeClose(onClose, isOpen && !loading);
+  useEscapeClose(() => setMinimized(true), isOpen && !loading && !minimized);
 
   const activeTalents = useMemo(() => talents.filter((t) => !t.archived), [talents]);
   const scannedCount = activeTalents.filter((t) => t.hasResumeText).length;
@@ -87,10 +87,12 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
       return;
     }
     const nextQuery = initialQuery || '';
-    queryRef.current = nextQuery;
-    setQuery(nextQuery);
-    setError('');
-    setResults([]);
+    if (nextQuery && nextQuery !== queryRef.current) {
+      queryRef.current = nextQuery;
+      setQuery(nextQuery);
+      setError('');
+      setResults([]);
+    }
     window.setTimeout(() => inputRef.current?.focus(), 0);
     if (autoRun && nextQuery && lastAutoRunRef.current !== nextQuery) {
       lastAutoRunRef.current = nextQuery;
@@ -159,7 +161,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
 
   return (
     <div data-search-state="open" className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[10vh]">
-      <button type="button" aria-label="关闭人才搜索" onClick={() => { if (!loading) onClose(); }} className="fixed inset-0 bg-black/30" />
+      <button type="button" aria-label="收起人才搜索" onClick={() => { if (!loading) setMinimized(true); }} className="fixed inset-0 bg-black/30" />
       <div className="relative w-full max-w-4xl max-h-[82vh] flex flex-col bg-white border border-gray-200 rounded-2xl shadow-xl animate-fade-in overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
