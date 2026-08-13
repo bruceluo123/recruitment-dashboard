@@ -240,11 +240,12 @@ export function InterviewCalendarPage() {
     return Array.from(groups.entries());
   }, [weeklyScheduleCandidates]);
 
-  // 看板「当天面试」开关：开启时只保留面试日期在今天的候选人
+  // 「当天面试」只筛选面试阶段；Offer 始终保留，避免刚确认的 Offer 被隐藏。
   const boardCandidates = useMemo(() => {
     if (!todayOnly) return ownerCandidates;
     const now = new Date();
     return ownerCandidates.filter((c) => {
+      if (c.stage === 'offer') return true;
       if (!c.interviewDate) return false;
       const d = new Date(c.interviewDate);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();

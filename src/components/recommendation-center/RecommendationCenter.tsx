@@ -121,6 +121,7 @@ export function RecommendationCenter() {
     const salary = [probationSalary && `试用期 ${probationSalary}`, regularSalary && `转正 ${regularSalary}`].filter(Boolean).join(' / ');
     const partial = {
       stage: 'offer' as const,
+      owner: offering.column,
       score: Number(values.score) || 0,
       interviewer: values.interviewer.trim() || undefined,
       onboardDate: values.onboardDate ? new Date(`${values.onboardDate}T00:00:00`).toISOString() : undefined,
