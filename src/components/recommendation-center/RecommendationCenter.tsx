@@ -141,7 +141,6 @@ export function RecommendationCenter() {
         resumeId: '',
         jdId: jd?.id || '',
         jdTitle: offering.jdTitle || '',
-        owner: offering.column,
         resumeUrl: offering.resumeUrl || undefined,
         resumeFileName: offering.resumeFileName || undefined,
         talentId: offering.talentId || undefined,
