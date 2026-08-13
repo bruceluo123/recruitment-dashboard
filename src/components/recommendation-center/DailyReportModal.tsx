@@ -9,6 +9,7 @@ import {
   todaysInterviews,
   scheduledToday,
   todaysOnboards,
+  todaysOffers,
   findExistingReportId,
   submitRemoteRecord,
   makeJobKey,
@@ -47,7 +48,7 @@ const countPriority = <T extends { priority?: string }>(rows: T[], priority: str
 const sumPriority = (rows: JobLine[], priority: string) => rows.reduce((total, row) => total + (row.priority === priority ? Number(row.qty) || 0 : 0), 0);
 
 // ── 草稿自动暂存：误关/切走/点到外面时不丢失填写，按「录入人 + 日期」隔离，提交成功后清除 ──
-const DRAFT_VERSION = 4;
+const DRAFT_VERSION = 5;
 interface DraftState {
   v: number;
   recommend: JobLine[]; cv: JobLine[]; screenNew: number;
@@ -108,7 +109,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     const interviews = todaysInterviews(candidates, r, column);
     const sched = scheduledToday(candidates, r, column);
     const onboards = todaysOnboards(candidates, r, column);
-    return normalizeAutoRecord(buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched, onboards }));
+    const offers = todaysOffers(candidates, r, column);
+    return normalizeAutoRecord(buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched, onboards, offers }));
   };
 
   // 选中日期：默认今天，可切到昨天/前几天——拉取并录入「那一天」的数据，日报日期也随之改为那天。
@@ -131,8 +133,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const [scheduledInt, setScheduledInt] = useState<number>(initial.saved?.scheduledInt ?? initial.auto.scheduledInt);
   const [interview, setInterview] = useState<InterviewLine[]>(initial.saved?.interview ?? []);
   const [interviewTotal, setInterviewTotal] = useState<number>(initial.saved?.interviewTotal ?? initial.auto.interviewTotal);
-  // Offer 申请仍手动填写；当天入职从面试日历自动带入完整明细。
-  const [offer, setOffer] = useState<JobLine[]>(initial.saved?.offer ?? []);
+  // 当天确认的 Offer 与当天入职均从面试日历自动带入，仍可手动调整。
+  const [offer, setOffer] = useState<JobLine[]>(initial.saved?.offer ?? initial.auto.offerDetail);
   const [offerTotal, setOfferTotal] = useState<number>(initial.saved?.offerTotal ?? initial.auto.offer);
   const [onboard, setOnboard] = useState<OnboardLine[]>(initial.saved?.onboard ?? initial.auto.onboardDetail);
   const [onboardTotal, setOnboardTotal] = useState<number>(initial.saved?.onboardTotal ?? initial.auto.onboard);
@@ -159,7 +161,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setScheduledInt(saved?.scheduledInt ?? auto.scheduledInt);
     setInterview(saved?.interview ?? []);
     setInterviewTotal(saved?.interviewTotal ?? auto.interviewTotal);
-    setOffer(saved?.offer ?? []);
+    setOffer(saved?.offer ?? auto.offerDetail);
     setOfferTotal(saved?.offerTotal ?? auto.offer);
     setOnboard(saved?.onboard ?? auto.onboardDetail);
     setOnboardTotal(saved?.onboardTotal ?? auto.onboard);
@@ -216,7 +218,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setScheduledInt(auto.scheduledInt);
     setInterview([]);
     setInterviewTotal(auto.interviewTotal);
-    setOffer([]);
+    setOffer(auto.offerDetail);
     setOfferTotal(auto.offer);
     setOnboard(auto.onboardDetail);
     setOnboardTotal(auto.onboard);

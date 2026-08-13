@@ -267,6 +267,18 @@ export function todaysOnboards(candidates: Candidate[], ref: Date, owner?: 'a' |
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
 }
 
+/** 当天 Offer 申请：以推荐中心确认 Offer 的时间为准。旧记录回退 updatedAt 兼容。 */
+export function todaysOffers(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
+  return candidates
+    .filter((candidate) => (
+      (candidate.offerAppliedAt
+        ? isSameDay(candidate.offerAppliedAt, ref)
+        : candidate.stage === 'offer' && isSameDay(candidate.updatedAt, ref))
+      && (!owner || (candidate.owner || 'a') === owner)
+    ))
+    .sort((a, b) => (a.offerAppliedAt || a.updatedAt).localeCompare(b.offerAppliedAt || b.updatedAt));
+}
+
 /** 把今日推荐按「岗位+部门」聚合计数，得到推荐明细。 */
 export function aggregateRecommendations(items: RepushItem[]): JobLine[] {
   const map = new Map<string, JobLine>();
@@ -300,6 +312,7 @@ export interface BuildOptions {
   interviews: Candidate[];       // 业务面试明细：已按今日过滤
   scheduled?: Candidate[];       // 约面明细：今日及未来（缺省时回退用 interviews）
   onboards?: Candidate[];        // 入职明细：入职日期为日报当天
+  offers?: Candidate[];          // Offer 明细：确认 Offer 的时间为日报当天
   remark?: string;
   id?: string;                   // 覆盖更新时复用既有 id
   rng?: () => number;
@@ -349,6 +362,22 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
     employmentStatus: '已入职',
     onboardDate: localDate(candidate.onboardDate!),
   }));
+  const offerMap = new Map<string, JobLine>();
+  (opts.offers || []).forEach((candidate, index) => {
+    const department = candidate.department || '';
+    const key = makeJobKey(candidate.jdTitle, department);
+    const current = offerMap.get(key);
+    if (current) current.qty += 1;
+    else offerMap.set(key, {
+      name: candidate.jdTitle,
+      department,
+      jobKey: key,
+      qty: 1,
+      channel: pickChannelForRow(index),
+      priority: pickRandomPriority(rng),
+    });
+  });
+  const offerDetail = Array.from(offerMap.values());
 
   return {
     id: opts.id || uuid(),
@@ -363,8 +392,8 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
     scheduledDetail,
     interviewTotal: interviewDetail.length,
     interviewDetail,
-    offer: 0,
-    offerDetail: [],
+    offer: sum(offerDetail),
+    offerDetail,
     onboard: onboardDetail.length,
     onboardDetail,
     remark: opts.remark || '',

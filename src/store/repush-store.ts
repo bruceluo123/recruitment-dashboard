@@ -32,6 +32,7 @@ export interface RepushItem {
   interviewAt?: string;        // 约面时间（ISO，约面后写入）
   source?: 'intake' | 'repush'; // 推荐来源；复推记录不进入今日日报
   repushSourceId?: string;     // 复推时关联原推荐记录，供日报准确排除
+  offerAppliedAt?: string;     // 点击并确认 Offer 的时间
   organization?: string;       // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
   department?: string;         // 该简历推荐到的部门（来源于 JD 库的部门列表）
   uploadedAt: string;          // 推荐时间（按天分组用）

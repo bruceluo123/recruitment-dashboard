@@ -114,6 +114,7 @@ export function RecommendationCenter() {
 
   const confirmOffer = (values: OfferFormValues) => {
     if (!offering) return;
+    const offerAppliedAt = new Date().toISOString();
     const name = offering.candidateName || offering.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
     const linkedCandidate = candidates.find((candidate) => candidate.id === offering.candidateId)
       || candidates.find((candidate) => (candidate.owner || 'a') === offering.column && candidate.name === name && candidate.jdTitle === (offering.jdTitle || ''));
@@ -130,13 +131,14 @@ export function RecommendationCenter() {
       probationSalary: probationSalary || undefined,
       regularSalary: regularSalary || undefined,
       salary: salary || undefined,
+      offerAppliedAt,
       organization: offering.organization || linkedCandidate?.organization || jd?.organization?.trim() || undefined,
       department: offering.department || linkedCandidate?.department || jd?.department?.trim() || undefined,
     };
 
     if (linkedCandidate) {
       updateCandidate(linkedCandidate.id, partial);
-      updateItem(offering.id, { candidateId: linkedCandidate.id });
+      updateItem(offering.id, { candidateId: linkedCandidate.id, offerAppliedAt });
     } else {
       const candidateId = addCandidate({
         name,
@@ -149,7 +151,7 @@ export function RecommendationCenter() {
         contactPhone: offering.contact || undefined,
         ...partial,
       });
-      updateItem(offering.id, { candidateId });
+      updateItem(offering.id, { candidateId, offerAppliedAt });
     }
     setOffering(null);
   };

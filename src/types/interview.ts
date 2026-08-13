@@ -38,6 +38,7 @@ export interface Candidate {
   score: number;
   interviewDate?: string;
   interviewScheduledAt?: string; // 最近一次在推进中心确认约面的时间
+  offerAppliedAt?: string;       // 在推荐中心确认 Offer 的时间，供日报按天统计
   interviewer?: string;
   notes?: string;
   contactEmail?: string;
