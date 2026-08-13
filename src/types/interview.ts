@@ -41,6 +41,9 @@ export interface Candidate {
   contactEmail?: string;
   contactPhone?: string;
   salary?: string;
+  offerAmount?: string;
+  probationSalary?: string;
+  regularSalary?: string;
   onboardDate?: string;
   outcome?: CandidateOutcome;   // 最终结果；未设置=仍在流程中
   outcomeReason?: string;       // 淘汰/退出原因，供复推决策参考

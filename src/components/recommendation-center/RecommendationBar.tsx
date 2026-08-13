@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X, BriefcaseBusiness } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
@@ -9,11 +9,13 @@ interface RecommendationBarProps {
   onSchedule: (item: RepushItem) => void;
   onEdit: (item: RepushItem) => void;
   onRepush: (item: RepushItem) => void;
+  onOffer: (item: RepushItem) => void;
+  offerRecorded?: boolean;
   onRemove: (id: string) => void;
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer, offerRecorded, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -174,6 +176,14 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onRemove
             面试
           </button>
         )}
+        <button
+          onClick={() => onOffer(item)}
+          className={`flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border transition-colors ${offerRecorded ? 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100'}`}
+          title={offerRecorded ? '查看或修改 Offer 信息' : '记录 Offer 信息'}
+        >
+          <BriefcaseBusiness className="w-3.5 h-3.5" />
+          {offerRecorded ? '已Offer' : 'Offer'}
+        </button>
         <button
           onClick={() => onRepush(item)}
           className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-violet-200 bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors"

@@ -7,6 +7,7 @@ import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
 import { RecommendationBar } from './RecommendationBar';
 import { EditRecommendationModal } from './EditRecommendationModal';
 import { RepushModal, type RepushArgs } from './RepushModal';
+import { OfferModal, type OfferFormValues } from './OfferModal';
 import { DailyReportModal } from './DailyReportModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
@@ -14,6 +15,7 @@ import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { scheduleRecommendation } from '@/lib/schedule';
+import { matchJDByTitle } from '@/lib/recommendation';
 import { exportDailyReportExcel } from '@/lib/daily-report-excel';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
@@ -48,6 +50,7 @@ export function RecommendationCenter() {
 
   const jds = useJDStore((s) => s.jds);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
+  const updateCandidate = useInterviewStore((s) => s.updateCandidate);
   const candidates = useInterviewStore((s) => s.candidates);
 
   // 推荐人视图跟随全局持久化偏好（usePrefStore.activeOwner）：
@@ -58,6 +61,7 @@ export function RecommendationCenter() {
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [editing, setEditing] = useState<RepushItem | null>(null);
   const [repushing, setRepushing] = useState<RepushItem | null>(null);
+  const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
@@ -104,6 +108,49 @@ export function RecommendationCenter() {
       highlights: repushing.highlights,
     });
     setRepushing(null);
+  };
+
+  const confirmOffer = (values: OfferFormValues) => {
+    if (!offering) return;
+    const name = offering.candidateName || offering.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+    const linkedCandidate = candidates.find((candidate) => candidate.id === offering.candidateId)
+      || candidates.find((candidate) => (candidate.owner || 'a') === offering.column && candidate.name === name && candidate.jdTitle === (offering.jdTitle || ''));
+    const jd = offering.jdTitle ? matchJDByTitle(offering.jdTitle, jds) : null;
+    const probationSalary = values.probationSalary.trim();
+    const regularSalary = values.regularSalary.trim();
+    const salary = [probationSalary && `试用期 ${probationSalary}`, regularSalary && `转正 ${regularSalary}`].filter(Boolean).join(' / ');
+    const partial = {
+      stage: 'offer' as const,
+      score: Number(values.score) || 0,
+      interviewer: values.interviewer.trim() || undefined,
+      onboardDate: values.onboardDate ? new Date(`${values.onboardDate}T00:00:00`).toISOString() : undefined,
+      offerAmount: values.offerAmount.trim() || undefined,
+      probationSalary: probationSalary || undefined,
+      regularSalary: regularSalary || undefined,
+      salary: salary || undefined,
+      organization: offering.organization || linkedCandidate?.organization || jd?.organization?.trim() || undefined,
+      department: offering.department || linkedCandidate?.department || jd?.department?.trim() || undefined,
+    };
+
+    if (linkedCandidate) {
+      updateCandidate(linkedCandidate.id, partial);
+      updateItem(offering.id, { candidateId: linkedCandidate.id });
+    } else {
+      const candidateId = addCandidate({
+        name,
+        resumeId: '',
+        jdId: jd?.id || '',
+        jdTitle: offering.jdTitle || '',
+        owner: offering.column,
+        resumeUrl: offering.resumeUrl || undefined,
+        resumeFileName: offering.resumeFileName || undefined,
+        talentId: offering.talentId || undefined,
+        contactPhone: offering.contact || undefined,
+        ...partial,
+      });
+      updateItem(offering.id, { candidateId });
+    }
+    setOffering(null);
   };
 
   const handleExportTodayReport = async () => {
@@ -199,6 +246,8 @@ export function RecommendationCenter() {
                       onSchedule={setScheduling}
                       onEdit={setEditing}
                       onRepush={setRepushing}
+                      onOffer={setOffering}
+                      offerRecorded={candidates.some((candidate) => candidate.id === it.candidateId && candidate.stage === 'offer')}
                       onRemove={removeItem}
                       onUpdateContact={(id, contact) => updateItem(id, { contact })}
                     />
@@ -236,6 +285,14 @@ export function RecommendationCenter() {
           jds={jds}
           onClose={() => setRepushing(null)}
           onConfirm={confirmRepush}
+        />
+      )}
+      {offering && (
+        <OfferModal
+          item={offering}
+          candidate={candidates.find((candidate) => candidate.id === offering.candidateId)}
+          onClose={() => setOffering(null)}
+          onConfirm={confirmOffer}
         />
       )}
       {reporting && (
