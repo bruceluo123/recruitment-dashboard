@@ -8,6 +8,7 @@ import {
   todaysRecommendations,
   todaysInterviews,
   scheduledToday,
+  todaysOnboards,
   findExistingReportId,
   submitRemoteRecord,
   makeJobKey,
@@ -46,7 +47,7 @@ const countPriority = <T extends { priority?: string }>(rows: T[], priority: str
 const sumPriority = (rows: JobLine[], priority: string) => rows.reduce((total, row) => total + (row.priority === priority ? Number(row.qty) || 0 : 0), 0);
 
 // ── 草稿自动暂存：误关/切走/点到外面时不丢失填写，按「录入人 + 日期」隔离，提交成功后清除 ──
-const DRAFT_VERSION = 3;
+const DRAFT_VERSION = 4;
 interface DraftState {
   v: number;
   recommend: JobLine[]; cv: JobLine[]; screenNew: number;
@@ -106,7 +107,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     const recommendations = todaysRecommendations(items, r, column);
     const interviews = todaysInterviews(candidates, r, column);
     const sched = scheduledToday(candidates, r, column);
-    return normalizeAutoRecord(buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched }));
+    const onboards = todaysOnboards(candidates, r, column);
+    return normalizeAutoRecord(buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched, onboards }));
   };
 
   // 选中日期：默认今天，可切到昨天/前几天——拉取并录入「那一天」的数据，日报日期也随之改为那天。
@@ -129,10 +131,10 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const [scheduledInt, setScheduledInt] = useState<number>(initial.saved?.scheduledInt ?? initial.auto.scheduledInt);
   const [interview, setInterview] = useState<InterviewLine[]>(initial.saved?.interview ?? []);
   const [interviewTotal, setInterviewTotal] = useState<number>(initial.saved?.interviewTotal ?? initial.auto.interviewTotal);
-  // Offer 申请 / 入职：不自动抓取，默认为空，由使用者手动填写后随日报一并提交。
+  // Offer 申请仍手动填写；当天入职从面试日历自动带入完整明细。
   const [offer, setOffer] = useState<JobLine[]>(initial.saved?.offer ?? []);
   const [offerTotal, setOfferTotal] = useState<number>(initial.saved?.offerTotal ?? initial.auto.offer);
-  const [onboard, setOnboard] = useState<OnboardLine[]>(initial.saved?.onboard ?? []);
+  const [onboard, setOnboard] = useState<OnboardLine[]>(initial.saved?.onboard ?? initial.auto.onboardDetail);
   const [onboardTotal, setOnboardTotal] = useState<number>(initial.saved?.onboardTotal ?? initial.auto.onboard);
   const [remark, setRemark] = useState<string>(initial.saved?.remark ?? initial.auto.remark);
 
@@ -159,7 +161,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setInterviewTotal(saved?.interviewTotal ?? auto.interviewTotal);
     setOffer(saved?.offer ?? []);
     setOfferTotal(saved?.offerTotal ?? auto.offer);
-    setOnboard(saved?.onboard ?? []);
+    setOnboard(saved?.onboard ?? auto.onboardDetail);
     setOnboardTotal(saved?.onboardTotal ?? auto.onboard);
     setRemark(saved?.remark ?? auto.remark);
     setRestored(!!saved);
@@ -216,7 +218,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setInterviewTotal(auto.interviewTotal);
     setOffer([]);
     setOfferTotal(auto.offer);
-    setOnboard([]);
+    setOnboard(auto.onboardDetail);
     setOnboardTotal(auto.onboard);
     setRemark(auto.remark);
     setRestored(false);
@@ -448,7 +450,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
             <div className="max-w-xs">
               <NumField label="当天入职数" value={onboardTotal} onChange={(v) => { markDirty(); setOnboardTotal(v); }} />
             </div>
-            <div className="text-xs text-gray-400">填写数量后，请补充入职明细。</div>
+            <div className="text-xs text-gray-400">面试日历中当天入职的人选会自动带入，也可继续补充或修改。</div>
             <EditSection
               title="入职人选详情"
               onAdd={() => { markDirty(); setOnboardTotal((v) => Math.max(v, onboard.length + 1)); setOnboard((a) => [...a, emptyOnboardLine(selectedDate)]); }}
@@ -463,7 +465,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
                     <input className={gridInput} placeholder="岗位名称" value={o.jobName} onChange={(e) => patch(setOnboard, i, { jobName: e.target.value })} />
                     <input className={gridInput} placeholder="简历名" value={o.candidateName} onChange={(e) => patch(setOnboard, i, { candidateName: e.target.value, ...(o.nickname === o.candidateName ? { nickname: e.target.value } : {}) })} />
                     <input className={gridInput} placeholder="花名" value={o.nickname} onChange={(e) => patch(setOnboard, i, { nickname: e.target.value })} />
-                    <input className={gridInput} placeholder="编制组织" value={o.department} onChange={(e) => patch(setOnboard, i, { department: e.target.value })} />
+                    <input className={gridInput} placeholder="编制中心" value={o.center} onChange={(e) => patch(setOnboard, i, { center: e.target.value })} />
+                    <input className={gridInput} placeholder="具体部门" value={o.department} onChange={(e) => patch(setOnboard, i, { department: e.target.value })} />
 
                     <input className={gridInput} placeholder="面试官" value={o.interviewer} onChange={(e) => patch(setOnboard, i, { interviewer: e.target.value })} />
                     <input className={gridInput} placeholder="学历" value={o.education} onChange={(e) => patch(setOnboard, i, { education: e.target.value })} />
