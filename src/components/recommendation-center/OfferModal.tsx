@@ -8,7 +8,6 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 export interface OfferFormValues {
   onboardDate: string;
-  offerAmount: string;
   score: string;
   interviewer: string;
   probationSalary: string;
@@ -32,7 +31,6 @@ function dateInputValue(iso?: string): string {
 export function OfferModal({ item, candidate, onClose, onConfirm }: OfferModalProps) {
   const [form, setForm] = useState<OfferFormValues>({
     onboardDate: dateInputValue(candidate?.onboardDate),
-    offerAmount: candidate?.offerAmount || '',
     score: candidate?.score ? String(candidate.score) : '',
     interviewer: candidate?.interviewer || '',
     probationSalary: candidate?.probationSalary || '',
@@ -62,9 +60,6 @@ export function OfferModal({ item, candidate, onClose, onConfirm }: OfferModalPr
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="入职时间">
             <input type="date" value={form.onboardDate} onChange={(event) => patch({ onboardDate: event.target.value })} className={inputClass} />
-          </Field>
-          <Field label="Offer 金额">
-            <input value={form.offerAmount} onChange={(event) => patch({ offerAmount: event.target.value })} placeholder="如 30000" inputMode="decimal" className={inputClass} />
           </Field>
           <Field label="分数">
             <input type="number" min="0" step="0.1" value={form.score} onChange={(event) => patch({ score: event.target.value })} placeholder="如 3.5" className={inputClass} />

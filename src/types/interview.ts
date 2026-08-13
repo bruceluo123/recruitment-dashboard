@@ -41,7 +41,6 @@ export interface Candidate {
   contactEmail?: string;
   contactPhone?: string;
   salary?: string;
-  offerAmount?: string;
   probationSalary?: string;
   regularSalary?: string;
   onboardDate?: string;

@@ -124,7 +124,6 @@ export function RecommendationCenter() {
       score: Number(values.score) || 0,
       interviewer: values.interviewer.trim() || undefined,
       onboardDate: values.onboardDate ? new Date(`${values.onboardDate}T00:00:00`).toISOString() : undefined,
-      offerAmount: values.offerAmount.trim() || undefined,
       probationSalary: probationSalary || undefined,
       regularSalary: regularSalary || undefined,
       salary: salary || undefined,
