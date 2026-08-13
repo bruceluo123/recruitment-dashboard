@@ -57,8 +57,12 @@ function isSameDay(iso: string, ref: Date): boolean {
  * 入职地区、招聘渠道暂无字段来源，留空由用户在 Excel 中补充。
  */
 export function buildTodayScheduleTable(candidates: Candidate[], ref: Date = new Date()): string {
+  return buildScheduleTable(candidates.filter((c) => c.interviewDate && isSameDay(c.interviewDate!, ref)));
+}
+
+export function buildScheduleTable(candidates: Candidate[]): string {
   return candidates
-    .filter((c) => c.interviewDate && isSameDay(c.interviewDate!, ref))
+    .filter((c) => c.interviewDate)
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime())
     .map((c) => {
       const d = new Date(c.interviewDate!);

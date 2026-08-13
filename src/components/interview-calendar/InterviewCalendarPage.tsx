@@ -6,13 +6,44 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
-import type { CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
+import type { Candidate, CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES } from '@/types/interview';
 import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
-import { buildTodayScheduleTable, parseInterviewReport } from '@/lib/interview-report';
+import { buildScheduleTable, parseInterviewReport } from '@/lib/interview-report';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
+
+function dateKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function startOfWeek(date: Date): Date {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = d.getDay() || 7;
+  d.setDate(d.getDate() - day + 1);
+  return d;
+}
+
+function isThisWeek(iso: string, ref = new Date()): boolean {
+  const d = new Date(iso);
+  const start = startOfWeek(ref).getTime();
+  const end = start + 7 * 24 * 60 * 60 * 1000;
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return day >= start && day < end;
+}
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
+}
+
+function timeLabel(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
@@ -26,6 +57,8 @@ export function InterviewCalendarPage() {
   const ownerTab = usePrefStore((s) => s.activeOwner) as CandidateOwner;
   const setOwnerTab = usePrefStore((s) => s.setActiveOwner);
   const [showImport, setShowImport] = useState(false);
+  const [showExcelPicker, setShowExcelPicker] = useState(false);
+  const [selectedExcelIds, setSelectedExcelIds] = useState<string[]>([]);
   const [importText, setImportText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
@@ -140,19 +173,21 @@ export function InterviewCalendarPage() {
     }
   };
 
-  // Excel看板：导出今天的面试为进度表（7 列，可直接粘贴 Excel 进度表）
-  const handleCopyTodaySchedule = async () => {
-    const now = new Date();
-    const todays = ownerCandidates.filter((c) => {
-      if (!c.interviewDate) return false;
-      const d = new Date(c.interviewDate);
-      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-    });
-    if (todays.length === 0) { setCopyMsg('今日暂无约面安排'); return; }
-    const text = buildTodayScheduleTable(ownerCandidates, now);
+  // Excel看板：选择本周内多天面试，复制为可粘贴 Excel 的进度表
+  const openExcelPicker = () => {
+    if (weeklyScheduleCandidates.length === 0) { setCopyMsg('本周暂无约面安排'); return; }
+    setSelectedExcelIds(weeklyScheduleCandidates.map((c) => c.id));
+    setShowExcelPicker(true);
+  };
+
+  const handleCopyScheduleSelection = async () => {
+    const selectedRows = weeklyScheduleCandidates.filter((c) => selectedExcelIds.includes(c.id));
+    if (selectedRows.length === 0) { setCopyMsg('请先勾选要复制的面试'); return; }
+    const text = buildScheduleTable(selectedRows);
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMsg(`已复制今日Excel看板（${todays.length} 条）`);
+      setShowExcelPicker(false);
+      setCopyMsg(`已复制Excel看板（${selectedRows.length} 条）`);
     } catch {
       setCopyMsg('复制失败，请重试');
     }
@@ -190,6 +225,20 @@ export function InterviewCalendarPage() {
     () => candidates.filter((c) => (c.owner || 'a') === ownerTab),
     [candidates, ownerTab],
   );
+  const weeklyScheduleCandidates = useMemo(
+    () => ownerCandidates
+      .filter((c) => c.interviewDate && isThisWeek(c.interviewDate))
+      .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime()),
+    [ownerCandidates],
+  );
+  const weeklyScheduleDays = useMemo(() => {
+    const groups = new Map<string, Candidate[]>();
+    for (const candidate of weeklyScheduleCandidates) {
+      const key = dateKey(candidate.interviewDate!);
+      groups.set(key, [...(groups.get(key) || []), candidate]);
+    }
+    return Array.from(groups.entries());
+  }, [weeklyScheduleCandidates]);
 
   // 看板「当天面试」开关：开启时只保留面试日期在今天的候选人
   const boardCandidates = useMemo(() => {
@@ -208,6 +257,7 @@ export function InterviewCalendarPage() {
   const offerCount = ownerCandidates.filter((c) => c.stage === 'offer').length;
   const isEditing = editingId === selectedId;
   useEscapeClose(() => setShowImport(false), showImport);
+  useEscapeClose(() => setShowExcelPicker(false), showExcelPicker);
   useEscapeClose(() => setShowAddForm(false), showAddForm);
   useEscapeClose(() => { setSelectedId(null); setEditingId(null); }, !!selected);
 
@@ -260,7 +310,7 @@ export function InterviewCalendarPage() {
           <button onClick={handleCopyToday} className="px-3 h-9 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-1.5 shadow-sm">
             <Copy className="w-4 h-4" />今日面试
           </button>
-          <button onClick={handleCopyTodaySchedule} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
+          <button onClick={openExcelPicker} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
             <FileSpreadsheet className="w-4 h-4" />Excel看板
           </button>
           <button onClick={() => setShowImport(true)} className="px-3 h-9 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-1.5">
@@ -302,6 +352,87 @@ export function InterviewCalendarPage() {
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setShowImport(false)} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
               <button onClick={handleImport} disabled={!importText.trim()} className={cn('h-10 px-5 rounded-xl text-sm font-medium text-white transition-colors', importText.trim() ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed')}>确认导入</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showExcelPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/20" />
+          <div className="relative w-full max-w-2xl bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-500" />Excel看板
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">勾选本周要复制的面试记录，可一次性粘贴到 Excel。</p>
+              </div>
+              <button onClick={() => setShowExcelPicker(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+
+            <div className="max-h-[56vh] overflow-y-auto pr-1 space-y-4">
+              {weeklyScheduleDays.map(([day, rows]) => {
+                const dayIds = rows.map((row) => row.id);
+                const allChecked = dayIds.every((id) => selectedExcelIds.includes(id));
+                return (
+                  <div key={day} className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
+                      <button
+                        onClick={() => setSelectedExcelIds((ids) => allChecked ? ids.filter((id) => !dayIds.includes(id)) : Array.from(new Set([...ids, ...dayIds])))}
+                        className="flex items-center gap-2 text-sm font-semibold text-gray-700"
+                      >
+                        <span className={cn('w-4 h-4 rounded border flex items-center justify-center', allChecked ? 'bg-indigo-500 border-indigo-500' : 'bg-white border-gray-300')}>
+                          {allChecked && <Check className="w-3 h-3 text-white" />}
+                        </span>
+                        {dayLabel(rows[0].interviewDate!)}
+                      </button>
+                      <span className="text-xs text-gray-400">{rows.length} 条</span>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {rows.map((candidate) => {
+                        const checked = selectedExcelIds.includes(candidate.id);
+                        return (
+                          <label key={candidate.id} className="flex items-center gap-3 px-4 py-3 hover:bg-indigo-50/50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => setSelectedExcelIds((ids) => checked ? ids.filter((id) => id !== candidate.id) : [...ids, candidate.id])}
+                              className="w-4 h-4 accent-indigo-500"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                                <span>{timeLabel(candidate.interviewDate!)}</span>
+                                <span className="truncate">{candidate.name}</span>
+                              </div>
+                              <div className="text-xs text-gray-500 truncate mt-0.5">{candidate.jdTitle}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <button
+                onClick={() => setSelectedExcelIds(weeklyScheduleCandidates.map((c) => c.id))}
+                className="h-10 px-4 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100"
+              >
+                全选本周
+              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowExcelPicker(false)} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
+                <button
+                  onClick={handleCopyScheduleSelection}
+                  className={cn('h-10 px-5 rounded-xl text-sm font-medium text-white transition-colors', selectedExcelIds.length ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed')}
+                  disabled={selectedExcelIds.length === 0}
+                >
+                  复制 {selectedExcelIds.length} 条
+                </button>
+              </div>
             </div>
           </div>
         </div>
