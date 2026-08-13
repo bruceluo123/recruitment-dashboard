@@ -56,7 +56,7 @@ export interface Candidate {
 }
 
 export const DEFAULT_STAGES: InterviewStage[] = [
-  { id: 'interview-1', name: '面试一面', order: 0, color: 'blue' },
+  { id: 'interview-1', name: '一面', order: 0, color: 'blue' },
   { id: 'interview-2', name: '二面 / 三面', order: 1, color: 'amber' },
   { id: 'offer', name: 'Offer', order: 2, color: 'green' },
 ];

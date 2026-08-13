@@ -277,14 +277,14 @@ export function InterviewCalendarPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
+        <div className="shrink-0">
           <h2 className="text-2xl font-bold text-gray-800">面试日历</h2>
           <p className="text-sm text-gray-500 mt-1">
             {columnNames[ownerTab]} 共 {ownerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二/三面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1 2xl:justify-end 2xl:pb-0">
           {/* 麦满分/啵啵 推荐人切换 */}
           <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
             {(['a', 'b'] as CandidateOwner[]).map((o) => (

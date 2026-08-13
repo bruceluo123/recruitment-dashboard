@@ -11,7 +11,7 @@ interface StageKanbanBoardProps {
 
 export function StageKanbanBoard({ candidates, onCandidateClick, onDeleteCandidate }: StageKanbanBoardProps) {
   return (
-    <div className="space-y-4">
+    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       {DEFAULT_STAGES.map((stage) => {
         const stageCandidates = candidates.filter((c) => c.stage === stage.id);
         // Offer 列按入职时间(onboardDate)从前到后排；其余列按面试时间排
