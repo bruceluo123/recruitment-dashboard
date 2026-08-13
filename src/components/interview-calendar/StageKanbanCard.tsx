@@ -21,17 +21,21 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
   const dotColor = STAGE_COLORS[candidate.stage] || 'bg-gray-400';
   // 一面/二面阶段尚未评分时（0 分）不显示分数，避免满屏「0 分」；Offer 阶段始终显示
   const showScore = candidate.stage === 'offer' || candidate.score > 0;
+  const roundLabel = candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
 
   return (
-    <div draggable onDragStart={(e) => { e.dataTransfer.setData('candidateId', candidate.id); e.currentTarget.classList.add('opacity-50'); }} onDragEnd={(e) => { e.currentTarget.classList.remove('opacity-50'); }} onClick={onClick}
-      className="bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-xl p-3.5 cursor-pointer transition-all group animate-fade-in shadow-sm">
+    <div onClick={onClick}
+      className="group h-[176px] w-[280px] shrink-0 cursor-pointer rounded-lg border border-gray-200 bg-white p-3.5 shadow-sm transition-all hover:border-indigo-200 hover:bg-indigo-50/20 animate-fade-in">
       {candidate.outcome && (
         <span className={cn('inline-block mb-2 px-2 py-0.5 rounded-md text-[10px] font-medium', OUTCOME_COLORS[candidate.outcome])}>
           {OUTCOME_LABELS[candidate.outcome]}
         </span>
       )}
       <div className="flex items-start justify-between mb-2">
-        <h4 className="text-sm font-medium text-gray-800 truncate pr-2">{candidate.name}</h4>
+        <div className="flex min-w-0 items-center gap-2 pr-2">
+          <h4 className="truncate text-sm font-semibold text-gray-800">{candidate.name}</h4>
+          {roundLabel && <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{roundLabel}</span>}
+        </div>
         {showScore && (
           <span className="shrink-0 flex items-baseline gap-0.5 leading-none">
             <span className={cn('text-base font-extrabold tabular-nums', scoreColor)}>{candidate.score}</span>
@@ -61,7 +65,7 @@ export function StageKanbanCard({ candidate, onClick, onDelete }: StageKanbanCar
         {candidate.contactEmail && <p className="text-xs text-gray-400 flex items-center gap-1"><Mail className="w-3 h-3" /><span className="truncate">{candidate.contactEmail}</span></p>}
       </div>
       <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-        <span className="text-xs text-gray-400 group-hover:text-gray-500 transition-colors">拖拽移动</span>
+        <span className="text-xs text-gray-400 group-hover:text-indigo-500 transition-colors">点击查看 / 编辑</span>
         {confirming ? (
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             <button onClick={(e) => { e.stopPropagation(); onDelete(candidate.id); setConfirming(false); }} className="px-2 h-6 rounded-md text-[11px] font-medium bg-red-500 text-white hover:bg-red-600">确认删除</button>

@@ -49,7 +49,7 @@ export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addStage, setAddStage] = useState<string>('');
+  const [addStage] = useState<string>('');
   const [form, setForm] = useState({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
@@ -67,7 +67,6 @@ export function InterviewCalendarPage() {
   });
 
   const candidates = useInterviewStore((s) => s.candidates);
-  const moveCandidate = useInterviewStore((s) => s.moveCandidate);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
   const updateCandidate = useInterviewStore((s) => s.updateCandidate);
   const removeCandidate = useInterviewStore((s) => s.removeCandidate);
@@ -282,7 +281,7 @@ export function InterviewCalendarPage() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">面试日历</h2>
           <p className="text-sm text-gray-500 mt-1">
-            {columnNames[ownerTab]} 共 {ownerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二面 {secondInterviewCount} 个，Offer {offerCount} 个
+            {columnNames[ownerTab]} 共 {ownerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二/三面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -321,7 +320,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} onCandidateMove={(id, to) => moveCandidate(id, to)} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} onAddCandidate={(stage) => { setAddStage(stage); setShowAddForm(true); }} />
+        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} />
       ) : (
         <WeekGridView candidates={ownerCandidates} onCandidateClick={setSelectedId} />
       )}

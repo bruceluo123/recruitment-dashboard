@@ -1,19 +1,17 @@
 'use client';
 import { StageKanbanColumn } from './StageKanbanColumn';
 import { DEFAULT_STAGES } from '@/types/interview';
-import type { Candidate, CandidateStatus } from '@/types/interview';
+import type { Candidate } from '@/types/interview';
 
 interface StageKanbanBoardProps {
   candidates: Candidate[];
-  onCandidateMove: (id: string, toStage: CandidateStatus) => void;
   onCandidateClick: (id: string) => void;
   onDeleteCandidate: (id: string) => void;
-  onAddCandidate: (stage: CandidateStatus) => void;
 }
 
-export function StageKanbanBoard({ candidates, onCandidateMove, onCandidateClick, onDeleteCandidate, onAddCandidate }: StageKanbanBoardProps) {
+export function StageKanbanBoard({ candidates, onCandidateClick, onDeleteCandidate }: StageKanbanBoardProps) {
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
+    <div className="space-y-4">
       {DEFAULT_STAGES.map((stage) => {
         const stageCandidates = candidates.filter((c) => c.stage === stage.id);
         // Offer 列按入职时间(onboardDate)从前到后排；其余列按面试时间排
@@ -23,8 +21,8 @@ export function StageKanbanBoard({ candidates, onCandidateMove, onCandidateClick
         return (
           <StageKanbanColumn key={stage.id} stage={stage}
             candidates={sorted}
-            onCandidateMove={onCandidateMove} onCandidateClick={onCandidateClick}
-            onDeleteCandidate={onDeleteCandidate} onAddCandidate={onAddCandidate} />
+            onCandidateClick={onCandidateClick}
+            onDeleteCandidate={onDeleteCandidate} />
         );
       })}
     </div>

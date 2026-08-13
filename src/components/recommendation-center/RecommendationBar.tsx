@@ -23,6 +23,15 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
   const [showHighlights, setShowHighlights] = useState(false);
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
+  const scheduleLabel = item.interviewRound === '一面'
+    ? '约二面'
+    : item.interviewRound === '二面'
+      ? '约三面'
+      : item.interviewRound === '三面'
+        ? '已三面'
+        : item.interviewStatus === 'scheduled'
+          ? '已约面'
+          : '面试';
 
   useEffect(() => {
     if (!editingContact) setContactDraft(item.contact || '');
@@ -164,7 +173,7 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
             title="已约面，点击可改期"
           >
             <CalendarCheck className="w-3.5 h-3.5" />
-            已约面
+            {scheduleLabel}
           </button>
         ) : (
           <button

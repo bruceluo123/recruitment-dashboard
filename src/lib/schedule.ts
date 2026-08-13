@@ -21,13 +21,15 @@ interface ScheduleArgs {
 
 interface ScheduleDeps {
   jds: JD[];
+  candidates: Candidate[];
   addCandidate: (c: Omit<Candidate, 'id' | 'appliedAt' | 'updatedAt'>) => string;
+  updateCandidate: (id: string, partial: Partial<Candidate>) => void;
   updateItem: (id: string, partial: Partial<RepushItem>) => void;
 }
 
 export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, deps: ScheduleDeps): void {
   const { interviewAt, interviewer, round } = args;
-  const { jds, addCandidate, updateItem } = deps;
+  const { jds, candidates, addCandidate, updateCandidate, updateItem } = deps;
   if (!interviewAt) return;
 
   const name = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
@@ -35,25 +37,36 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
   const jd = jdTitle ? matchJDByTitle(jdTitle, jds) : null;
   const isoAt = new Date(interviewAt).toISOString();
 
-  const candidateId = addCandidate({
-    name,
-    resumeId: '',
-    jdId: jd?.id || '',
-    jdTitle,
-    owner: item.column,  // 约面来源列（a=麦满分 / b=啵啵）带入候选人
-    // 简历资产全链路：推荐记录里的简历文件/人才关联跟随候选人进入面试日历
-    resumeUrl: item.resumeUrl || undefined,
-    resumeFileName: item.resumeFileName || undefined,
-    talentId: item.talentId || undefined,
-    organization: item.organization || jd?.organization?.trim() || undefined,
-    department: item.department || jd?.department?.trim() || undefined,
+  const linkedCandidate = candidates.find((candidate) => candidate.id === item.candidateId)
+    || candidates.find((candidate) => (candidate.owner || 'a') === item.column && candidate.name === name && candidate.jdTitle === jdTitle);
+  const partial: Partial<Candidate> = {
+    owner: item.column,
     stage: ROUND_TO_STAGE[round],
-    score: 0,
+    interviewRound: round,
     interviewDate: isoAt,
-    interviewer: interviewer.trim() || undefined,
-    contactPhone: item.contact || undefined,
-    notes: round === '三面' ? '三面' : undefined,
-  });
+    interviewer: interviewer.trim() || linkedCandidate?.interviewer || undefined,
+    organization: item.organization || linkedCandidate?.organization || jd?.organization?.trim() || undefined,
+    department: item.department || linkedCandidate?.department || jd?.department?.trim() || undefined,
+  };
+
+  let candidateId = linkedCandidate?.id;
+  if (linkedCandidate) {
+    updateCandidate(linkedCandidate.id, partial);
+  } else {
+    candidateId = addCandidate({
+      name,
+      resumeId: '',
+      jdId: jd?.id || '',
+      jdTitle,
+      resumeUrl: item.resumeUrl || undefined,
+      resumeFileName: item.resumeFileName || undefined,
+      talentId: item.talentId || undefined,
+      score: 0,
+      contactPhone: item.contact || undefined,
+      ...partial,
+      stage: ROUND_TO_STAGE[round],
+    });
+  }
 
   updateItem(item.id, { interviewStatus: 'scheduled', candidateId, interviewAt: isoAt, interviewRound: round });
 }

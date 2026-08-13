@@ -33,6 +33,8 @@ export function RepushPoolPage() {
 
   const jds = useJDStore((s) => s.jds);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
+  const updateCandidate = useInterviewStore((s) => s.updateCandidate);
+  const candidates = useInterviewStore((s) => s.candidates);
 
   const view = usePrefStore((s) => s.activeOwner);
   const setView = usePrefStore((s) => s.setActiveOwner);
@@ -86,7 +88,7 @@ export function RepushPoolPage() {
 
   const confirmSchedule = (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => {
     if (!scheduling) return;
-    scheduleRecommendation(scheduling, args, { jds, addCandidate, updateItem });
+    scheduleRecommendation(scheduling, args, { jds, candidates, addCandidate, updateCandidate, updateItem });
     setScheduling(null);
   };
 

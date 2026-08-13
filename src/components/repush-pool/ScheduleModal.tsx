@@ -26,7 +26,7 @@ export function ScheduleModal({ item, onClose, onConfirm }: ScheduleModalProps) 
     ? toLocal(item.interviewAt)
     : defaultLocalTime());
   const [interviewer, setInterviewer] = useState('');
-  const [round, setRound] = useState<InterviewRound>(item.interviewRound || '一面');
+  const [round, setRound] = useState<InterviewRound>(nextRound(item.interviewRound));
   useEscapeClose(onClose);
 
   const base = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '');
@@ -96,12 +96,18 @@ export function ScheduleModal({ item, onClose, onConfirm }: ScheduleModalProps) 
               interviewAt ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed',
             )}
           >
-            确认约面
+            约{round}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function nextRound(round?: InterviewRound): InterviewRound {
+  if (round === '一面') return '二面';
+  if (round === '二面') return '三面';
+  return round || '一面';
 }
 
 /** ISO → datetime-local（本地时区） */

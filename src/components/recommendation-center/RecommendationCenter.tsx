@@ -88,7 +88,7 @@ export function RecommendationCenter() {
 
   const confirmSchedule = (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => {
     if (!scheduling) return;
-    scheduleRecommendation(scheduling, args, { jds, addCandidate, updateItem });
+    scheduleRecommendation(scheduling, args, { jds, candidates, addCandidate, updateCandidate, updateItem });
     setScheduling(null);
   };
 

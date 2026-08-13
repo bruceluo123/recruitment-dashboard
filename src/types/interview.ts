@@ -34,6 +34,7 @@ export interface Candidate {
   organization?: string;   // 编制组织（取自 JD 库）
   department?: string;     // 部门（取自 JD 库）
   stage: CandidateStatus;
+  interviewRound?: '一面' | '二面' | '三面';
   score: number;
   interviewDate?: string;
   interviewer?: string;
@@ -56,7 +57,7 @@ export interface Candidate {
 
 export const DEFAULT_STAGES: InterviewStage[] = [
   { id: 'interview-1', name: '面试一面', order: 0, color: 'blue' },
-  { id: 'interview-2', name: '二面', order: 1, color: 'amber' },
+  { id: 'interview-2', name: '二面 / 三面', order: 1, color: 'amber' },
   { id: 'offer', name: 'Offer', order: 2, color: 'green' },
 ];
 

@@ -32,7 +32,7 @@ export function buildInterviewReport(candidates: Candidate[]): string {
       const d = new Date(c.interviewDate!);
       const date = `${d.getMonth() + 1}.${d.getDate()}`;
       const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-      return [date, time, c.name, c.jdTitle, c.organization || '', c.department || '', c.interviewer || '', STAGE_LABELS[c.stage]].join('\t');
+      return [date, time, c.name, c.jdTitle, c.organization || '', c.department || '', c.interviewer || '', c.interviewRound || STAGE_LABELS[c.stage]].join('\t');
     });
   return [HEADERS.join('\t'), ...rows].join('\n');
 }
@@ -67,7 +67,7 @@ export function buildScheduleTable(candidates: Candidate[]): string {
     .map((c) => {
       const d = new Date(c.interviewDate!);
       // 面试时间按截图写法：月.日 + 轮次，如「6.7一面」
-      const time = `${d.getMonth() + 1}.${d.getDate()}${STAGE_LABELS[c.stage]}`;
+      const time = `${d.getMonth() + 1}.${d.getDate()}${c.interviewRound || STAGE_LABELS[c.stage]}`;
       const dept = c.department || c.organization || '';
       // 面试时间与入职部门之间留两个空列（对应截图的「面试详情」「薪资方案」）
       return [c.name, c.jdTitle, PROGRESS_LABELS[c.stage], time, '', '', dept, '', ''].join('\t');
