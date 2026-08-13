@@ -106,6 +106,8 @@ export function RecommendationCenter() {
       organization: args.organization || undefined,
       department: args.department || undefined,
       highlights: repushing.highlights,
+      source: 'repush',
+      repushSourceId: repushing.id,
     });
     setRepushing(null);
   };

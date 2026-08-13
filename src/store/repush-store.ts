@@ -30,6 +30,8 @@ export interface RepushItem {
   interviewRound?: InterviewRound;    // 约面轮次（一面/二面/三面）
   candidateId?: string;        // 约面后关联的面试日历候选人 id
   interviewAt?: string;        // 约面时间（ISO，约面后写入）
+  source?: 'intake' | 'repush'; // 推荐来源；复推记录不进入今日日报
+  repushSourceId?: string;     // 复推时关联原推荐记录，供日报准确排除
   organization?: string;       // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
   department?: string;         // 该简历推荐到的部门（来源于 JD 库的部门列表）
   uploadedAt: string;          // 推荐时间（按天分组用）
@@ -58,6 +60,8 @@ export interface NewRecommendation {
   highlights?: string;   // AI 从简历中提取的候选人亮点摘要（仅内部可见）
   resumeUrl?: string;    // 简历文件 Blob 链接（上传文件时带入）
   resumeFileName?: string;
+  source?: 'intake' | 'repush';
+  repushSourceId?: string;
 }
 
 interface RepushStore {
@@ -114,6 +118,8 @@ export const useRepushStore = create<RepushStore>()(
               highlights: rec.highlights ? rec.highlights.slice(0, 1500) : undefined,
               resumeUrl: rec.resumeUrl || undefined,
               resumeFileName: rec.resumeFileName || undefined,
+              source: rec.source || 'intake',
+              repushSourceId: rec.repushSourceId || undefined,
               feedback: 'pending' as const,
               interviewStatus: 'none' as const,
               organization: rec.organization || undefined,

@@ -192,25 +192,54 @@ export function isSameDay(iso: string | undefined, ref: Date): boolean {
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
 }
 
-/** 今日推荐：uploadedAt 落在 ref 当天的推荐项；可按推荐人列(a/b)过滤。 */
-export function todaysRecommendations(items: RepushItem[], ref: Date, column?: 'a' | 'b'): RepushItem[] {
-  return items.filter((it) => isSameDay(it.uploadedAt, ref) && (!column || it.column === column));
+function recommendationIdentity(item: RepushItem): string {
+  return (item.candidateCode || item.candidateName || '').trim().toLowerCase();
 }
 
-/** 今日面试：interviewDate 落在 ref 当天的候选人（可按归属人过滤）。 */
+function isRepushRecommendation(item: RepushItem, allItems: RepushItem[]): boolean {
+  if (item.source === 'repush' || item.repushSourceId) return true;
+  const identity = recommendationIdentity(item);
+  if (!identity) return false;
+  const title = (item.jdTitle || '').trim().toLowerCase();
+  const uploadedAt = new Date(item.uploadedAt).getTime();
+  return allItems.some((other) => {
+    if (other.id === item.id || other.column !== item.column) return false;
+    if (recommendationIdentity(other) !== identity) return false;
+    if ((other.jdTitle || '').trim().toLowerCase() === title) return false;
+    return new Date(other.uploadedAt).getTime() < uploadedAt;
+  });
+}
+
+/** 日报只录首次推荐；复推记录（含可识别的历史复推）不进入统计。 */
+export function todaysRecommendations(items: RepushItem[], ref: Date, column?: 'a' | 'b'): RepushItem[] {
+  return items.filter((it) => (
+    isSameDay(it.uploadedAt, ref)
+    && (!column || it.column === column)
+    && !isRepushRecommendation(it, items)
+  ));
+}
+
+/** 日报只录一面；二面、三面不进入邀约、面试或待面试统计。 */
+export function isDailyReportFirstRound(candidate: Candidate): boolean {
+  if (candidate.interviewRound) return candidate.interviewRound === '一面';
+  return candidate.stage !== 'interview-2';
+}
+
+/** 今日一面：interviewDate 落在 ref 当天的候选人（可按归属人过滤）。 */
 export function todaysInterviews(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
   return candidates
-    .filter((c) => isSameDay(c.interviewDate, ref) && (!owner || (c.owner || 'a') === owner))
+    .filter((c) => isDailyReportFirstRound(c) && isSameDay(c.interviewDate, ref) && (!owner || (c.owner || 'a') === owner))
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
 }
 
-/** 今日约面明细：appliedAt 落在 ref 当天（即今天在推荐中心点的约面），可按归属人过滤。 */
+/** 今日一面邀约：按最近一次确认约面的时间统计；兼容旧数据时回退 appliedAt。 */
 export function scheduledToday(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
   return candidates
     .filter((c) => {
       if (!c.interviewDate) return false;
+      if (!isDailyReportFirstRound(c)) return false;
       if (owner && (c.owner || 'a') !== owner) return false;
-      return isSameDay(c.appliedAt, ref);
+      return isSameDay(c.interviewScheduledAt || c.appliedAt, ref);
     })
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
 }

@@ -3,6 +3,7 @@ import type { Candidate } from '@/types/interview';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
 import {
   aggregateRecommendations,
+  isDailyReportFirstRound,
   isSameDay,
   scheduledToday,
   todaysInterviews,
@@ -146,6 +147,7 @@ function buildPendingInterviewRows(candidates: Candidate[], ref: Date, column: R
   return candidates
     .filter((candidate) => {
       if ((candidate.owner || 'a') !== column) return false;
+      if (!isDailyReportFirstRound(candidate)) return false;
       if (candidate.outcome || candidate.stage === 'offer') return false;
       return isAfterToday(candidate.interviewDate, ref);
     })

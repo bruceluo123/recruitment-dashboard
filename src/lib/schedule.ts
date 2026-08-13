@@ -44,6 +44,7 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
     stage: ROUND_TO_STAGE[round],
     interviewRound: round,
     interviewDate: isoAt,
+    interviewScheduledAt: new Date().toISOString(),
     interviewer: interviewer.trim() || linkedCandidate?.interviewer || undefined,
     organization: item.organization || linkedCandidate?.organization || jd?.organization?.trim() || undefined,
     department: item.department || linkedCandidate?.department || jd?.department?.trim() || undefined,

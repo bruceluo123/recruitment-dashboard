@@ -37,6 +37,7 @@ export interface Candidate {
   interviewRound?: '一面' | '二面' | '三面';
   score: number;
   interviewDate?: string;
+  interviewScheduledAt?: string; // 最近一次在推进中心确认约面的时间
   interviewer?: string;
   notes?: string;
   contactEmail?: string;
