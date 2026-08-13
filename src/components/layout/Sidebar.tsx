@@ -7,14 +7,14 @@ import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, Chev
 
 const menuItems = [
   { href: '/', label: '推荐中心', icon: LayoutDashboard },
-  { href: '/repush-pool', label: '本周推荐', icon: Send },
-  { href: '/todos', label: '待办事项', icon: ListTodo },
-  { href: '/hot-hiring', label: '热招看板', icon: Flame },
   { href: '/jd-library', label: 'JD 库', icon: Briefcase },
-  { href: '/talent-pool', label: '人才库', icon: Users },
-  { href: '/companies', label: '公司库', icon: Building2 },
   { href: '/resume-matching', label: '简历匹配', icon: FileSearch },
   { href: '/interview-calendar', label: '面试日历', icon: CalendarDays },
+  { href: '/hot-hiring', label: '热招看板', icon: Flame },
+  { href: '/talent-pool', label: '人才库', icon: Users },
+  { href: '/companies', label: '公司库', icon: Building2 },
+  { href: '/repush-pool', label: '本周推荐', icon: Send },
+  { href: '/todos', label: '待办事项', icon: ListTodo },
 ];
 
 export function Sidebar() {
