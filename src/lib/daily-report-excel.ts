@@ -168,15 +168,16 @@ function buildPendingInterviewRows(candidates: Candidate[], ref: Date, column: R
 
 function buildOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId): ReportRow[] {
   return getOfferRows(candidates, ref, column).map((candidate, index) => {
-    const onboarded = candidate.outcome === 'onboarded';
+    const onboarded = candidate.outcome === 'onboarded' || isSameDay(candidate.onboardDate, ref);
     const rejected = candidate.outcome === 'offer-rejected' || candidate.outcome === 'failed' || candidate.outcome === 'withdrawn';
+    const pendingOnboardDate = dateText(candidate.onboardDate);
     return [
       index + 1,
       candidate.jdTitle,
       candidate.name,
-      dateText(candidate.onboardDate),
+      pendingOnboardDate,
       onboarded ? '是' : rejected ? '否' : '',
-      onboarded ? dateText(candidate.onboardDate) : candidate.outcomeReason || '',
+      onboarded ? pendingOnboardDate : candidate.outcomeReason || '',
     ];
   });
 }
