@@ -186,6 +186,19 @@ function localTime(iso: string): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** 一键看板薪资统一为完整数字：20K → 20000，1.6万 → 16000。 */
+function fullSalaryAmount(value: string | undefined): string {
+  const text = (value || '').trim();
+  if (!text) return '';
+  const unitMatch = text.match(/([\d,.]+)\s*([kKwW万])/);
+  if (unitMatch) {
+    const amount = Number(unitMatch[1].replace(/,/g, ''));
+    if (Number.isFinite(amount)) return String(Math.round(amount * (/[万wW]/.test(unitMatch[2]) ? 10000 : 1000)));
+  }
+  const numberMatch = text.match(/[\d,]+(?:\.\d+)?/);
+  return numberMatch ? numberMatch[0].replace(/,/g, '') : text;
+}
+
 export function isSameDay(iso: string | undefined, ref: Date): boolean {
   if (!iso) return false;
   const d = new Date(iso);
@@ -330,8 +343,8 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
     department: candidate.department || candidate.organization || '',
     center: candidate.organization || '',
     interviewer: candidate.interviewer || '',
-    probationSalary: candidate.probationSalary || '',
-    regularSalary: candidate.regularSalary || (!candidate.probationSalary ? candidate.salary || '' : ''),
+    probationSalary: fullSalaryAmount(candidate.probationSalary),
+    regularSalary: fullSalaryAmount(candidate.regularSalary || (!candidate.probationSalary ? candidate.salary : undefined)),
     score: candidate.score ? String(candidate.score) : '',
     employmentStatus: '已入职',
     onboardDate: localDate(candidate.onboardDate!),
