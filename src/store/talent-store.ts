@@ -288,15 +288,19 @@ export const useTalentStore = create<TalentStore>()(
         // 按姓名匹配已有人选：找到则更新简历链接，找不到则新建
         const now = new Date().toISOString();
         const existingTalents = get().talents;
+        const existingByName = new Map(
+          existingTalents
+            .filter((talent) => talent.name.trim())
+            .map((talent) => [talent.name.trim(), talent] as const),
+        );
         const updates: Array<{ id: string; partial: Partial<Talent> }> = [];
         const newBatch: Talent[] = [];
 
         for (const p of parsed) {
           if (!p.up) { result.failed++; continue; }
           // 按姓名（精确）匹配已有人选，取第一个匹配
-          const existing = existingTalents.find(
-            (t) => t.name.trim() === p.name.trim() && p.name.trim().length > 0,
-          );
+          const normalizedName = p.name.trim();
+          const existing = normalizedName ? existingByName.get(normalizedName) : undefined;
           if (existing) {
             updates.push({
               id: existing.id,
@@ -311,7 +315,7 @@ export const useTalentStore = create<TalentStore>()(
             });
           } else {
             const kw = detectCategories(p.jobTitle);
-            newBatch.push({
+            const newTalent: Talent = {
               id: generateId(),
               name: p.name,
               jobTitle: p.jobTitle,
@@ -322,19 +326,28 @@ export const useTalentStore = create<TalentStore>()(
               notes: '',
               createdAt: now,
               updatedAt: now,
-            });
+            };
+            newBatch.push(newTalent);
+            if (normalizedName) existingByName.set(normalizedName, newTalent);
           }
         }
         result.success = updates.length + newBatch.length;
 
         importAbort = null;
         set((s) => {
+          const updatesById = new Map(updates.map((update) => [update.id, update.partial] as const));
           const merged = s.talents.map((t) => {
-            const upd = updates.find((u) => u.id === t.id);
-            return upd ? { ...t, ...upd.partial } : t;
+            const partial = updatesById.get(t.id);
+            return partial ? { ...t, ...partial } : t;
           });
           return {
-            talents: [...newBatch, ...merged],
+            talents: [
+              ...newBatch.map((talent) => {
+                const partial = updatesById.get(talent.id);
+                return partial ? { ...talent, ...partial } : talent;
+              }),
+              ...merged,
+            ],
             isImporting: false,
             importProgress: { current: files.length, total: files.length, percent: 100, status: 'done' },
           };

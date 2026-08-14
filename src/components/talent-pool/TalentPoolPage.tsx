@@ -118,6 +118,15 @@ export function TalentPoolPage() {
     let created = 0;
     let updated = 0;
     let resumesLinked = 0;
+    const existingByName = new Map(
+      existingTalents
+        .filter((talent) => talent.name.trim())
+        .map((talent) => [talent.name.trim(), talent] as const),
+    );
+    const updatedById = new Map<string, typeof existingTalents[number]>();
+    const newBatch: typeof existingTalents = [];
+    const newBatchIndexById = new Map<string, number>();
+    const linkedTalentIds = new Map<string, string>();
     // 简历资产全链路：导入后需要后台提取简历文字的人才（有 Blob 文件且尚未扫描）
     const toScan: Array<{ talentId: string; url: string; fileName?: string }> = [];
 
@@ -125,7 +134,7 @@ export function TalentPoolPage() {
       const name = (item.candidateName || '').trim();
       if (!name) continue;
       const jobTitle = (item.jdTitle || '').trim();
-      const existing = existingTalents.find((t) => t.name === name);
+      const existing = existingByName.get(name);
       const recruiter = item.contactPerson?.trim() || repushColumnNames[item.column] || undefined;
       const candidateCode = item.candidateCode?.trim() || undefined;
       const cats = detectCategories(jobTitle);
@@ -136,7 +145,8 @@ export function TalentPoolPage() {
       if (existing) {
         talentId = existing.id;
         const attachResume = itemResume && !existing.resumeUrl;
-        useTalentStore.getState().updateTalent(existing.id, {
+        const nextTalent = {
+          ...existing,
           jobTitle: jobTitle || existing.jobTitle,
           candidateCode: candidateCode || existing.candidateCode,
           organization: item.organization?.trim() || existing.organization,
@@ -145,12 +155,17 @@ export function TalentPoolPage() {
           recruiter: recruiter || existing.recruiter,
           archived: false,
           ...(attachResume ? itemResume : {}),
-        });
+          updatedAt: now,
+        };
+        const newBatchIndex = newBatchIndexById.get(existing.id);
+        if (newBatchIndex === undefined) updatedById.set(existing.id, nextTalent);
+        else newBatch[newBatchIndex] = nextTalent;
+        existingByName.set(name, nextTalent);
         if (attachResume) { resumesLinked++; if (!existing.hasResumeText) toScan.push({ talentId, url: itemResume.resumeUrl!, fileName: itemResume.resumeFileName }); }
         updated++;
       } else {
         talentId = generateId();
-        useTalentStore.getState().addTalent({
+        const nextTalent = {
           id: talentId,
           candidateCode,
           name,
@@ -167,12 +182,30 @@ export function TalentPoolPage() {
           ...(itemResume || {}),
           createdAt: now,
           updatedAt: now,
-        });
+        } as typeof existingTalents[number];
+        newBatchIndexById.set(talentId, newBatch.length);
+        newBatch.push(nextTalent);
+        existingByName.set(name, nextTalent);
         if (itemResume) { resumesLinked++; toScan.push({ talentId, url: itemResume.resumeUrl!, fileName: itemResume.resumeFileName }); }
         created++;
       }
       // 回写跨模块主键：推荐记录 ↔ 人才库 双向关联
-      if (item.talentId !== talentId) useRepushStore.getState().updateItem(item.id, { talentId });
+      if (item.talentId !== talentId) linkedTalentIds.set(item.id, talentId);
+    }
+
+    useTalentStore.setState({
+      talents: [
+        ...newBatch,
+        ...existingTalents.map((talent) => updatedById.get(talent.id) || talent),
+      ],
+    });
+    if (linkedTalentIds.size > 0) {
+      useRepushStore.setState((state) => ({
+        items: state.items.map((item) => {
+          const talentId = linkedTalentIds.get(item.id);
+          return talentId ? { ...item, talentId } : item;
+        }),
+      }));
     }
 
     // 后台逐个提取简历文字（走已有 /api/talent/scan 管道），完成后标记 hasResumeText，

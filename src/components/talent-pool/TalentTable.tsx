@@ -6,6 +6,8 @@ import type { Talent } from '@/types/talent';
 import { Pencil, Trash2, Sparkles, X, Loader2 } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
+const TALENT_PAGE_SIZE = 100;
+
 interface TalentTableProps {
   talents: Talent[];
   onEdit: (id: string) => void;
@@ -63,11 +65,15 @@ function HighlightsModal({ talent, onClose }: { talent: Talent; onClose: () => v
 
 function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selectedIds = [], onToggleSelect, onToggleSelectAll }: TalentTableProps) {
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(TALENT_PAGE_SIZE);
+
+  useEffect(() => setVisibleCount(TALENT_PAGE_SIZE), [talents]);
   if (talents.length === 0) return <div className="text-center py-12 text-gray-400"><p>暂无匹配的人选</p></div>;
 
   const selectedSet = new Set(selectedIds);
   const allSelected = talents.length > 0 && talents.every((t) => selectedSet.has(t.id));
   const highlightTalent = talents.find((t) => t.id === highlightId) || null;
+  const visibleTalents = talents.slice(0, visibleCount);
 
   return (
     <>
@@ -93,7 +99,7 @@ function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selecte
             </tr>
           </thead>
           <tbody>
-            {talents.map((t) => (
+            {visibleTalents.map((t) => (
               <tr key={t.id} className={cn(
                 'border-b border-slate-100 group transition-colors',
                 selectedSet.has(t.id) ? 'bg-red-50/50' : 'hover:bg-slate-50/80',
@@ -193,6 +199,20 @@ function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selecte
             ))}
           </tbody>
         </table>
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+          <span className="text-xs text-slate-500">
+            已显示 {visibleTalents.length} / {talents.length} 位
+          </span>
+          {visibleTalents.length < talents.length && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((count) => Math.min(count + TALENT_PAGE_SIZE, talents.length))}
+              className="h-8 rounded-lg border border-blue-200 bg-white px-3 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
+            >
+              再加载 {Math.min(TALENT_PAGE_SIZE, talents.length - visibleTalents.length)} 位
+            </button>
+          )}
+        </div>
       </div>
 
       {highlightTalent && (
