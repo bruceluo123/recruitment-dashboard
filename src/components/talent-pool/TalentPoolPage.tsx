@@ -5,7 +5,6 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { JDCategoryTabs } from '@/components/jd-library/JDCategoryTabs';
 import { TalentTable } from './TalentTable';
 import { TalentImportDialog } from './TalentImportDialog';
-import { TalentMatchDialog } from './TalentMatchDialog';
 import { TalentQueryDialog } from './TalentQueryDialog';
 import { TalentEditPanel } from './TalentEditPanel';
 import { TalentEnrichDialog } from './TalentEnrichDialog';
@@ -15,13 +14,12 @@ import { useRepushStore } from '@/store/repush-store';
 import { generateId } from '@/lib/utils';
 import { detectCategories } from '@/lib/jd-parse-core';
 import { exportTalentsToFeishuXlsx } from '@/lib/talent-feishu-export';
-import { Users, Search, Upload, Plus, Trash2, Sparkles, ScanLine, Loader2, Download, Archive, UserPlus, Wand2 } from 'lucide-react';
+import { Users, Search, Upload, Plus, Trash2, ScanLine, Loader2, Download, Archive, UserPlus, Wand2 } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 export function TalentPoolPage() {
   const [mounted, setMounted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [matchOpen, setMatchOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
   const [queryInitial, setQueryInitial] = useState('');
   const [queryAutoRun, setQueryAutoRun] = useState(false);
@@ -209,7 +207,7 @@ export function TalentPoolPage() {
     }
 
     // 后台逐个提取简历文字（走已有 /api/talent/scan 管道），完成后标记 hasResumeText，
-    // 使「JD 匹配人选」立即可用这些新导入的简历。失败不打扰用户，人才记录已建好。
+    // 让新导入的人才可以通过简历正文继续检索。失败不打扰用户，人才记录已建好。
     if (toScan.length) {
       (async () => {
         for (const s of toScan) {
@@ -298,9 +296,6 @@ export function TalentPoolPage() {
           <span className="block w-full h-10 pl-9 pr-3 rounded-xl bg-white border border-gray-200 text-sm leading-10 text-gray-400 group-hover:border-indigo-300 transition-all">
             搜索人才、技能、岗位关键词...
           </span>
-        </button>
-        <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm shadow-blue-100">
-          <Sparkles className="w-4 h-4" />JD 匹配人选
         </button>
         <button onClick={() => openQueryAssistant(filter.search, false)} className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2">
           <Search className="w-4 h-4" />查询助手
@@ -399,7 +394,6 @@ export function TalentPoolPage() {
       <TalentEditPanel talent={editTarget} isOpen={!!editId} onClose={() => setEditId(null)} />
       <RecycleBinDialog type="talent" open={recycleOpen} onClose={() => setRecycleOpen(false)} />
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
-      <TalentMatchDialog isOpen={matchOpen} onClose={() => setMatchOpen(false)} />
       <TalentQueryDialog isOpen={queryOpen} onClose={() => { setQueryOpen(false); setQueryAutoRun(false); }} initialQuery={queryInitial} autoRun={queryAutoRun} />
       <TalentEnrichDialog isOpen={enrichOpen} onClose={() => setEnrichOpen(false)} />
 
