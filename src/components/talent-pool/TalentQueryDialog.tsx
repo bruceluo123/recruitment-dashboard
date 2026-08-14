@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, Copy, FileText, Loader2, Maximize2, Minimize2, Pause, Search, Sparkles, X } from 'lucide-react';
+import { Check, Copy, FileText, History, Loader2, Maximize2, Minimize2, Pause, Search, Sparkles, Trash2, X } from 'lucide-react';
 import { useTalentStore } from '@/store/talent-store';
 import { searchTalentsByQuery } from '@/lib/talent-match';
 import type { TalentMatchResult } from '@/types/talent-match';
@@ -20,6 +20,22 @@ const EXAMPLES = [
   'Agent 落地 + 工程化',
 ];
 
+const SEARCH_HISTORY_KEY = 'recruitai-talent-search-history';
+const SEARCH_HISTORY_LIMIT = 8;
+
+function readSearchHistory(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').slice(0, SEARCH_HISTORY_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSearchHistory(items: string[]) {
+  try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(items)); } catch { /* 本地存储不可用时忽略 */ }
+}
+
 function scoreColor(score: number): string {
   if (score >= 85) return 'text-green-600 bg-green-50 ring-green-200';
   if (score >= 70) return 'text-indigo-600 bg-indigo-50 ring-indigo-200';
@@ -35,6 +51,7 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
   const [results, setResults] = useState<TalentMatchResult[]>([]);
   const [minimized, setMinimized] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef('');
   const abortRef = useRef<AbortController | null>(null);
@@ -49,6 +66,14 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
     setQuery(value);
   };
 
+  const rememberSearch = useCallback((value: string) => {
+    setSearchHistory((current) => {
+      const next = [value, ...current.filter((item) => item !== value)].slice(0, SEARCH_HISTORY_LIMIT);
+      writeSearchHistory(next);
+      return next;
+    });
+  }, []);
+
   const runSearch = useCallback(async (overrideQuery?: string) => {
     const q = (overrideQuery ?? queryRef.current).trim();
     if (!q) {
@@ -59,6 +84,8 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
       setError('人才库为空，请先导入候选人');
       return;
     }
+
+    rememberSearch(q);
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -77,7 +104,9 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
       setLoading(false);
       abortRef.current = null;
     }
-  }, [activeTalents]);
+  }, [activeTalents, rememberSearch]);
+
+  useEffect(() => setSearchHistory(readSearchHistory()), []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -215,6 +244,51 @@ export function TalentQueryDialog({ isOpen, onClose, initialQuery, autoRun = fal
                 </button>
               ))}
             </div>
+            {searchHistory.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                    <History className="w-3.5 h-3.5" />最近搜索
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setSearchHistory([]); writeSearchHistory([]); }}
+                    className="p-1.5 rounded-lg text-gray-300 hover:bg-red-50 hover:text-red-500 transition-colors"
+                    title="清空搜索记录"
+                    aria-label="清空搜索记录"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {searchHistory.map((item) => (
+                    <div key={item} className="inline-flex h-8 items-center rounded-lg border border-blue-100 bg-blue-50/60 text-xs text-blue-700">
+                      <button
+                        type="button"
+                        onClick={() => { updateQuery(item); void runSearch(item); }}
+                        className="h-full pl-3 pr-2 hover:text-blue-800"
+                        title={`重新搜索：${item}`}
+                      >
+                        {item}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = searchHistory.filter((value) => value !== item);
+                          setSearchHistory(next);
+                          writeSearchHistory(next);
+                        }}
+                        className="h-full px-2 text-blue-300 hover:text-red-500"
+                        title={`删除搜索记录：${item}`}
+                        aria-label={`删除搜索记录：${item}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {loading && (
