@@ -261,7 +261,10 @@ export function scheduledToday(candidates: Candidate[], ref: Date, owner?: 'a' |
 export function todaysOnboards(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
   return candidates
     .filter((candidate) => (
-      isSameDay(candidate.onboardDate, ref)
+      candidate.outcome !== 'failed'
+      && candidate.outcome !== 'withdrawn'
+      && candidate.outcome !== 'offer-rejected'
+      && isSameDay(candidate.onboardDate, ref)
       && (!owner || (candidate.owner || 'a') === owner)
     ))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
@@ -271,7 +274,9 @@ export function todaysOnboards(candidates: Candidate[], ref: Date, owner?: 'a' |
 export function todaysOffers(candidates: Candidate[], ref: Date, owner?: 'a' | 'b'): Candidate[] {
   return candidates
     .filter((candidate) => (
-      (candidate.offerAppliedAt
+      candidate.outcome !== 'failed'
+      && candidate.outcome !== 'withdrawn'
+      && (candidate.offerAppliedAt
         ? isSameDay(candidate.offerAppliedAt, ref)
         : candidate.stage === 'offer' && isSameDay(candidate.updatedAt, ref))
       && (!owner || (candidate.owner || 'a') === owner)

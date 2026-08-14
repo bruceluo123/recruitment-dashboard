@@ -96,10 +96,12 @@ function getOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId
   return candidates
     .filter((candidate) => {
       if ((candidate.owner || 'a') !== column) return false;
+      if (candidate.outcome === 'failed' || candidate.outcome === 'withdrawn') return false;
       if (candidate.offerAppliedAt
         ? isSameDay(candidate.offerAppliedAt, ref)
         : candidate.stage === 'offer' && isSameDay(candidate.updatedAt, ref)) return true;
-      if (candidate.outcome && isSameDay(candidate.outcomeAt, ref)) return true;
+      if (candidate.outcome === 'offer-rejected') return false;
+      if (candidate.outcome === 'onboarded' && isSameDay(candidate.outcomeAt, ref)) return true;
       if (candidate.onboardDate && isSameDay(candidate.onboardDate, ref)) return true;
       return false;
     })
@@ -109,11 +111,11 @@ function getOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId
 function getWorkOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId): Candidate[] {
   return candidates.filter((candidate) => {
     if ((candidate.owner || 'a') !== column) return false;
+    if (candidate.outcome === 'failed' || candidate.outcome === 'withdrawn') return false;
     if (candidate.outcome === 'onboarded') return false;
     if (candidate.offerAppliedAt
       ? isSameDay(candidate.offerAppliedAt, ref)
       : candidate.stage === 'offer' && isSameDay(candidate.updatedAt, ref)) return true;
-    if (candidate.outcome && isSameDay(candidate.outcomeAt, ref)) return true;
     return false;
   });
 }
