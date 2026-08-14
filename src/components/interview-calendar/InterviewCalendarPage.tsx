@@ -147,7 +147,7 @@ export function InterviewCalendarPage() {
       const d = new Date(iso);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
     };
-    const todays = ownerCandidates
+    const todays = activeOwnerCandidates
       .filter((c) => c.interviewDate && isToday(c.interviewDate))
       .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
     if (todays.length === 0) { setCopyMsg('今日暂无面试安排'); return; }
@@ -223,11 +223,15 @@ export function InterviewCalendarPage() {
     () => candidates.filter((c) => (c.owner || 'a') === ownerTab),
     [candidates, ownerTab],
   );
+  const activeOwnerCandidates = useMemo(
+    () => ownerCandidates.filter((c) => c.outcome !== 'failed'),
+    [ownerCandidates],
+  );
   const weeklyScheduleCandidates = useMemo(
-    () => ownerCandidates
+    () => activeOwnerCandidates
       .filter((c) => c.interviewDate && isThisWeek(c.interviewDate))
       .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime()),
-    [ownerCandidates],
+    [activeOwnerCandidates],
   );
   const weeklyScheduleDays = useMemo(() => {
     const groups = new Map<string, Candidate[]>();
@@ -240,20 +244,20 @@ export function InterviewCalendarPage() {
 
   // 「当天面试」只筛选面试阶段；Offer 始终保留，避免刚确认的 Offer 被隐藏。
   const boardCandidates = useMemo(() => {
-    if (!todayOnly) return ownerCandidates;
+    if (!todayOnly) return activeOwnerCandidates;
     const now = new Date();
-    return ownerCandidates.filter((c) => {
+    return activeOwnerCandidates.filter((c) => {
       if (c.stage === 'offer') return true;
       if (!c.interviewDate) return false;
       const d = new Date(c.interviewDate);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
     });
-  }, [ownerCandidates, todayOnly]);
+  }, [activeOwnerCandidates, todayOnly]);
 
   const selected = candidates.find((c) => c.id === selectedId);
-  const firstInterviewCount = ownerCandidates.filter((c) => c.stage === 'interview-1').length;
-  const secondInterviewCount = ownerCandidates.filter((c) => c.stage === 'interview-2').length;
-  const offerCount = ownerCandidates.filter((c) => c.stage === 'offer').length;
+  const firstInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-1').length;
+  const secondInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-2').length;
+  const offerCount = activeOwnerCandidates.filter((c) => c.stage === 'offer').length;
   const isEditing = editingId === selectedId;
   useEscapeClose(() => setShowImport(false), showImport);
   useEscapeClose(() => setShowExcelPicker(false), showExcelPicker);
@@ -280,7 +284,7 @@ export function InterviewCalendarPage() {
         <div className="shrink-0">
           <h2 className="text-2xl font-bold text-gray-800">面试日历</h2>
           <p className="text-sm text-gray-500 mt-1">
-            {columnNames[ownerTab]} 共 {ownerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二/三面 {secondInterviewCount} 个，Offer {offerCount} 个
+            {columnNames[ownerTab]} 共 {activeOwnerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二/三面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>
         <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1 2xl:justify-end 2xl:pb-0">
@@ -321,7 +325,7 @@ export function InterviewCalendarPage() {
       {view === 'kanban' ? (
         <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} />
       ) : (
-        <WeekGridView candidates={ownerCandidates} onCandidateClick={setSelectedId} />
+        <WeekGridView candidates={activeOwnerCandidates} onCandidateClick={setSelectedId} />
       )}
 
       {showImport && (
