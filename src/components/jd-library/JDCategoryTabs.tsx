@@ -45,7 +45,14 @@ interface JDCategoryTabsProps<T extends string = JDCategory | 'all'> {
 
 export function JDCategoryTabs<T extends string = JDCategory | 'all'>({ categories, activeCategory, onCategoryChange }: JDCategoryTabsProps<T>) {
   return (
-    <div className="flex gap-1.5 flex-wrap pb-1">
+    <div
+      className="flex gap-1.5 overflow-x-auto pb-2"
+      onWheel={(event) => {
+        if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) {
+          event.currentTarget.scrollLeft += event.deltaY;
+        }
+      }}
+    >
       {categories.map((cat) => {
         const isActive = activeCategory === cat.id;
         const c = CAT_TAB_COLORS[cat.id] || CAT_TAB_COLORS.all;
@@ -54,12 +61,12 @@ export function JDCategoryTabs<T extends string = JDCategory | 'all'>({ categori
             key={cat.id}
             onClick={() => onCategoryChange(cat.id)}
             className={cn(
-              'px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all flex items-center gap-1.5 border shadow-sm',
-              isActive ? c.active : `bg-white hover:bg-gray-50 ${c.idle}`,
+              'shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all flex items-center gap-1.5 border shadow-sm',
+              isActive ? c.active : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
             )}
           >
             {cat.label}
-            <span className={cn('text-xs px-1.5 py-0.5 rounded-md', isActive ? 'bg-white/20' : 'bg-gray-100')}>
+            <span className={cn('text-xs px-1.5 py-0.5 rounded-md', isActive ? 'bg-white/20' : 'bg-slate-100 text-slate-500')}>
               {cat.count}
             </span>
           </button>

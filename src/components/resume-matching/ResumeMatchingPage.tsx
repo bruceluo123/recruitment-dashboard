@@ -63,11 +63,11 @@ export function ResumeMatchingPage() {
   const allCats: (JDCategory | 'all')[] = ['all', ...ALL_CATEGORIES];
 
   return (
-    <div className="animate-fade-in space-y-6 max-w-7xl mx-auto">
+    <div className="workspace-page max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">简历匹配</h2>
-          <p className="text-sm text-gray-500 mt-1">上传简历，AI 智能匹配最适合的岗位</p>
+          <h2 className="page-title">简历匹配</h2>
+          <p className="page-subtitle">上传简历，AI 智能匹配最适合的岗位</p>
         </div>
       </div>
 

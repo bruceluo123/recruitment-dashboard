@@ -72,8 +72,8 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
   };
 
   return (
-    <div className="group rounded-2xl border border-gray-100 bg-white hover:border-indigo-200 hover:shadow-sm transition-all">
-      <div className="flex items-center gap-4 px-4 py-3">
+    <div className="group rounded-lg border border-slate-200/80 bg-white hover:border-blue-200 hover:shadow-[0_5px_16px_rgba(15,23,42,0.06)] transition-all">
+      <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:gap-4">
       {/* 主信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -147,7 +147,7 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
       )}
 
       {/* 操作区 */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex w-full shrink-0 items-center gap-1.5 overflow-x-auto pb-1 lg:w-auto lg:pb-0">
         {item.resumeUrl && (
           <a
             href={item.resumeUrl} target="_blank" rel="noreferrer"

@@ -110,10 +110,10 @@ export function HotHiringPage() {
   const handleOpenJD = (id: string) => { selectJD(id); router.push('/jd-library'); };
 
   return (
-    <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
+    <div className="workspace-page max-w-7xl">
       <div>
-        <h2 className="text-2xl font-bold text-gray-800">热招看板</h2>
-        <p className="text-sm text-gray-500 mt-1">
+        <h2 className="page-title">热招看板</h2>
+        <p className="page-subtitle">
           P0 急招 {p0Groups.reduce((s, g) => s + g.jds.length, 0)} 个 · P1 急招 {p1Groups.reduce((s, g) => s + g.jds.length, 0)} 个
         </p>
       </div>
@@ -137,16 +137,16 @@ export function HotHiringPage() {
           <button
             onClick={() => setAdDialog({ jds: weeklyJds, label: '本周新增', variant: 'maimanfen' })}
             disabled={weeklyJds.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500 text-white hover:bg-green-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
           >
             <Bell className="w-4 h-4" />本周新增文案{weeklyJds.length > 0 ? ` (${weeklyJds.length})` : ''}
           </button>
           {selectedGroups.size > 0 ? (
             <>
-              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'maimanfen' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 text-sm font-semibold shadow-sm transition-colors">
+              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'maimanfen' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-sm font-semibold transition-colors">
                 <Megaphone className="w-4 h-4" />生成麦满分文案
               </button>
-              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'tieniu' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 text-sm font-semibold shadow-sm transition-colors">
+              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'tieniu' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-semibold transition-colors">
                 <Megaphone className="w-4 h-4" />生成铁牛文案
               </button>
             </>

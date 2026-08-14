@@ -60,10 +60,10 @@ export function CompanyLibraryPage() {
   const handleAdd = () => { const id = createBlankCompany(); setViewId(id); };
 
   return (
-    <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
+    <div className="workspace-page max-w-7xl">
       <div>
-        <h2 className="text-2xl font-bold text-gray-800">公司库</h2>
-        <p className="text-sm text-gray-500 mt-1">
+        <h2 className="page-title">公司库</h2>
+        <p className="page-subtitle">
           共 {companies.length} 家公司
           <span className="text-gray-400"> · 已研究 {researchedCount}</span>
           {pendingCount > 0 && <span className="text-amber-600"> · 待研究 {pendingCount}</span>}
@@ -81,7 +81,7 @@ export function CompanyLibraryPage() {
             placeholder="搜索公司名 / 行业 / 研究内容..."
             className="w-full h-10 pl-9 pr-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 transition-all" />
         </div>
-        <button onClick={() => setResearchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
+        <button onClick={() => setResearchOpen(true)} className="h-10 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm shadow-blue-100">
           <Sparkles className="w-4 h-4" />调研公司
         </button>
         <button onClick={handleAdd} className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2">

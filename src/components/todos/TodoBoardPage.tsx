@@ -58,10 +58,10 @@ export function TodoBoardPage() {
     o === 'all' ? '全部' : o === 'both' ? '共同' : ownerNames[o];
 
   return (
-    <div className="animate-fade-in space-y-5 max-w-4xl mx-auto">
+    <div className="workspace-page max-w-5xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <h2 className="page-title flex items-center gap-2">
             <ListTodo className="w-6 h-6 text-indigo-500" />待办事项
           </h2>
           <p className="text-sm text-gray-500 mt-1">{ownerNames.a} 和 {ownerNames.b} 共用一张表，按时间线一目了然未来要做什么。</p>

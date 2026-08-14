@@ -10,9 +10,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Sidebar />
-      <div className={cn('transition-all duration-300', navCollapsed ? 'lg:pl-[64px]' : 'lg:pl-[240px]')}>
+      <div className={cn('min-h-screen bg-[#f4f7fb] transition-all duration-300', navCollapsed ? 'lg:pl-[64px]' : 'lg:pl-[240px]')}>
         <TopNav />
-        <main className="p-4 sm:p-6 min-h-[calc(100vh-4rem)]">{children}</main>
+        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-7">{children}</main>
       </div>
     </>
   );

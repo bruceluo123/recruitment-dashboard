@@ -71,10 +71,10 @@ function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selecte
 
   return (
     <>
-      <div className="overflow-x-auto">
+      <div className="data-table-shell">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-gray-100">
+            <tr className="data-table-head">
               {batchMode && (
                 <th className="w-10 py-3 px-4">
                   <input type="checkbox" checked={allSelected} onChange={onToggleSelectAll}
@@ -95,8 +95,8 @@ function TalentTableImpl({ talents, onEdit, onDelete, batchMode = false, selecte
           <tbody>
             {talents.map((t) => (
               <tr key={t.id} className={cn(
-                'border-b border-gray-50 group transition-colors',
-                selectedSet.has(t.id) ? 'bg-red-50/50' : 'hover:bg-gray-50',
+                'border-b border-slate-100 group transition-colors',
+                selectedSet.has(t.id) ? 'bg-red-50/50' : 'hover:bg-slate-50/80',
               )}>
                 {batchMode && (
                   <td className="py-3 px-4">

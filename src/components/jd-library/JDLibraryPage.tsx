@@ -224,10 +224,10 @@ export function JDLibraryPage() {
   if (!mounted) return null;
 
   return (
-    <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
+    <div className="workspace-page max-w-7xl">
       <div>
-        <h2 className="text-2xl font-bold text-gray-800">JD 岗位库</h2>
-        <p className="text-sm text-gray-500 mt-1">
+        <h2 className="page-title">JD 岗位库</h2>
+        <p className="page-subtitle">
           共 {jds.length} 个岗位，{jds.filter((j) => j.status !== 'paused').length} 个活跃招聘中 ·{' '}
           <button onClick={cleanAllJDs} className="text-indigo-500 hover:text-indigo-600 underline text-xs">清理编号/联系人</button> ·{' '}
           <button onClick={handleReclassify} className="text-purple-500 hover:text-purple-600 underline text-xs">重新分类</button> ·{' '}

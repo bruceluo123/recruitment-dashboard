@@ -267,7 +267,7 @@ export function InterviewCalendarPage() {
   if (!mounted) return null;
 
   return (
-    <div className="animate-fade-in space-y-6 max-w-7xl mx-auto">
+    <div className="workspace-page max-w-7xl">
       <datalist id="org-options">{orgOptions.map((o) => <option key={o} value={o} />)}</datalist>
       <datalist id="dept-options">{deptOptions.map((d) => <option key={d} value={d} />)}</datalist>
 
@@ -282,8 +282,8 @@ export function InterviewCalendarPage() {
 
       <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
         <div className="shrink-0">
-          <h2 className="text-2xl font-bold text-gray-800">面试日历</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <h2 className="page-title">面试日历</h2>
+          <p className="page-subtitle">
             {columnNames[ownerTab]} 共 {activeOwnerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二/三面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>

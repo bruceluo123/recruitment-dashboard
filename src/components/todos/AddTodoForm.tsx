@@ -43,7 +43,7 @@ export function AddTodoForm({ defaultOwner, ownerNames, onAdd }: AddTodoFormProp
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-3">
+    <div className="rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.035)] space-y-3">
       <div className="flex items-center gap-2">
         <input
           value={title}

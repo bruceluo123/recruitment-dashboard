@@ -8,13 +8,13 @@ interface GlassPanelProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 export function GlassPanel({ children, className, hover = false, padding = 'md', ...props }: GlassPanelProps) {
-  const pad = { none: '', sm: 'p-4', md: 'p-6', lg: 'p-8' }[padding];
+  const pad = { none: '', sm: 'p-4', md: 'p-5', lg: 'p-6' }[padding];
   return (
     <div
       className={cn(
-        'bg-white rounded-2xl border border-gray-200 shadow-sm',
+        'bg-white rounded-lg border border-slate-200/90 shadow-[0_1px_2px_rgba(15,23,42,0.035)]',
         pad,
-        hover && 'hover:shadow-md hover:border-indigo-200 transition-all duration-300',
+        hover && 'hover:shadow-[0_8px_24px_rgba(15,23,42,0.07)] hover:border-blue-200 transition-all duration-200',
         className,
       )}
       {...props}

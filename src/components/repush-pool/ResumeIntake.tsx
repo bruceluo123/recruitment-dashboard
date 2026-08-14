@@ -215,7 +215,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const fileLabel = fileStatus === 'uploading' ? '上传中…' : fileStatus === 'parsing' ? '解析中…' : '';
 
   return (
-    <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-cyan-50/50 p-5 shadow-sm">
+    <div className="rounded-lg border border-blue-100 bg-blue-50/35 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
       {/* 顶栏 */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
@@ -236,7 +236,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       </div>
 
       {/* 一体化简历入口：左侧文字框 + 右侧上传（上传后自动填入左侧） */}
-      <div className="flex gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row">
         {/* ── 左：文字输入区（主区域） ── */}
         <div className="flex-1 min-w-0 flex gap-2" style={{ height: 180 }}>
           <textarea
@@ -259,7 +259,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
         </div>
 
         {/* ── 右：上传简历（提取文字后填入左侧） ── */}
-        <div className="shrink-0 w-[360px]">
+        <div className="w-full shrink-0 lg:w-[360px]">
           <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={onFileInput} />
 
           {fileStatus === 'idle' || fileStatus === 'error' ? (

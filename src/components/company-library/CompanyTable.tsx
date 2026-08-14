@@ -22,7 +22,7 @@ export function CompanyTable({ companies, onView, onDelete, batchMode = false, s
   const allSelected = companies.length > 0 && companies.every((c) => selectedSet.has(c.id));
 
   return (
-    <div className="overflow-x-auto">
+    <div className="data-table-shell">
       <table className="w-full min-w-[760px] table-fixed">
         <colgroup>
           {batchMode && <col className="w-10" />}
@@ -33,7 +33,7 @@ export function CompanyTable({ companies, onView, onDelete, batchMode = false, s
           <col className="w-20" />
         </colgroup>
         <thead>
-          <tr className="border-b border-gray-100">
+          <tr className="data-table-head">
             {batchMode && (
               <th className="py-3 px-4">
                 <input type="checkbox" checked={allSelected} onChange={onToggleSelectAll}
@@ -51,8 +51,8 @@ export function CompanyTable({ companies, onView, onDelete, batchMode = false, s
           {companies.map((c) => {
             const researched = hasResearch(c);
             return (
-              <tr key={c.id} className={cn('border-b border-gray-50 group transition-colors',
-                selectedSet.has(c.id) ? 'bg-red-50/50' : 'hover:bg-gray-50 cursor-pointer')}
+              <tr key={c.id} className={cn('border-b border-slate-100 group transition-colors',
+                selectedSet.has(c.id) ? 'bg-red-50/50' : 'hover:bg-slate-50/80 cursor-pointer')}
                 onClick={() => !batchMode && onView(c.id)}>
                 {batchMode && (
                   <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>

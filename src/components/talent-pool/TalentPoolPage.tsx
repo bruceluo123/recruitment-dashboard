@@ -219,11 +219,11 @@ export function TalentPoolPage() {
   if (!mounted) return null;
 
   return (
-    <div className="animate-fade-in space-y-5 max-w-7xl mx-auto">
+    <div className="workspace-page max-w-7xl">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">人才库</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <h2 className="page-title">人才库</h2>
+          <p className="page-subtitle">
             活跃 {activeTalents.length} 位
             {archivedCount > 0 && <span className="text-gray-400"> · 归档 {archivedCount} 位</span>}
             <span className="text-gray-400"> · 已扫描 {scannedCount}</span>
@@ -266,7 +266,7 @@ export function TalentPoolPage() {
             搜索人才、技能、岗位关键词...
           </span>
         </button>
-        <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2">
+        <button onClick={() => setMatchOpen(true)} className="h-10 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm shadow-blue-100">
           <Sparkles className="w-4 h-4" />JD 匹配人选
         </button>
         <button onClick={() => openQueryAssistant(filter.search, false)} className="h-10 px-4 rounded-xl bg-white border border-indigo-200 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition-all flex items-center gap-2">
@@ -278,7 +278,7 @@ export function TalentPoolPage() {
           {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
           扫描识别简历{unscannedCount > 0 ? ` (${unscannedCount})` : ''}
         </button>
-        <button onClick={() => setImportOpen(true)} className="h-10 px-4 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2">
+        <button onClick={() => setImportOpen(true)} className="h-10 px-4 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:border-blue-200 hover:bg-blue-50/50 hover:text-blue-700 transition-all flex items-center gap-2">
           <Upload className="w-4 h-4" />批量导入
         </button>
         <button onClick={() => setEnrichOpen(true)} className="h-10 px-4 rounded-xl bg-white border border-purple-200 text-purple-600 text-sm font-medium hover:bg-purple-50 transition-all flex items-center gap-2">

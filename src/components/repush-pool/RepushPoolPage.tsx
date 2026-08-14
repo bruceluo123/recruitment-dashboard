@@ -98,11 +98,11 @@ export function RepushPoolPage() {
   const rangeText = `${mon.getMonth() + 1}.${mon.getDate()} - ${sun.getMonth() + 1}.${sun.getDate()}`;
 
   return (
-    <div className="flex flex-col h-full max-w-4xl mx-auto w-full">
+    <div className="workspace-page flex h-full max-w-5xl flex-col">
       <div className="mb-5 flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">本周推荐</h1>
-          <p className="text-sm text-gray-400 mt-1">本周（{rangeText}）推荐反馈跟进，与推荐中心数据互通。</p>
+          <h1 className="page-title">本周推荐</h1>
+          <p className="page-subtitle">本周（{rangeText}）推荐反馈跟进，与推荐中心数据互通。</p>
         </div>
         {/* 两个推荐人切换（非并排） */}
         <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm shrink-0">

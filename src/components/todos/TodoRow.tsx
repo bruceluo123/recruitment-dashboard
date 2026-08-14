@@ -49,7 +49,7 @@ export function TodoRow({ todo, ownerNames, onToggle, onEdit, onRemove }: TodoRo
 
   return (
     <div className={cn(
-      'group relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-2xl border bg-white transition-all overflow-hidden',
+      'group relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-lg border bg-white transition-all overflow-hidden',
       todo.done ? 'border-gray-100 opacity-60' : overdue ? 'border-red-200 bg-red-50/60 hover:border-red-300' : PRIORITY_CARD[todo.priority],
     )}>
       {/* 左侧优先级竖条 */}

@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body className={`${geistSans.className} bg-gray-50 text-gray-900 antialiased`}>
+      <body className={`${geistSans.className} bg-[#f4f7fb] text-slate-900 antialiased`}>
         <SyncProvider>
           <AppShell>{children}</AppShell>
           <InterviewReminder />

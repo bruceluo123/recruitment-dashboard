@@ -37,38 +37,38 @@ export function Sidebar() {
       <div
         onClick={closeNav}
         className={cn(
-          'fixed inset-0 z-30 bg-black/40 backdrop-blur-sm transition-opacity lg:hidden',
+          'fixed inset-0 z-30 bg-slate-950/30 backdrop-blur-sm transition-opacity lg:hidden',
           mobileNavOpen ? 'opacity-100' : 'opacity-0 pointer-events-none',
         )}
       />
       <aside className={cn(
-        'fixed left-0 top-0 h-full z-40 flex flex-col border-r border-gray-200 bg-white transition-all duration-300',
+        'fixed left-0 top-0 h-full z-40 flex flex-col border-r border-slate-200/80 bg-white transition-all duration-300',
         'w-[240px]',
         navCollapsed ? 'lg:w-[64px]' : 'lg:w-[240px]',
         mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
         'lg:translate-x-0',
       )}>
-        <div className="h-16 flex items-center gap-3 px-4 border-b border-gray-100 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shrink-0">
+        <div className="h-16 flex items-center gap-3 px-4 border-b border-slate-100 shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0 shadow-sm shadow-blue-200">
             <span className="text-white text-sm">🐧</span>
           </div>
           <span className={cn('font-semibold text-sm text-gray-800', labelHidden)}>企鹅岛</span>
         </div>
 
-        <nav className="flex-1 px-2 py-4">
+        <nav className="flex-1 px-2 py-4 overflow-y-auto">
           {menuSections.map((section, sectionIndex) => (
-            <div key={sectionIndex} className={cn('space-y-1.5', sectionIndex > 0 && 'mt-4 border-t border-gray-100 pt-4')}>
+            <div key={sectionIndex} className={cn('space-y-1', sectionIndex > 0 && 'mt-4 border-t border-slate-100 pt-4')}>
               {section.map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link key={item.href} href={item.href} onClick={closeNav} className={cn(
-                    'group/nav relative flex items-center gap-3 px-3 py-3 rounded-xl text-[15px] font-semibold transition-all duration-200',
+                    'group/nav relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-semibold transition-all duration-200',
                     isActive
-                      ? 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white shadow-md shadow-indigo-500/25'
-                      : 'text-gray-600 hover:text-indigo-700 hover:bg-indigo-50 active:scale-[0.98]',
+                      ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 active:scale-[0.98]',
                   )}>
-                    {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full bg-white/80" />}
-                    <item.icon className={cn('w-[22px] h-[22px] shrink-0 transition-transform group-hover/nav:scale-110', isActive ? 'text-white' : 'text-gray-400 group-hover/nav:text-indigo-500')} />
+                    {isActive && <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-blue-500" />}
+                    <item.icon className={cn('w-5 h-5 shrink-0 transition-colors', isActive ? 'text-blue-600' : 'text-slate-400 group-hover/nav:text-slate-600')} />
                     <span className={labelHidden}>{item.label}</span>
                   </Link>
                 );
@@ -77,13 +77,13 @@ export function Sidebar() {
           ))}
         </nav>
 
-        <div className="p-2 border-t border-gray-100">
-          <Link href="/settings" onClick={closeNav} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-all">
+        <div className="p-2 border-t border-slate-100">
+          <Link href="/settings" onClick={closeNav} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-all">
             <Settings className="w-5 h-5 shrink-0" />
             <span className={labelHidden}>设置</span>
           </Link>
           {/* 折叠开关仅桌面端显示 */}
-          <button onClick={toggleCollapsed} className="hidden lg:flex w-full items-center justify-center py-2 mt-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-all">
+          <button onClick={toggleCollapsed} className="hidden lg:flex w-full items-center justify-center py-2 mt-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all">
             {navCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         </div>

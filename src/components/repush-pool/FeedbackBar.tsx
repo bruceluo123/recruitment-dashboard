@@ -18,10 +18,10 @@ export function FeedbackBar({ item, onSetFeedback, onSchedule }: FeedbackBarProp
 
   return (
     <div className={cn(
-      'rounded-2xl border bg-white transition-all',
+      'rounded-lg border bg-white transition-all',
       item.feedback === 'done' ? 'border-green-100' : 'border-gray-100 hover:border-indigo-200',
     )}>
-      <div className="flex items-center gap-4 px-4 py-3">
+      <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           {item.candidateCode && (
@@ -40,7 +40,7 @@ export function FeedbackBar({ item, onSetFeedback, onSchedule }: FeedbackBarProp
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex w-full shrink-0 items-center gap-1.5 overflow-x-auto sm:w-auto">
         {item.highlights && (
           <button
             onClick={() => setShowHighlights((v) => !v)}

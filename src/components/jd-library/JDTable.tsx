@@ -48,7 +48,7 @@ function JDTableImpl({
   const allSelected = jds.length > 0 && jds.every((jd) => selectedSet.has(jd.id));
 
   return (
-    <div className="overflow-x-auto">
+    <div className="data-table-shell">
       <table className="w-full min-w-[920px] table-fixed">
         <colgroup>
           {batchMode && <col className="w-10" />}
@@ -64,7 +64,7 @@ function JDTableImpl({
           <col className="w-12" />
         </colgroup>
         <thead>
-          <tr className="border-b border-gray-100">
+          <tr className="data-table-head">
             {batchMode && (
               <th className="py-3 px-4">
                 <input
@@ -113,8 +113,8 @@ function JDTableImpl({
         <tbody>
           {jds.map((jd) => (
             <tr key={jd.id} className={cn(
-              'border-b border-gray-50 group transition-colors',
-              selectedSet.has(jd.id) ? 'bg-red-50/50' : selectedId === jd.id ? 'bg-indigo-50' : 'hover:bg-gray-50',
+              'border-b border-slate-100 group transition-colors',
+              selectedSet.has(jd.id) ? 'bg-red-50/50' : selectedId === jd.id ? 'bg-blue-50/70' : 'hover:bg-slate-50/80',
             )}>
               {batchMode && (
                 <td className="py-3 px-4">

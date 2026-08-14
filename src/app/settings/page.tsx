@@ -5,10 +5,10 @@ import { BackupPanel } from '@/components/settings/BackupPanel';
 
 export default function SettingsPage() {
   return (
-    <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
+    <div className="workspace-page max-w-3xl">
       <div>
-        <h2 className="text-2xl font-bold text-gray-800">设置</h2>
-        <p className="text-sm text-gray-500 mt-1">API 与系统配置</p>
+        <h2 className="page-title">设置</h2>
+        <p className="page-subtitle">API 与系统配置</p>
       </div>
 
       <GlassPanel>
