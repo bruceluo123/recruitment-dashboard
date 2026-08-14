@@ -55,7 +55,7 @@ export function JDCategoryTabs<T extends string = JDCategory | 'all'>({ categori
             onClick={() => onCategoryChange(cat.id)}
             className={cn(
               'shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all flex items-center gap-1.5 border shadow-sm',
-              isActive ? c.active : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
+              isActive ? c.active : `bg-white hover:bg-slate-50 ${c.idle}`,
             )}
           >
             {cat.label}
