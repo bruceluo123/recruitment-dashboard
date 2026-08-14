@@ -45,14 +45,7 @@ interface JDCategoryTabsProps<T extends string = JDCategory | 'all'> {
 
 export function JDCategoryTabs<T extends string = JDCategory | 'all'>({ categories, activeCategory, onCategoryChange }: JDCategoryTabsProps<T>) {
   return (
-    <div
-      className="flex gap-1.5 overflow-x-auto pb-2"
-      onWheel={(event) => {
-        if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) {
-          event.currentTarget.scrollLeft += event.deltaY;
-        }
-      }}
-    >
+    <div className="flex flex-wrap gap-1.5 pb-1">
       {categories.map((cat) => {
         const isActive = activeCategory === cat.id;
         const c = CAT_TAB_COLORS[cat.id] || CAT_TAB_COLORS.all;
