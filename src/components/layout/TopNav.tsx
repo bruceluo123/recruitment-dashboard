@@ -21,9 +21,12 @@ export function TopNav() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button type="button" data-search-trigger="talent-global" onClick={() => setSearchOpen(true)} className="relative hidden md:block text-left">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <span className="block w-64 h-9 pl-9 pr-3 rounded-lg bg-slate-50 border border-slate-200 text-sm leading-9 text-slate-400 hover:border-blue-300 hover:bg-white transition-all">快速搜索...</span>
+          <button type="button" data-search-trigger="talent-global" onClick={() => setSearchOpen(true)} className="group hidden md:block text-left">
+            <span className="flex w-72 h-10 items-center gap-2.5 rounded-lg border border-blue-200 bg-blue-50/80 px-3 text-sm shadow-sm shadow-blue-100/70 transition-all group-hover:border-blue-400 group-hover:bg-white group-hover:shadow-blue-100">
+              <Search className="w-4 h-4 shrink-0 text-blue-600" />
+              <span className="font-semibold text-slate-800">人才全局搜索</span>
+              <span className="ml-auto text-xs text-blue-500">姓名 · 技能 · 岗位</span>
+            </span>
           </button>
           <button className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-all">
             <Bell className="w-5 h-5" />
