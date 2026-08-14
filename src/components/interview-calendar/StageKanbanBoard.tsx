@@ -6,10 +6,10 @@ import type { Candidate } from '@/types/interview';
 interface StageKanbanBoardProps {
   candidates: Candidate[];
   onCandidateClick: (id: string) => void;
-  onDeleteCandidate: (id: string) => void;
+  onFailCandidate: (id: string) => void;
 }
 
-export function StageKanbanBoard({ candidates, onCandidateClick, onDeleteCandidate }: StageKanbanBoardProps) {
+export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate }: StageKanbanBoardProps) {
   return (
     <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       {DEFAULT_STAGES.map((stage) => {
@@ -22,7 +22,7 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onDeleteCandida
           <StageKanbanColumn key={stage.id} stage={stage}
             candidates={sorted}
             onCandidateClick={onCandidateClick}
-            onDeleteCandidate={onDeleteCandidate} />
+            onFailCandidate={onFailCandidate} />
         );
       })}
     </div>

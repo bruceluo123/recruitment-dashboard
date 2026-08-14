@@ -6,7 +6,7 @@ export type CandidateOutcome = 'onboarded' | 'offer-rejected' | 'failed' | 'with
 export const OUTCOME_LABELS: Record<CandidateOutcome, string> = {
   onboarded: '已入职',
   'offer-rejected': 'Offer被拒',
-  failed: '已淘汰',
+  failed: '未通过',
   withdrawn: '主动退出',
 };
 

@@ -69,9 +69,6 @@ export function InterviewCalendarPage() {
   const candidates = useInterviewStore((s) => s.candidates);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
   const updateCandidate = useInterviewStore((s) => s.updateCandidate);
-  const removeCandidate = useInterviewStore((s) => s.removeCandidate);
-  const undoDeleteCandidate = useInterviewStore((s) => s.undoDeleteCandidate);
-  const lastDeletedCandidate = useInterviewStore((s) => s.lastDeletedCandidate);
   const columnNames = useRepushStore((s) => s.columnNames);
 
   // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段（与人才复推池一致）
@@ -88,12 +85,6 @@ export function InterviewCalendarPage() {
   }, [jds]);
 
   useEffect(() => setMounted(true), []);
-  useEffect(() => {
-    if (!lastDeletedCandidate) return;
-    const t = setTimeout(() => useInterviewStore.setState({ lastDeletedCandidate: null }), 10000);
-    return () => clearTimeout(t);
-  }, [lastDeletedCandidate]);
-
   // 面试提醒逻辑已上移到全局 <InterviewReminder />（根布局），任意页面都生效并发浏览器系统通知。
 
   useEffect(() => {
@@ -140,6 +131,14 @@ export function InterviewCalendarPage() {
       reason = window.prompt(`标记为「${OUTCOME_LABELS[outcome]}」，可填原因（供复推决策参考，可留空）：`) || undefined;
     }
     updateCandidate(id, { outcome, outcomeReason: reason, outcomeAt: new Date().toISOString() });
+  };
+
+  const handleFailInterview = (id: string) => {
+    updateCandidate(id, {
+      outcome: 'failed',
+      outcomeReason: '面试未通过',
+      outcomeAt: new Date().toISOString(),
+    });
   };
 
   const handleCopyToday = async () => {
@@ -320,18 +319,9 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onDeleteCandidate={removeCandidate} />
+        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} />
       ) : (
         <WeekGridView candidates={ownerCandidates} onCandidateClick={setSelectedId} />
-      )}
-
-      {lastDeletedCandidate && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
-          <div className="bg-gray-800 text-white rounded-xl shadow-lg px-5 py-3 flex items-center gap-4">
-            <span className="text-sm">已删除「{lastDeletedCandidate.name}」</span>
-            <button onClick={() => undoDeleteCandidate()} className="text-sm font-medium text-indigo-300 hover:text-indigo-200 whitespace-nowrap">撤销</button>
-          </div>
-        </div>
       )}
 
       {showImport && (

@@ -11,7 +11,7 @@ interface StageKanbanColumnProps {
   stage: InterviewStage;
   candidates: Candidate[];
   onCandidateClick: (candidateId: string) => void;
-  onDeleteCandidate: (id: string) => void;
+  onFailCandidate: (id: string) => void;
 }
 
 const LANE_TONES: Record<CandidateStatus, string> = {
@@ -20,7 +20,7 @@ const LANE_TONES: Record<CandidateStatus, string> = {
   offer: 'bg-emerald-50/70',
 };
 
-export function StageKanbanColumn({ stage, candidates, onCandidateClick, onDeleteCandidate }: StageKanbanColumnProps) {
+export function StageKanbanColumn({ stage, candidates, onCandidateClick, onFailCandidate }: StageKanbanColumnProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
@@ -63,7 +63,7 @@ export function StageKanbanColumn({ stage, candidates, onCandidateClick, onDelet
             key={candidate.id}
             candidate={candidate}
             onClick={() => onCandidateClick(candidate.id)}
-            onDelete={onDeleteCandidate}
+            onFail={onFailCandidate}
           />
         )) : (
           <div className="flex w-full items-center justify-center text-xs text-gray-400">暂无候选人</div>

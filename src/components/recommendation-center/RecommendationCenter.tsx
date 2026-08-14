@@ -251,6 +251,7 @@ export function RecommendationCenter() {
                       onRepush={setRepushing}
                       onOffer={setOffering}
                       offerRecorded={candidates.some((candidate) => candidate.id === it.candidateId && candidate.stage === 'offer')}
+                      interviewFailed={candidates.some((candidate) => candidate.id === it.candidateId && candidate.outcome === 'failed')}
                       onRemove={removeItem}
                       onUpdateContact={(id, contact) => updateItem(id, { contact })}
                     />

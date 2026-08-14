@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { CalendarPlus, CalendarCheck, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X, BriefcaseBusiness } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X, BriefcaseBusiness } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
@@ -11,11 +11,12 @@ interface RecommendationBarProps {
   onRepush: (item: RepushItem) => void;
   onOffer: (item: RepushItem) => void;
   offerRecorded?: boolean;
+  interviewFailed?: boolean;
   onRemove: (id: string) => void;
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer, offerRecorded, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -82,6 +83,9 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
           <span className="text-sm font-semibold text-gray-800 truncate">{base}</span>
           {item.interviewRound && (
             <span className="px-1.5 py-0.5 rounded-md bg-green-50 text-green-600 text-[11px] font-medium shrink-0">{item.interviewRound}</span>
+          )}
+          {interviewFailed && (
+            <span className="px-1.5 py-0.5 rounded-md bg-red-50 text-red-500 text-[11px] font-medium shrink-0">未通过</span>
           )}
         </div>
         <div className="mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-xs text-gray-400">
@@ -166,7 +170,11 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
             {showHighlights ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         )}
-        {item.interviewStatus === 'scheduled' ? (
+        {interviewFailed ? (
+          <span className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-red-200 bg-red-50 text-red-500" title="面试未通过">
+            <CircleX className="w-3.5 h-3.5" />未通过
+          </span>
+        ) : item.interviewStatus === 'scheduled' ? (
           <button
             onClick={() => onSchedule(item)}
             className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-green-200 bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
