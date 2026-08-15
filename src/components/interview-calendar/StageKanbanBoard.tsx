@@ -7,9 +7,10 @@ interface StageKanbanBoardProps {
   candidates: Candidate[];
   onCandidateClick: (id: string) => void;
   onFailCandidate: (id: string) => void;
+  onEarlyDeparture: (id: string) => void;
 }
 
-export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate }: StageKanbanBoardProps) {
+export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate, onEarlyDeparture }: StageKanbanBoardProps) {
   return (
     <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       {DEFAULT_STAGES.map((stage) => {
@@ -22,7 +23,8 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate
           <StageKanbanColumn key={stage.id} stage={stage}
             candidates={sorted}
             onCandidateClick={onCandidateClick}
-            onFailCandidate={onFailCandidate} />
+            onFailCandidate={onFailCandidate}
+            onEarlyDeparture={onEarlyDeparture} />
         );
       })}
     </div>

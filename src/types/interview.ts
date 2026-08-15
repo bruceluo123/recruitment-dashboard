@@ -1,13 +1,15 @@
 export type CandidateStatus = 'interview-1' | 'interview-2' | 'offer';
 
 /** 候选人最终结果（Offer 之后的闭环）。未设置=仍在流程中。 */
-export type CandidateOutcome = 'onboarded' | 'offer-rejected' | 'failed' | 'withdrawn';
+export type CandidateOutcome = 'onboarded' | 'offer-rejected' | 'failed' | 'withdrawn' | 'early-departure-30' | 'early-departure-7';
 
 export const OUTCOME_LABELS: Record<CandidateOutcome, string> = {
   onboarded: '已入职',
   'offer-rejected': 'Offer被拒',
   failed: '未通过',
   withdrawn: '主动退出',
+  'early-departure-30': '30天内离职',
+  'early-departure-7': '7天内离职',
 };
 
 export const OUTCOME_COLORS: Record<CandidateOutcome, string> = {
@@ -15,6 +17,8 @@ export const OUTCOME_COLORS: Record<CandidateOutcome, string> = {
   'offer-rejected': 'bg-orange-100 text-orange-700 ring-1 ring-inset ring-orange-300',
   failed: 'bg-gray-100 text-gray-600 ring-1 ring-inset ring-gray-300',
   withdrawn: 'bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-300',
+  'early-departure-30': 'bg-orange-100 text-orange-700 ring-1 ring-inset ring-orange-300',
+  'early-departure-7': 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-300',
 };
 
 export const ALL_OUTCOMES: CandidateOutcome[] = ['onboarded', 'offer-rejected', 'failed', 'withdrawn'];
@@ -50,6 +54,7 @@ export interface Candidate {
   outcome?: CandidateOutcome;   // 最终结果；未设置=仍在流程中
   outcomeReason?: string;       // 淘汰/退出原因，供复推决策参考
   outcomeAt?: string;           // 结果标记时间
+  scoreBeforeEarlyDeparture?: number; // 提前离职扣分前的原始分数，切换或清除结果时用于恢复
   resumeUrl?: string;           // 简历文件 Blob 链接（从推荐记录带入，面试官可直接下载）
   resumeFileName?: string;      // 简历原始文件名
   talentId?: string;            // 关联人才库 id（跨模块主键）

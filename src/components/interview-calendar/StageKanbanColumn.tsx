@@ -12,6 +12,7 @@ interface StageKanbanColumnProps {
   candidates: Candidate[];
   onCandidateClick: (candidateId: string) => void;
   onFailCandidate: (id: string) => void;
+  onEarlyDeparture: (id: string) => void;
 }
 
 const LANE_TONES: Record<CandidateStatus, string> = {
@@ -20,12 +21,12 @@ const LANE_TONES: Record<CandidateStatus, string> = {
   offer: 'bg-emerald-50/70',
 };
 
-export function StageKanbanColumn({ stage, candidates, onCandidateClick, onFailCandidate }: StageKanbanColumnProps) {
+export function StageKanbanColumn({ stage, candidates, onCandidateClick, onFailCandidate, onEarlyDeparture }: StageKanbanColumnProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
   const scoreSum = candidates.reduce((sum, candidate) => sum + (candidate.score || 0), 0);
-  const badgeValue = isOffer ? Number(scoreSum.toFixed(1)) : candidates.length;
+  const badgeValue = isOffer ? Number(scoreSum.toFixed(2)) : candidates.length;
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -64,6 +65,7 @@ export function StageKanbanColumn({ stage, candidates, onCandidateClick, onFailC
             candidate={candidate}
             onClick={() => onCandidateClick(candidate.id)}
             onFail={onFailCandidate}
+            onEarlyDeparture={onEarlyDeparture}
           />
         )) : (
           <div className="flex w-full items-center justify-center text-xs text-gray-400">暂无候选人</div>

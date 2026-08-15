@@ -8,7 +8,7 @@ import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
 import type { Candidate, CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES } from '@/types/interview';
-import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet } from 'lucide-react';
+import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet, LogOut } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
 import { buildScheduleTable, parseInterviewReport } from '@/lib/interview-report';
@@ -59,6 +59,7 @@ export function InterviewCalendarPage() {
   const [showImport, setShowImport] = useState(false);
   const [showExcelPicker, setShowExcelPicker] = useState(false);
   const [selectedExcelIds, setSelectedExcelIds] = useState<string[]>([]);
+  const [earlyDepartureId, setEarlyDepartureId] = useState<string | null>(null);
   const [importText, setImportText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
@@ -122,15 +123,29 @@ export function InterviewCalendarPage() {
 
   // 标记候选人最终结果（Offer 之后的闭环）。淘汰/退出时可填原因，供复推决策参考。
   const handleSetOutcome = (id: string, outcome: CandidateOutcome | null) => {
+    const candidate = candidates.find((item) => item.id === id);
+    const originalScore = candidate?.scoreBeforeEarlyDeparture;
     if (outcome === null) {
-      updateCandidate(id, { outcome: undefined, outcomeReason: undefined, outcomeAt: undefined });
+      updateCandidate(id, {
+        outcome: undefined,
+        outcomeReason: undefined,
+        outcomeAt: undefined,
+        score: originalScore ?? candidate?.score ?? 0,
+        scoreBeforeEarlyDeparture: undefined,
+      });
       return;
     }
     let reason: string | undefined;
     if (outcome === 'failed' || outcome === 'withdrawn' || outcome === 'offer-rejected') {
       reason = window.prompt(`标记为「${OUTCOME_LABELS[outcome]}」，可填原因（供复推决策参考，可留空）：`) || undefined;
     }
-    updateCandidate(id, { outcome, outcomeReason: reason, outcomeAt: new Date().toISOString() });
+    updateCandidate(id, {
+      outcome,
+      outcomeReason: reason,
+      outcomeAt: new Date().toISOString(),
+      score: originalScore ?? candidate?.score ?? 0,
+      scoreBeforeEarlyDeparture: undefined,
+    });
   };
 
   const handleFailInterview = (id: string) => {
@@ -139,6 +154,24 @@ export function InterviewCalendarPage() {
       outcomeReason: '面试未通过',
       outcomeAt: new Date().toISOString(),
     });
+  };
+
+  const handleEarlyDeparture = (period: 'within-30' | 'within-7') => {
+    const candidate = candidates.find((item) => item.id === earlyDepartureId);
+    if (!candidate) return;
+    const originalScore = candidate.scoreBeforeEarlyDeparture ?? candidate.score;
+    const nextScore = period === 'within-7'
+      ? 0
+      : Number((originalScore / 2).toFixed(2));
+    updateCandidate(candidate.id, {
+      outcome: period === 'within-7' ? 'early-departure-7' : 'early-departure-30',
+      outcomeReason: period === 'within-7' ? '入职7天内提前离职，分数归零' : '入职30天内提前离职，分数减半',
+      outcomeAt: new Date().toISOString(),
+      scoreBeforeEarlyDeparture: originalScore,
+      score: nextScore,
+    });
+    setEarlyDepartureId(null);
+    setCopyMsg(`已记录 ${candidate.name} 提前离职，分数调整为 ${nextScore}`);
   };
 
   const handleCopyToday = async () => {
@@ -255,6 +288,10 @@ export function InterviewCalendarPage() {
   }, [activeOwnerCandidates, todayOnly]);
 
   const selected = candidates.find((c) => c.id === selectedId);
+  const earlyDepartureCandidate = candidates.find((c) => c.id === earlyDepartureId);
+  const earlyDepartureBaseScore = earlyDepartureCandidate
+    ? earlyDepartureCandidate.scoreBeforeEarlyDeparture ?? earlyDepartureCandidate.score
+    : 0;
   const firstInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-1').length;
   const secondInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-2').length;
   const offerCount = activeOwnerCandidates.filter((c) => c.stage === 'offer').length;
@@ -262,6 +299,7 @@ export function InterviewCalendarPage() {
   useEscapeClose(() => setShowImport(false), showImport);
   useEscapeClose(() => setShowExcelPicker(false), showExcelPicker);
   useEscapeClose(() => setShowAddForm(false), showAddForm);
+  useEscapeClose(() => setEarlyDepartureId(null), !!earlyDepartureCandidate);
   useEscapeClose(() => { setSelectedId(null); setEditingId(null); }, !!selected);
 
   if (!mounted) return null;
@@ -323,7 +361,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} />
+        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} />
       ) : (
         <WeekGridView candidates={activeOwnerCandidates} onCandidateClick={setSelectedId} />
       )}
@@ -427,6 +465,55 @@ export function InterviewCalendarPage() {
                   复制 {selectedExcelIds.length} 条
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {earlyDepartureCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button aria-label="关闭" onClick={() => setEarlyDepartureId(null)} className="fixed inset-0 bg-black/30" />
+          <div className="relative w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl animate-fade-in">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
+                  <LogOut className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">记录提前离职</h3>
+                  <p className="mt-0.5 text-sm text-gray-500">{earlyDepartureCandidate.name} · {earlyDepartureCandidate.jdTitle}</p>
+                </div>
+              </div>
+              <button onClick={() => setEarlyDepartureId(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => handleEarlyDeparture('within-30')}
+                className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-left transition-colors hover:border-amber-300 hover:bg-amber-50"
+              >
+                <span className="text-sm font-semibold text-amber-800">30 天之内</span>
+                <span className="mt-1 block text-xs text-amber-700/80">分数减半</span>
+                <span className="mt-3 block text-lg font-bold tabular-nums text-gray-900">
+                  {earlyDepartureBaseScore} → {Number((earlyDepartureBaseScore / 2).toFixed(2))}
+                </span>
+              </button>
+              <button
+                onClick={() => handleEarlyDeparture('within-7')}
+                className="rounded-xl border border-rose-200 bg-rose-50/70 p-4 text-left transition-colors hover:border-rose-300 hover:bg-rose-50"
+              >
+                <span className="text-sm font-semibold text-rose-700">7 天之内</span>
+                <span className="mt-1 block text-xs text-rose-600/80">分数归零</span>
+                <span className="mt-3 block text-lg font-bold tabular-nums text-gray-900">
+                  {earlyDepartureBaseScore} → 0
+                </span>
+              </button>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button onClick={() => setEarlyDepartureId(null)} className="h-9 rounded-lg px-4 text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { CalendarClock, CircleX, Mail, Pencil, UserRound } from 'lucide-react';
+import { CalendarClock, CircleX, LogOut, Mail, Pencil, UserRound } from 'lucide-react';
 import { cn, formatInterviewDate } from '@/lib/utils';
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
@@ -9,6 +9,7 @@ interface StageKanbanCardProps {
   candidate: Candidate;
   onClick: () => void;
   onFail: (id: string) => void;
+  onEarlyDeparture: (id: string) => void;
 }
 
 const STAGE_ACCENTS: Record<CandidateStatus, { border: string; badge: string; icon: string }> = {
@@ -36,7 +37,7 @@ function getScoreColor(score: number): string {
   return 'text-rose-500';
 }
 
-export function StageKanbanCard({ candidate, onClick, onFail }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, onClick, onFail, onEarlyDeparture }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const accent = STAGE_ACCENTS[candidate.stage];
   const showScore = candidate.stage === 'offer' || candidate.score > 0;
@@ -105,7 +106,15 @@ export function StageKanbanCard({ candidate, onClick, onFail }: StageKanbanCardP
         <span className="flex items-center gap-1 text-[11px] text-gray-400 transition-colors group-hover:text-indigo-500">
           <Pencil className="h-3 w-3" />查看详情
         </span>
-        {candidate.outcome === 'failed' ? (
+        {candidate.stage === 'offer' ? (
+          <button
+            title="记录提前离职"
+            onClick={(event) => { event.stopPropagation(); onEarlyDeparture(candidate.id); }}
+            className="flex items-center gap-1 rounded-md bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-500 transition-all hover:bg-rose-100"
+          >
+            <LogOut className="h-3.5 w-3.5" />提前离职
+          </button>
+        ) : candidate.outcome === 'failed' ? (
           <span className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-medium text-red-500">
             <CircleX className="h-3.5 w-3.5" />未通过
           </span>
