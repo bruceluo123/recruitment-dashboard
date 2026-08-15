@@ -174,6 +174,15 @@ function shouldScanGroupTitle(title) {
     || (title.includes('\u7b80\u5386') && title.includes('\u5bf9\u63a5'));
 }
 
+function shouldScanPrivateDialog(dialog) {
+  const entity = dialog.entity;
+  const isPrivate = Boolean(dialog.isUser || entity?.className === 'User');
+  if (!isPrivate) return false;
+  const username = clean(entity?.username).replace(/^@/, '').toLowerCase();
+  const title = clean(dialog.title || dialog.name).replace(/^@/, '').toLowerCase();
+  return username === 'ojisamer' || title === 'ojisamer';
+}
+
 function localDateKey(iso) {
   const d = new Date(new Date(iso).getTime() + 8 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
@@ -233,7 +242,7 @@ async function collectTargets(client, from, to, limit) {
   const groups = dialogs
     .filter((d) => {
       const title = String(d.title || d.name || '');
-      return shouldScanGroupTitle(title);
+      return shouldScanGroupTitle(title) || shouldScanPrivateDialog(d);
     })
     .map((d) => ({ id: String(d.id || ''), title: String(d.title || d.name || d.id || ''), entity: d.entity }));
 
