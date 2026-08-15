@@ -110,7 +110,7 @@ export function StageKanbanCard({ candidate, onClick, onFail, onEarlyDeparture }
           <button
             title="记录提前离职"
             onClick={(event) => { event.stopPropagation(); onEarlyDeparture(candidate.id); }}
-            className="flex items-center gap-1 rounded-md bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-500 transition-all hover:bg-rose-100"
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600"
           >
             <LogOut className="h-3.5 w-3.5" />提前离职
           </button>
