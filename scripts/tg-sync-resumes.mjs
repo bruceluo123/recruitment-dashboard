@@ -49,6 +49,18 @@ function addMinutes(date, minutes) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
+function parseProxy(raw) {
+  if (!raw) return undefined;
+  const match = raw.match(/^(?:(socks5|socks4):\/\/)?([^:]+):(\d+)$/i);
+  if (!match) throw new Error('TG_PROXY format should be host:port or socks5://host:port');
+  return {
+    ip: match[2],
+    port: parseInt(match[3], 10),
+    socksType: match[1]?.toLowerCase() === 'socks4' ? 4 : 5,
+    timeout: 10,
+  };
+}
+
 function safeFileName(fileName) {
   return clean(fileName).replace(/[^\w.\u4e00-\u9fa5-]/g, '_') || 'resume.pdf';
 }
@@ -311,11 +323,12 @@ async function main() {
   if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) throw new Error('Missing KV env.');
   if (write && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Missing BLOB_READ_WRITE_TOKEN.');
 
+  const proxy = parseProxy(process.env.TG_PROXY);
   const client = new TelegramClient(
     new StringSession((process.env.TG_SESSION || '').replace(/\s+/g, '')),
     parseInt(process.env.TG_API_ID || '', 10),
     process.env.TG_API_HASH || '',
-    { connectionRetries: 3 },
+    { connectionRetries: 3, ...(proxy ? { proxy } : {}) },
   );
   await client.connect();
   let targets = [];
@@ -328,7 +341,8 @@ async function main() {
   const ledgerRaw = await kvGet('recruit:tg-resume-sync-ledger').catch(() => '');
   let ledger = ledgerRaw ? JSON.parse(ledgerRaw) : [];
   if (!Array.isArray(ledger)) ledger = [];
-  const doneKeys = new Set(ledger.map((row) => row.key));
+  // 文件已入库但正文解析失败时不能永久跳过；后续网络恢复后自动重试并补齐全文索引。
+  const doneKeys = new Set(ledger.filter((row) => row.parsed !== false).map((row) => row.key));
   const pending = targets.filter((target) => !doneKeys.has(target.key));
 
   if (dryRun) {
@@ -545,7 +559,9 @@ async function main() {
   }, null, 2));
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
