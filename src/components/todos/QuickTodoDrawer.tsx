@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   Check,
   CheckCircle2,
   ChevronRight,
+  GripVertical,
   ListTodo,
   Plus,
   X,
@@ -19,6 +20,14 @@ import { useRepushStore } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import type { TodoItem } from '@/types/todo';
 
+const TRIGGER_POSITION_KEY = 'recruitai-quick-todo-trigger-top';
+const TRIGGER_HEIGHT = 48;
+const TRIGGER_MARGIN = 16;
+
+function clampTriggerTop(top: number, viewportHeight: number) {
+  return Math.min(Math.max(top, TRIGGER_MARGIN), Math.max(TRIGGER_MARGIN, viewportHeight - TRIGGER_HEIGHT - TRIGGER_MARGIN));
+}
+
 function completedToday(todo: TodoItem, today: string) {
   if (!todo.done || !todo.completedAt) return false;
   return todayDateInput(new Date(todo.completedAt)) === today;
@@ -28,7 +37,10 @@ export function QuickTodoDrawer() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [triggerTop, setTriggerTop] = useState<number>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerDragRef = useRef<{ pointerId: number; startY: number; startTop: number; moved: boolean } | null>(null);
+  const ignoreTriggerClickRef = useRef(false);
 
   const todos = useTodoStore((state) => state.todos);
   const addTodo = useTodoStore((state) => state.addTodo);
@@ -62,7 +74,18 @@ export function QuickTodoDrawer() {
     [visibleTodos],
   );
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const savedTop = Number(window.localStorage.getItem(TRIGGER_POSITION_KEY));
+    const initialTop = Number.isFinite(savedTop) && savedTop > 0 ? savedTop : window.innerHeight * 0.42;
+    setTriggerTop(clampTriggerTop(initialTop, window.innerHeight));
+    setMounted(true);
+
+    const handleResize = () => {
+      setTriggerTop((current) => clampTriggerTop(current ?? window.innerHeight * 0.42, window.innerHeight));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   useEffect(() => {
     if (!open) return;
     const timer = window.setTimeout(() => inputRef.current?.focus(), 180);
@@ -91,17 +114,64 @@ export function QuickTodoDrawer() {
     inputRef.current?.focus();
   };
 
+  const handleTriggerPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || triggerTop === undefined) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    triggerDragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startTop: triggerTop,
+      moved: false,
+    };
+  };
+
+  const handleTriggerPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = triggerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const delta = event.clientY - drag.startY;
+    if (Math.abs(delta) >= 4) drag.moved = true;
+    setTriggerTop(clampTriggerTop(drag.startTop + delta, window.innerHeight));
+  };
+
+  const finishTriggerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = triggerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const finalTop = clampTriggerTop(drag.startTop + event.clientY - drag.startY, window.innerHeight);
+    setTriggerTop(finalTop);
+    if (drag.moved) {
+      window.localStorage.setItem(TRIGGER_POSITION_KEY, String(Math.round(finalTop)));
+      ignoreTriggerClickRef.current = true;
+      window.setTimeout(() => { ignoreTriggerClickRef.current = false; }, 0);
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    triggerDragRef.current = null;
+  };
+
+  const handleTriggerClick = () => {
+    if (ignoreTriggerClickRef.current) return;
+    setOpen(true);
+  };
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={handleTriggerClick}
+        onPointerDown={handleTriggerPointerDown}
+        onPointerMove={handleTriggerPointerMove}
+        onPointerUp={finishTriggerDrag}
+        onPointerCancel={finishTriggerDrag}
+        style={{ top: triggerTop }}
         className={cn(
-          'fixed right-0 top-[42%] z-40 flex h-12 items-center gap-2 rounded-l-lg border border-r-0 border-blue-500 bg-blue-600 px-3 text-sm font-semibold text-white shadow-lg shadow-blue-200/70 transition-all hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2',
+          'fixed right-0 z-40 flex h-12 touch-none cursor-ns-resize select-none items-center gap-2 rounded-l-lg border border-r-0 border-blue-500 bg-blue-600 px-3 text-sm font-semibold text-white shadow-lg shadow-blue-200/70 transition-[background-color,box-shadow,transform,opacity] hover:bg-blue-700 active:cursor-grabbing focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2',
           open && 'pointer-events-none translate-x-full opacity-0',
         )}
         aria-label={`打开今日待办，${actionable.length} 项未完成`}
+        title="点击展开，上下拖动调整位置"
       >
+        <GripVertical className="-ml-1 h-4 w-4 text-blue-200" />
         <ListTodo className="h-4 w-4" />
         <span>今日待办</span>
         <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-white px-1.5 text-xs font-bold text-blue-700">
