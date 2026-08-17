@@ -276,6 +276,8 @@ export function todaysOffers(candidates: Candidate[], ref: Date, owner?: 'a' | '
     .filter((candidate) => (
       candidate.outcome !== 'failed'
       && candidate.outcome !== 'withdrawn'
+      && candidate.outcome !== 'early-departure-30'
+      && candidate.outcome !== 'early-departure-7'
       && (candidate.offerAppliedAt
         ? isSameDay(candidate.offerAppliedAt, ref)
         : candidate.stage === 'offer' && isSameDay(candidate.updatedAt, ref))
