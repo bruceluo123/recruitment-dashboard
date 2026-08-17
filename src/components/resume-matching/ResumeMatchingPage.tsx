@@ -62,7 +62,7 @@ function buildRecommendationCopy(
   const candidateName = info.name || resume.parsedData.name || resume.fileName.replace(/\.(pdf|docx)$/i, '');
   const candidateCode = buildCandidateCode(codeSuffix, info.candidateCode);
   const extension = resumeFileName.match(/\.(pdf|docx?)$/i)?.[0].toLowerCase() || '.pdf';
-  const renamedResume = `${[candidateCode, candidateName, jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
+  const renamedResume = `${[candidateName, jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
 
   const recommendationText = [
     `候选人编码：${candidateCode}`,
