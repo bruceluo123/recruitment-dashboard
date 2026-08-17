@@ -18,11 +18,17 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { usePrefStore } from '@/store/pref-store';
 import { useRepushStore } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
-import type { TodoItem } from '@/types/todo';
+import { primaryTodoCategory, TODO_PRIMARY_CATEGORIES, TODO_CATEGORY_LABEL } from '@/types/todo';
+import type { TodoItem, TodoPrimaryCategory } from '@/types/todo';
 
 const TRIGGER_POSITION_KEY = 'recruitai-quick-todo-trigger-top';
 const TRIGGER_HEIGHT = 48;
 const TRIGGER_MARGIN = 16;
+const QUICK_TODO_GROUP_STYLE: Record<TodoPrimaryCategory, { header: string; dot: string }> = {
+  recruitment: { header: 'bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
+  supervision: { header: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  other: { header: 'bg-slate-100 text-slate-700', dot: 'bg-slate-400' },
+};
 
 function clampTriggerTop(top: number, viewportHeight: number) {
   return Math.min(Math.max(top, TRIGGER_MARGIN), Math.max(TRIGGER_MARGIN, viewportHeight - TRIGGER_HEIGHT - TRIGGER_MARGIN));
@@ -37,6 +43,7 @@ export function QuickTodoDrawer() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [category, setCategory] = useState<TodoPrimaryCategory>('recruitment');
   const [triggerTop, setTriggerTop] = useState<number>();
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerDragRef = useRef<{ pointerId: number; startY: number; startTop: number; moved: boolean } | null>(null);
@@ -73,6 +80,13 @@ export function QuickTodoDrawer() {
     }).length,
     [visibleTodos],
   );
+  const actionableGroups = useMemo(
+    () => TODO_PRIMARY_CATEGORIES.map((groupCategory) => ({
+      category: groupCategory,
+      items: actionable.filter((todo) => primaryTodoCategory(todo.category) === groupCategory),
+    })),
+    [actionable],
+  );
 
   useEffect(() => {
     const savedTop = Number(window.localStorage.getItem(TRIGGER_POSITION_KEY));
@@ -108,7 +122,7 @@ export function QuickTodoDrawer() {
       title: nextTitle,
       dueDate: today,
       priority: 'normal',
-      category: 'other',
+      category,
     });
     setTitle('');
     inputRef.current?.focus();
@@ -242,6 +256,24 @@ export function QuickTodoDrawer() {
               添加
             </button>
           </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-slate-500">待办类型</span>
+            <div className="flex h-8 overflow-hidden rounded-lg border border-slate-200 bg-white p-0.5">
+              {TODO_PRIMARY_CATEGORIES.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setCategory(option)}
+                  className={cn(
+                    'min-w-16 rounded-md px-3 text-xs font-semibold transition-colors',
+                    category === option ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+                  )}
+                >
+                  {TODO_CATEGORY_LABEL[option]}
+                </button>
+              ))}
+            </div>
+          </div>
           <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
             <CalendarDays className="h-3.5 w-3.5" />自动归到今天，需要改日期时进入完整待办
           </p>
@@ -254,10 +286,28 @@ export function QuickTodoDrawer() {
           </div>
 
           {actionable.length > 0 ? (
-            <div className="space-y-2">
-              {actionable.map((todo) => (
-                <QuickTodoRow key={todo.id} todo={todo} ownerName={todo.owner === 'both' ? '共同' : ownerName} onToggle={toggleDone} />
-              ))}
+            <div className="space-y-5">
+              {actionableGroups.map((group) => {
+                const style = QUICK_TODO_GROUP_STYLE[group.category];
+                return (
+                  <section key={group.category}>
+                    <div className={cn('mb-2 flex h-9 items-center gap-2 rounded-lg px-3', style.header)}>
+                      <span className={cn('h-2 w-2 rounded-full', style.dot)} />
+                      <h4 className="text-sm font-bold">{TODO_CATEGORY_LABEL[group.category]}</h4>
+                      <span className="ml-auto text-xs font-semibold opacity-70">{group.items.length}</span>
+                    </div>
+                    {group.items.length > 0 ? (
+                      <div className="space-y-2">
+                        {group.items.map((todo) => (
+                          <QuickTodoRow key={todo.id} todo={todo} ownerName={todo.owner === 'both' ? '共同' : ownerName} onToggle={toggleDone} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="px-3 py-1 text-xs text-slate-400">暂无{TODO_CATEGORY_LABEL[group.category]}待办</p>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           ) : (
             <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-5 text-center">

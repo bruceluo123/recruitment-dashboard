@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TodoItem, TodoOwner, TodoPriority, TodoCategory } from '@/types/todo';
-import { TODO_PRIORITY_LABEL, TODO_CATEGORY_LABEL } from '@/types/todo';
+import { primaryTodoCategory, TODO_PRIMARY_CATEGORIES, TODO_PRIORITY_LABEL, TODO_CATEGORY_LABEL } from '@/types/todo';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface EditTodoModalProps {
@@ -14,14 +14,14 @@ interface EditTodoModalProps {
 }
 
 const PRIORITIES: TodoPriority[] = ['high', 'normal', 'low'];
-const CATEGORIES: TodoCategory[] = ['follow', 'interview', 'offer', 'other'];
+const CATEGORIES: TodoCategory[] = [...TODO_PRIMARY_CATEGORIES];
 
 export function EditTodoModal({ todo, ownerNames, onClose, onSave }: EditTodoModalProps) {
   const [title, setTitle] = useState(todo.title);
   const [owner, setOwner] = useState<TodoOwner>(todo.owner);
   const [dueDate, setDueDate] = useState(todo.dueDate || '');
   const [priority, setPriority] = useState<TodoPriority>(todo.priority);
-  const [category, setCategory] = useState<TodoCategory>(todo.category);
+  const [category, setCategory] = useState<TodoCategory>(primaryTodoCategory(todo.category));
   const [note, setNote] = useState(todo.note || '');
   useEscapeClose(onClose);
 

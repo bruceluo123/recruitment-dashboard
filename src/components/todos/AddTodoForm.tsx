@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NewTodo } from '@/store/todo-store';
 import type { TodoOwner, TodoPriority, TodoCategory } from '@/types/todo';
-import { TODO_PRIORITY_LABEL, TODO_CATEGORY_LABEL } from '@/types/todo';
+import { TODO_PRIMARY_CATEGORIES, TODO_PRIORITY_LABEL, TODO_CATEGORY_LABEL } from '@/types/todo';
 import { parseDueDateFromText } from '@/lib/todo-date';
 import { formatDueDate } from '@/lib/todo-format';
 
@@ -15,14 +15,14 @@ interface AddTodoFormProps {
 }
 
 const PRIORITIES: TodoPriority[] = ['high', 'normal', 'low'];
-const CATEGORIES: TodoCategory[] = ['follow', 'interview', 'offer', 'other'];
+const CATEGORIES: TodoCategory[] = [...TODO_PRIMARY_CATEGORIES];
 
 export function AddTodoForm({ defaultOwner, ownerNames, onAdd }: AddTodoFormProps) {
   const [title, setTitle] = useState('');
   const [owner, setOwner] = useState<TodoOwner>(defaultOwner === 'both' ? 'both' : defaultOwner);
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<TodoPriority>('normal');
-  const [category, setCategory] = useState<TodoCategory>('other');
+  const [category, setCategory] = useState<TodoCategory>('recruitment');
 
   const ownerLabel = (o: TodoOwner) => (o === 'both' ? '共同' : ownerNames[o]);
 
@@ -39,7 +39,7 @@ export function AddTodoForm({ defaultOwner, ownerNames, onAdd }: AddTodoFormProp
     setTitle('');
     setDueDate('');
     setPriority('normal');
-    setCategory('other');
+    setCategory('recruitment');
   };
 
   return (
