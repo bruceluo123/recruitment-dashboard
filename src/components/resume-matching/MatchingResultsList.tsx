@@ -1,11 +1,29 @@
 'use client';
 import { MatchingResultCard } from './MatchingResultCard';
-import { Loader2, BarChart3 } from 'lucide-react';
+import { Loader2, BarChart3, FileText } from 'lucide-react';
 import type { MatchingResult } from '@/types/matching';
 
-interface MatchingResultsListProps { results: MatchingResult[]; isMatching: boolean; }
+interface MatchingResultsListProps {
+  results: MatchingResult[];
+  isMatching: boolean;
+  selectedResultIds: Set<string>;
+  generatedJdIds: Set<string>;
+  isGeneratingCopy: boolean;
+  onToggleSelected: (resultId: string) => void;
+  onGenerateRecommendationCopy: () => void;
+  onOpenRecommendationCopy: (jdId: string) => void;
+}
 
-export function MatchingResultsList({ results, isMatching }: MatchingResultsListProps) {
+export function MatchingResultsList({
+  results,
+  isMatching,
+  selectedResultIds,
+  generatedJdIds,
+  isGeneratingCopy,
+  onToggleSelected,
+  onGenerateRecommendationCopy,
+  onOpenRecommendationCopy,
+}: MatchingResultsListProps) {
   // 流式：首条结果到达前显示加载态；到达后即展示，匹配中持续追加
   if (isMatching && results.length === 0) {
     return (
@@ -22,18 +40,39 @@ export function MatchingResultsList({ results, isMatching }: MatchingResultsList
   }
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
           匹配结果 <span className="text-gray-400">({results.length} 个岗位)</span>
           {isMatching && <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />}
         </p>
-        <div className="flex items-center gap-3 text-xs text-gray-400">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />高匹配 (≥80)</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />中匹配 (≥60)</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />低匹配</span>
+        <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-gray-400">
+          <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-green-500" />高匹配 (≥80)</span>
+          <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-amber-500" />中匹配 (≥60)</span>
+          <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-red-500" />低匹配</span>
+          <button
+            type="button"
+            onClick={onGenerateRecommendationCopy}
+            disabled={selectedResultIds.size === 0 || isGeneratingCopy}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+          >
+            {isGeneratingCopy
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <FileText className="h-4 w-4" />}
+            生成推荐文案{selectedResultIds.size > 0 ? `（${selectedResultIds.size}）` : ''}
+          </button>
         </div>
       </div>
-      {results.map((r, i) => <MatchingResultCard key={r.id} result={r} rank={i + 1} />)}
+      {results.map((result, index) => (
+        <MatchingResultCard
+          key={result.id}
+          result={result}
+          rank={index + 1}
+          selected={selectedResultIds.has(result.id)}
+          hasRecommendationCopy={generatedJdIds.has(result.jdId)}
+          onToggleSelected={() => onToggleSelected(result.id)}
+          onOpenRecommendationCopy={() => onOpenRecommendationCopy(result.jdId)}
+        />
+      ))}
     </div>
   );
 }

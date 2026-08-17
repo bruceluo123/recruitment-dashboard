@@ -10,44 +10,31 @@ const ScoreRadarChart = dynamic(
 );
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
-import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink, UserRound, Copy, Check, UserPlus, Loader2 } from 'lucide-react';
+import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink, UserRound, Copy, Check, MessageSquareText } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJDStore } from '@/store/jd-store';
-import { useResumeStore } from '@/store/resume-store';
-import { recordRecommendationFromMatch } from '@/lib/resume-to-talent';
 
-interface MatchingResultCardProps { result: MatchingResult; rank: number; }
+interface MatchingResultCardProps {
+  result: MatchingResult;
+  rank: number;
+  selected: boolean;
+  hasRecommendationCopy: boolean;
+  onToggleSelected: () => void;
+  onOpenRecommendationCopy: () => void;
+}
 
-export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
+export function MatchingResultCard({ result, rank, selected, hasRecommendationCopy, onToggleSelected, onOpenRecommendationCopy }: MatchingResultCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'ai' | 'jd' | 'odc'>('ai');
   const [odcCopied, setOdcCopied] = useState(false);
   const [jdCopied, setJdCopied] = useState(false);
   const [orgCopied, setOrgCopied] = useState(false);
-  // 一键录入推荐（打通「匹配完是死胡同」）：idle→saving→saved/error
-  const [recState, setRecState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [recMsg, setRecMsg] = useState('');
   const { jd, score, breakdown, reasoning, highlights, concerns } = result;
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
   const router = useRouter();
   const selectJD = useJDStore((s) => s.selectJD);
   const setFilter = useJDStore((s) => s.setFilter);
-
-  const handleRecordRec = async () => {
-    if (recState === 'saving' || recState === 'saved') return;
-    const resume = useResumeStore.getState().resumes.find((r) => r.id === result.resumeId);
-    if (!resume) { setRecState('error'); setRecMsg('简历已被移除'); return; }
-    setRecState('saving');
-    const r = await recordRecommendationFromMatch(resume, jd);
-    if (r.ok) {
-      setRecState('saved');
-      setRecMsg(`${r.name} → ${jd.title} 已录入推荐中心（亮点后台提取中）`);
-    } else {
-      setRecState('error');
-      setRecMsg(r.error || '录入失败');
-    }
-  };
 
   // 查看详情：直接在 JD 库按岗位名称搜索出该岗位（而非打开详情侧滑面板）
   const handleViewDetail = () => {
@@ -88,8 +75,21 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
   };
 
   return (
-    <GlassPanel padding="md" hover className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
+    <GlassPanel
+      padding="md"
+      hover
+      className={cn('cursor-pointer', selected && 'border-indigo-300 bg-indigo-50/20 ring-1 ring-indigo-100')}
+      onClick={() => setExpanded(!expanded)}
+    >
       <div className="flex items-start gap-4">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelected}
+          onClick={(event) => event.stopPropagation()}
+          className="mt-6 h-5 w-5 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600"
+          aria-label={`选择岗位 ${jd.title}`}
+        />
         <div className="flex flex-col items-center shrink-0">
           <span className="text-xs text-gray-400 mb-1">#{rank}</span>
           <div className="relative w-14 h-14 flex items-center justify-center">
@@ -128,19 +128,16 @@ export function MatchingResultCard({ result, rank }: MatchingResultCardProps) {
                     {orgCopied ? <><Check className="w-3 h-3" />已复制</> : <><Copy className="w-3 h-3" />复制编制部门</>}
                   </button>
                 )}
-                <button onClick={(e) => { e.stopPropagation(); handleRecordRec(); }}
-                  disabled={recState === 'saving' || recState === 'saved'}
-                  title="识别姓名后带简历录入推荐中心（岗位/编制/部门自动填入）"
-                  className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-colors',
-                    recState === 'saved' ? 'bg-green-50 text-green-600'
-                      : recState === 'saving' ? 'bg-gray-100 text-gray-400'
-                      : 'bg-amber-50 text-amber-600 hover:bg-amber-100')}>
-                  {recState === 'saving' ? <><Loader2 className="w-3 h-3 animate-spin" />录入中</>
-                    : recState === 'saved' ? <><Check className="w-3 h-3" />已录入推荐</>
-                    : <><UserPlus className="w-3 h-3" />录入推荐</>}
-                </button>
+                {hasRecommendationCopy && (
+                  <button
+                    onClick={(event) => { event.stopPropagation(); onOpenRecommendationCopy(); }}
+                    title="查看并复制这个岗位的推荐文案"
+                    className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-100"
+                  >
+                    <MessageSquareText className="h-3 w-3" />推荐语
+                  </button>
+                )}
               </div>
-              {recMsg && <p className={cn('text-xs mt-1', recState === 'error' ? 'text-red-500' : 'text-green-600')}>{recMsg}</p>}
             </div>
             <ChevronRight className={cn('w-5 h-5 text-gray-300 shrink-0 transition-all', expanded && 'rotate-90')} />
           </div>
