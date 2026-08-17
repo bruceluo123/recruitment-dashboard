@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import { TopNav } from './TopNav';
 import { useUIStore } from '@/store/ui-store';
 import { cn } from '@/lib/utils';
+import { QuickTodoDrawer } from '@/components/todos/QuickTodoDrawer';
 
 /** 客户端外壳：根据桌面侧栏折叠状态动态调整内容左内边距；移动端无左内边距（抽屉悬浮覆盖）。 */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -14,6 +15,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <TopNav />
         <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-7">{children}</main>
       </div>
+      <QuickTodoDrawer />
     </>
   );
 }
