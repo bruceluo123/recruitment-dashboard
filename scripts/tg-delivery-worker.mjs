@@ -10,6 +10,8 @@ const QUEUE_KEY = 'recruit:tg-delivery-pending';
 const DIALOGS_KEY = 'recruit:tg-delivery-dialogs';
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_BATCHES = 10;
+const POLL_INTERVAL_MS = 2_000;
+const DIALOG_REFRESH_MS = 15 * 60 * 1_000;
 
 function loadEnv() {
   const envPath = path.join(ROOT, '.env.local');
@@ -76,6 +78,11 @@ async function kvRPush(key, value) {
 
 async function kvLPop(key) {
   return kvCommand('lpop', key);
+}
+
+async function kvBLPop(key, timeoutSeconds) {
+  const result = await kvCommand('blpop', key, String(timeoutSeconds));
+  return Array.isArray(result) ? result[1] || null : null;
 }
 
 async function kvExpire(key, seconds) {
@@ -170,23 +177,51 @@ async function processRecord(client, dialogs, id) {
   await saveRecord(record);
 }
 
-async function main() {
-  loadEnv();
+function assertEnv() {
   if (!process.env.TG_API_ID || !process.env.TG_API_HASH || !process.env.TG_SESSION) throw new Error('Missing TG API env');
   if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) throw new Error('Missing KV env');
+}
 
-  const firstId = await kvLPop(QUEUE_KEY);
-  const dialogCache = await kvGet(DIALOGS_KEY).catch(() => null);
-  const cacheAge = dialogCache?.updatedAt ? Date.now() - new Date(dialogCache.updatedAt).getTime() : Number.POSITIVE_INFINITY;
-  if (!firstId && cacheAge < 15 * 60 * 1000) return;
-
+function createClient() {
   const proxy = parseProxy(process.env.TG_PROXY);
-  const client = new TelegramClient(
+  return new TelegramClient(
     new StringSession((process.env.TG_SESSION || '').replace(/\s+/g, '')),
     Number.parseInt(process.env.TG_API_ID || '', 10),
     process.env.TG_API_HASH || '',
     { connectionRetries: 3, ...(proxy ? { proxy } : {}) },
   );
+}
+
+async function refreshDialogs(client) {
+  const dialogs = await client.getDialogs({ limit: 160 });
+  await kvSet(DIALOGS_KEY, { updatedAt: new Date().toISOString(), items: dialogItems(dialogs) });
+  return dialogs;
+}
+
+async function popBatch(firstId = null) {
+  const ids = firstId ? [firstId] : [];
+  while (ids.length < MAX_BATCHES) {
+    const nextId = await kvLPop(QUEUE_KEY);
+    if (!nextId) break;
+    ids.push(nextId);
+  }
+  return ids;
+}
+
+async function processBatch(client, dialogs, firstId = null) {
+  const ids = await popBatch(firstId);
+  for (const id of ids) await processRecord(client, dialogs, id);
+  if (ids.length) console.log(JSON.stringify({ processed: ids.length, at: new Date().toISOString() }));
+  return ids.length;
+}
+
+async function runOnce() {
+  const firstId = await kvLPop(QUEUE_KEY);
+  const dialogCache = await kvGet(DIALOGS_KEY).catch(() => null);
+  const cacheAge = dialogCache?.updatedAt ? Date.now() - new Date(dialogCache.updatedAt).getTime() : Number.POSITIVE_INFINITY;
+  if (!firstId && cacheAge < DIALOG_REFRESH_MS) return;
+
+  const client = createClient();
 
   try {
     await client.connect();
@@ -196,24 +231,49 @@ async function main() {
   }
 
   try {
-    const dialogs = await client.getDialogs({ limit: 160 });
-    await kvSet(DIALOGS_KEY, { updatedAt: new Date().toISOString(), items: dialogItems(dialogs) });
-
-    const ids = firstId ? [firstId] : [];
-    while (ids.length < MAX_BATCHES) {
-      const nextId = await kvLPop(QUEUE_KEY);
-      if (!nextId) break;
-      ids.push(nextId);
-    }
-    for (const id of ids) await processRecord(client, dialogs, id);
-    if (ids.length) console.log(JSON.stringify({ processed: ids.length, at: new Date().toISOString() }));
+    const dialogs = await refreshDialogs(client);
+    await processBatch(client, dialogs, firstId);
   } finally {
     await client.disconnect();
   }
 }
 
-main().catch((error) => {
-  console.error(`[tg-delivery] ${error?.stack || error}`);
-  process.exitCode = 1;
-});
+async function runWatch() {
+  const client = createClient();
+  await client.connect();
+  let dialogs = await refreshDialogs(client);
+  let refreshedAt = Date.now();
+  let stopping = false;
+  const stop = () => { stopping = true; };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
 
+  try {
+    while (!stopping) {
+      try {
+        if (Date.now() - refreshedAt >= DIALOG_REFRESH_MS) {
+          dialogs = await refreshDialogs(client);
+          refreshedAt = Date.now();
+        }
+        const firstId = await kvBLPop(QUEUE_KEY, 15);
+        const processed = firstId ? await processBatch(client, dialogs, firstId) : 0;
+        if (processed) await new Promise((resolve) => setTimeout(resolve, 300));
+      } catch (error) {
+        console.error(`[tg-delivery] ${error?.stack || error}`);
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+    }
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
+}
+
+loadEnv();
+assertEnv();
+const watchMode = process.argv.includes('--watch');
+(watchMode ? runWatch() : runOnce()).then(() => {
+  process.exit(0);
+}).catch((error) => {
+  console.error(`[tg-delivery] ${error?.stack || error}`);
+  process.exit(1);
+});

@@ -105,8 +105,8 @@ export function RecommendationCopyDialog({
   };
 
   const followDelivery = async (id: string, expected: number) => {
-    for (let attempt = 0; attempt < 35; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       try {
         const response = await fetch(`/api/tg/send?id=${encodeURIComponent(id)}`);
         const data = await response.json().catch(() => ({}));
@@ -143,7 +143,7 @@ export function RecommendationCopyDialog({
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
       if (data.queued && data.id) {
-        setDeliveryNotice({ ok: true, text: '已进入发送队列，工作站在线时通常 1 分钟内完成' });
+        setDeliveryNotice({ ok: true, text: '正在发送，通常几秒内完成' });
         void followDelivery(data.id, deliveryItems.length);
       } else {
         setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || deliveryItems.length} 份推荐` });

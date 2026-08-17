@@ -5,5 +5,5 @@ $env:NODE_USE_ENV_PROXY = '1'
 $env:NODE_NO_WARNINGS = '1'
 
 Set-Location -LiteralPath 'D:\projects\recruitment-dashboard'
-& node scripts/tg-delivery-worker.mjs >> artifacts/tg-delivery-worker.log 2>&1
+& node scripts/tg-delivery-worker.mjs --watch >> artifacts/tg-delivery-worker.log 2>&1
 exit $LASTEXITCODE
