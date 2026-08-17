@@ -183,9 +183,17 @@ export function InterviewCalendarPage() {
     const todays = activeOwnerCandidates
       .filter((c) => c.interviewDate && isToday(c.interviewDate))
       .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
-    if (todays.length === 0) { setCopyMsg('今日暂无面试安排'); return; }
+    const onboards = candidates
+      .filter((c) => (
+        (c.owner || 'a') === ownerTab
+        && c.onboardDate
+        && isToday(c.onboardDate)
+        && (!c.outcome || c.outcome === 'onboarded')
+      ))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+    if (todays.length === 0 && onboards.length === 0) { setCopyMsg('今日暂无面试或入职安排'); return; }
     const header = `${now.getMonth() + 1}.${now.getDate()} ${columnNames[ownerTab]}`;
-    const lines = todays.map((c) => {
+    const interviewLines = todays.map((c) => {
       const d = new Date(c.interviewDate!);
       const h = d.getHours();
       const m = d.getMinutes();
@@ -195,10 +203,23 @@ export function InterviewCalendarPage() {
       const parts = [c.name, c.jdTitle, orgDept].filter(Boolean);
       return `${parts.join('-')}-${time}`;
     });
-    const text = [header, ...lines].join('\n');
+    const onboardLines = onboards.map((c) => {
+      const orgDept = formatOrgDept(c.organization, c.department, '/');
+      return [...[c.name, c.jdTitle, orgDept].filter(Boolean), '今日正常入职✅'].join('-');
+    });
+    const lines = [header, ...interviewLines];
+    if (onboardLines.length > 0) {
+      if (interviewLines.length > 0) lines.push('');
+      lines.push(...onboardLines);
+    }
+    const text = lines.join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMsg(`已复制今日 ${todays.length} 场面试`);
+      const summary = [
+        todays.length > 0 ? `${todays.length} 场面试` : '',
+        onboards.length > 0 ? `${onboards.length} 位入职` : '',
+      ].filter(Boolean).join('、');
+      setCopyMsg(`已复制今日 ${summary}`);
     } catch {
       setCopyMsg('复制失败，请重试');
     }
