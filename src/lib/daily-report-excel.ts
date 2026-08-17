@@ -92,11 +92,16 @@ function countWithNames(rows: Candidate[]): string | number {
   return names.length ? `${rows.length}（${names.join('、')}）` : rows.length;
 }
 
+function isEarlyDeparture(candidate: Candidate): boolean {
+  return candidate.outcome === 'early-departure-30' || candidate.outcome === 'early-departure-7';
+}
+
 function getOfferRows(candidates: Candidate[], ref: Date, column: RepushColumnId): Candidate[] {
   return candidates
     .filter((candidate) => {
       if ((candidate.owner || 'a') !== column) return false;
       if (candidate.outcome === 'failed' || candidate.outcome === 'withdrawn') return false;
+      if (isEarlyDeparture(candidate)) return false;
       if (candidate.offerAppliedAt
         ? isSameDay(candidate.offerAppliedAt, ref)
         : candidate.stage === 'offer' && isSameDay(candidate.updatedAt, ref)) return true;
@@ -112,6 +117,7 @@ function getWorkOfferRows(candidates: Candidate[], ref: Date, column: RepushColu
   return candidates.filter((candidate) => {
     if ((candidate.owner || 'a') !== column) return false;
     if (candidate.outcome === 'failed' || candidate.outcome === 'withdrawn') return false;
+    if (isEarlyDeparture(candidate)) return false;
     if (candidate.outcome === 'onboarded') return false;
     if (candidate.offerAppliedAt
       ? isSameDay(candidate.offerAppliedAt, ref)
