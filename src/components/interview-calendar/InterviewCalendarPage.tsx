@@ -201,7 +201,8 @@ export function InterviewCalendarPage() {
       // 编制与部门之间用 / 间隔（如「万帧公司/智影」），重叠时只保留更完整的一方，其余字段用 - 间隔
       const orgDept = formatOrgDept(c.organization, c.department, '/');
       const parts = [c.name, c.jdTitle, orgDept].filter(Boolean);
-      return `${parts.join('-')}-${time}`;
+      const round = c.stage === 'interview-2' ? (c.interviewRound === '三面' ? '三面' : '二面') : '';
+      return [...parts, time, round].filter(Boolean).join('-');
     });
     const onboardLines = onboards.map((c) => {
       const orgDept = formatOrgDept(c.organization, c.department, '/');
