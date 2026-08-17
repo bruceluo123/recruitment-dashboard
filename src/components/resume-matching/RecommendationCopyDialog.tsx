@@ -16,10 +16,11 @@ export interface RecommendationCopyItem {
 interface RecommendationCopyDialogProps {
   items: RecommendationCopyItem[];
   initialJdId?: string;
+  onEditCandidateInfo: () => void;
   onClose: () => void;
 }
 
-export function RecommendationCopyDialog({ items, initialJdId, onClose }: RecommendationCopyDialogProps) {
+export function RecommendationCopyDialog({ items, initialJdId, onEditCandidateInfo, onClose }: RecommendationCopyDialogProps) {
   const [activeJdId, setActiveJdId] = useState(initialJdId || items[0]?.jdId || '');
   const [copiedJdId, setCopiedJdId] = useState('');
   useEscapeClose(onClose);
@@ -63,14 +64,23 @@ export function RecommendationCopyDialog({ items, initialJdId, onClose }: Recomm
             </h3>
             <p className="mt-1 text-xs text-slate-400">每个岗位独立一份，选择左侧岗位后单独复制。</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-            aria-label="关闭"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onEditCandidateInfo}
+              className="h-8 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+            >
+              修改候选人信息
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              aria-label="关闭"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[240px_minmax(0,1fr)] md:overflow-hidden">

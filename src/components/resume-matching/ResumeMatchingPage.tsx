@@ -4,6 +4,7 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ResumeUploader } from './ResumeUploader';
 import { MatchingResultsList } from './MatchingResultsList';
+import { RecommendationCandidateDialog } from './RecommendationCandidateDialog';
 import { RecommendationCopyDialog, type RecommendationCopyItem } from './RecommendationCopyDialog';
 import { useResumeStore, MATCH_TTL_MS } from '@/store/resume-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
@@ -25,15 +26,30 @@ function readLabeledValue(text: string, labels: string[]): string {
   return '';
 }
 
-function buildRecommendationCopy(resume: Resume, info: ExtractedRecommendation, jd: JD): RecommendationCopyItem {
-  const text = resume.rawText.slice(0, 6000);
-  const workYears = readLabeledValue(text, ['工作年限', '工作经验年限', '工作经验'])
-    || text.match(/\d+(?:\.\d+)?\s*年(?:以上)?(?:相关)?(?:工作)?经验/)?.[0]
+function readCandidateValue(candidateText: string, resumeText: string, labels: string[]): string {
+  return readLabeledValue(candidateText, labels) || readLabeledValue(resumeText, labels);
+}
+
+function buildCandidateCode(codeSuffix: string, extractedCode: string): string {
+  const digits = codeSuffix.replace(/\D/g, '').slice(0, 3);
+  return digits ? `XYMMF00${digits.padStart(3, '0')}` : extractedCode || 'XYMMF00';
+}
+
+function buildRecommendationCopy(
+  resume: Resume,
+  info: ExtractedRecommendation,
+  jd: JD,
+  candidateText: string,
+  codeSuffix: string,
+): RecommendationCopyItem {
+  const resumeText = resume.rawText.slice(0, 6000);
+  const workYears = readCandidateValue(candidateText, resumeText, ['工作年限', '工作经验年限', '工作经验'])
+    || `${candidateText}\n${resumeText}`.match(/\d+(?:\.\d+)?\s*年(?:以上)?(?:相关)?(?:工作)?经验/)?.[0]
     || '';
-  const currentSalary = readLabeledValue(text, ['当前薪资', '目前薪资', '现薪资', '现薪']);
-  const expectedSalary = readLabeledValue(text, ['期望薪资', '薪资期望', '期望月薪']);
-  const location = readLabeledValue(text, ['目前所在地', '当前所在地', '现居地', '所在地', '现居']);
-  const arrivalTime = readLabeledValue(text, ['预计可到岗时间', '可到岗时间', '到岗时间', '最快到岗时间']);
+  const currentSalary = readCandidateValue(candidateText, resumeText, ['当前薪资', '目前薪资', '现薪资', '现薪']);
+  const expectedSalary = readCandidateValue(candidateText, resumeText, ['期望薪资', '薪资期望', '期望月薪']);
+  const location = readCandidateValue(candidateText, resumeText, ['目前所在地', '当前所在地', '现居地', '所在地', '现居']);
+  const arrivalTime = readCandidateValue(candidateText, resumeText, ['预计可到岗时间', '可到岗时间', '到岗时间', '最快到岗时间']);
   const organizationParts = [jd.organization, jd.department, jd.serviceUnit]
     .map((value) => value?.trim())
     .filter((value): value is string => !!value);
@@ -41,7 +57,7 @@ function buildRecommendationCopy(resume: Resume, info: ExtractedRecommendation, 
   const candidateName = info.name || resume.parsedData.name || resume.fileName.replace(/\.(pdf|docx)$/i, '');
 
   const recommendationText = [
-    `候选人编码：${info.candidateCode || 'XYMMF00'}`,
+    `候选人编码：${buildCandidateCode(codeSuffix, info.candidateCode)}`,
     `候选人姓名（英文名）：${candidateName}`,
     `应聘岗位：${jd.title}`,
     `工作年限：${workYears}`,
@@ -74,6 +90,9 @@ export function ResumeMatchingPage() {
   const [matchCategory, setMatchCategory] = useState<JDCategory | 'all'>('all');
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(() => new Set());
   const [recommendationCopies, setRecommendationCopies] = useState<RecommendationCopyItem[]>([]);
+  const [candidateDialogOpen, setCandidateDialogOpen] = useState(false);
+  const [candidateInfoText, setCandidateInfoText] = useState('');
+  const [candidateCodeSuffix, setCandidateCodeSuffix] = useState('');
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [copyDialogInitialJdId, setCopyDialogInitialJdId] = useState('');
   const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
@@ -102,6 +121,9 @@ export function ResumeMatchingPage() {
   useEffect(() => {
     setSelectedResultIds(new Set());
     setRecommendationCopies([]);
+    setCandidateDialogOpen(false);
+    setCandidateInfoText('');
+    setCandidateCodeSuffix('');
     setCopyDialogOpen(false);
     setCopyDialogInitialJdId('');
     setIsGeneratingCopy(false);
@@ -128,6 +150,7 @@ export function ResumeMatchingPage() {
     if (!activeResumeId || activeResume?.parsingStatus !== 'completed') return;
     setSelectedResultIds(new Set());
     setRecommendationCopies([]);
+    setCandidateDialogOpen(false);
     setCopyDialogOpen(false);
     matchWithJDs(activeResumeId, matchCategory).catch(() => {});
   };
@@ -140,20 +163,32 @@ export function ResumeMatchingPage() {
       return next;
     });
     setRecommendationCopies([]);
+    setCandidateDialogOpen(false);
     setCopyDialogOpen(false);
   };
 
-  const handleGenerateRecommendationCopy = async () => {
+  const handleRequestRecommendationCopy = () => {
+    if (!activeResume || selectedResultIds.size === 0 || isGeneratingCopy) return;
+    setCopyDialogOpen(false);
+    setCandidateDialogOpen(true);
+  };
+
+  const handleGenerateRecommendationCopy = async (candidateText: string, codeSuffix: string) => {
     if (!activeResume || selectedResultIds.size === 0 || isGeneratingCopy) return;
     const resumeId = activeResume.id;
     const selectedResults = activeResults.filter((result) => selectedResultIds.has(result.id));
     if (selectedResults.length === 0) return;
 
+    setCandidateInfoText(candidateText);
+    setCandidateCodeSuffix(codeSuffix);
+    setCandidateDialogOpen(false);
     setIsGeneratingCopy(true);
     try {
-      const info = await extractRecommendationInfo(activeResume.rawText);
+      const info = await extractRecommendationInfo(candidateText || activeResume.rawText);
       if (useResumeStore.getState().activeResumeId !== resumeId) return;
-      const copies = selectedResults.map((result) => buildRecommendationCopy(activeResume, info, result.jd));
+      const copies = selectedResults.map((result) => (
+        buildRecommendationCopy(activeResume, info, result.jd, candidateText, codeSuffix)
+      ));
       setRecommendationCopies(copies);
       setCopyDialogInitialJdId(copies[0]?.jdId || '');
       setCopyDialogOpen(copies.length > 0);
@@ -279,16 +314,29 @@ export function ResumeMatchingPage() {
             generatedJdIds={new Set(recommendationCopies.map((item) => item.jdId))}
             isGeneratingCopy={isGeneratingCopy}
             onToggleSelected={handleToggleSelected}
-            onGenerateRecommendationCopy={handleGenerateRecommendationCopy}
+            onGenerateRecommendationCopy={handleRequestRecommendationCopy}
             onOpenRecommendationCopy={handleOpenRecommendationCopy}
           />
           {!activeResume && activeResults.length === 0 && !activeIsMatching && <EmptyState icon={FileSearch} title="上传简历开始匹配" description="支持 PDF 和 DOCX 格式，选择匹配范围后点击开始匹配" />}
         </GlassPanel>
       </div>
+      {candidateDialogOpen && (
+        <RecommendationCandidateDialog
+          jobCount={selectedResultIds.size}
+          initialCandidateText={candidateInfoText}
+          initialCodeSuffix={candidateCodeSuffix}
+          onClose={() => setCandidateDialogOpen(false)}
+          onGenerate={handleGenerateRecommendationCopy}
+        />
+      )}
       {copyDialogOpen && recommendationCopies.length > 0 && (
         <RecommendationCopyDialog
           items={recommendationCopies}
           initialJdId={copyDialogInitialJdId}
+          onEditCandidateInfo={() => {
+            setCopyDialogOpen(false);
+            setCandidateDialogOpen(true);
+          }}
           onClose={() => setCopyDialogOpen(false)}
         />
       )}
