@@ -35,6 +35,11 @@ export async function kvSet(key: string, value: unknown): Promise<boolean> {
   }
 }
 
+export async function kvRPush(key: string, value: string): Promise<boolean> {
+  const result = await kvFetch<number>('rpush', key, value);
+  return typeof result === 'number';
+}
+
 export async function kvDel(key: string): Promise<boolean> {
   try {
     const url = `${KV_URL}/del/${encodeURIComponent(key)}`;

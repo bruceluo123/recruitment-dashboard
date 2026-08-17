@@ -1,15 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { FileText, Hash, Sparkles, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { FileCheck2, FileText, Hash, Sparkles, UploadCloud, X } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface RecommendationCandidateDialogProps {
   jobCount: number;
   initialCandidateText: string;
   initialCodeSuffix: string;
+  initialResumeFile: File | null;
   onClose: () => void;
-  onGenerate: (candidateText: string, codeSuffix: string) => void;
+  onGenerate: (candidateText: string, codeSuffix: string, resumeFile: File | null) => void;
 }
 
 const CANDIDATE_PLACEHOLDER = `候选人姓名（英文名）：Austin
@@ -29,11 +30,14 @@ export function RecommendationCandidateDialog({
   jobCount,
   initialCandidateText,
   initialCodeSuffix,
+  initialResumeFile,
   onClose,
   onGenerate,
 }: RecommendationCandidateDialogProps) {
   const [candidateText, setCandidateText] = useState(initialCandidateText);
   const [codeSuffix, setCodeSuffix] = useState(initialCodeSuffix);
+  const [resumeFile, setResumeFile] = useState<File | null>(initialResumeFile);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   useEscapeClose(onClose);
 
   const paddedSuffix = codeSuffix ? codeSuffix.padStart(3, '0') : '---';
@@ -48,7 +52,7 @@ export function RecommendationCandidateDialog({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
@@ -62,12 +66,13 @@ export function RecommendationCandidateDialog({
           </button>
         </div>
 
-        <div className="space-y-5 p-5">
-          <div>
+        <div className="space-y-5 overflow-y-auto p-5">
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div>
             <label htmlFor="candidate-code-suffix" className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
               <Hash className="h-4 w-4 text-indigo-500" />候选人编号
             </label>
-            <div className="flex h-11 max-w-sm items-center overflow-hidden rounded-lg border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
+            <div className="flex h-11 items-center overflow-hidden rounded-lg border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
               <span className="flex h-full items-center border-r border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-500">XYMMF00</span>
               <input
                 id="candidate-code-suffix"
@@ -79,6 +84,35 @@ export function RecommendationCandidateDialog({
                 className="h-full min-w-0 flex-1 px-3 font-mono text-sm text-slate-900 outline-none"
               />
               <span className="pr-3 text-xs text-slate-400">生成：XYMMF00{paddedSuffix}</span>
+            </div>
+            </div>
+
+            <div>
+              <span className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                <UploadCloud className="h-4 w-4 text-indigo-500" />上传简历
+              </span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex h-11 w-full items-center gap-2 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 px-3 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50"
+              >
+                {resumeFile ? <FileCheck2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <UploadCloud className="h-4 w-4 shrink-0 text-indigo-500" />}
+                <span className="min-w-0 flex-1 truncate text-sm text-slate-600">
+                  {resumeFile?.name || '选择 PDF / DOC / DOCX'}
+                </span>
+                <span className="text-xs text-indigo-500">{resumeFile ? '更换' : '选择'}</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  if (file) setResumeFile(file);
+                  event.target.value = '';
+                }}
+              />
             </div>
           </div>
 
@@ -98,7 +132,7 @@ export function RecommendationCandidateDialog({
           <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-medium text-slate-500 hover:bg-slate-100">取消</button>
           <button
             type="button"
-            onClick={() => onGenerate(candidateText.trim(), codeSuffix)}
+            onClick={() => onGenerate(candidateText.trim(), codeSuffix, resumeFile)}
             className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700"
           >
             <Sparkles className="h-4 w-4" />生成 {jobCount} 份推荐文案

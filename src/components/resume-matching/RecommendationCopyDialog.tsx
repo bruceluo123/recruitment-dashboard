@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Copy, FileText, X } from 'lucide-react';
+import { Check, Copy, FileCheck2, FileText, Loader2, Send, Users, X } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { cn } from '@/lib/utils';
 
@@ -10,19 +10,43 @@ export interface RecommendationCopyItem {
   title: string;
   organization: string;
   contactPerson: string;
+  fileName: string;
   text: string;
+}
+
+interface TgDialogOption {
+  id: string;
+  target: string;
+  title: string;
+  username: string;
+  type: string;
 }
 
 interface RecommendationCopyDialogProps {
   items: RecommendationCopyItem[];
   initialJdId?: string;
+  resumeFile: File | null;
+  resumeBlobUrl?: string;
   onEditCandidateInfo: () => void;
   onClose: () => void;
 }
 
-export function RecommendationCopyDialog({ items, initialJdId, onEditCandidateInfo, onClose }: RecommendationCopyDialogProps) {
+export function RecommendationCopyDialog({
+  items,
+  initialJdId,
+  resumeFile,
+  resumeBlobUrl,
+  onEditCandidateInfo,
+  onClose,
+}: RecommendationCopyDialogProps) {
   const [activeJdId, setActiveJdId] = useState(initialJdId || items[0]?.jdId || '');
   const [copiedJdId, setCopiedJdId] = useState('');
+  const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
+  const [recipient, setRecipient] = useState('');
+  const [isLoadingDialogs, setIsLoadingDialogs] = useState(true);
+  const [uploadedBlobUrl, setUploadedBlobUrl] = useState(resumeBlobUrl || '');
+  const [sendingMode, setSendingMode] = useState<'current' | 'all' | ''>('');
+  const [deliveryNotice, setDeliveryNotice] = useState<{ ok: boolean; text: string } | null>(null);
   useEscapeClose(onClose);
 
   useEffect(() => {
@@ -30,7 +54,32 @@ export function RecommendationCopyDialog({ items, initialJdId, onEditCandidateIn
   }, [initialJdId, items]);
 
   const activeItem = items.find((item) => item.jdId === activeJdId) || items[0];
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/tg/dialogs')
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || '读取 TG 会话失败');
+        if (!cancelled) setTgDialogs(Array.isArray(data.items) ? data.items : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTgDialogs([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingDialogs(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (recipient || !activeItem) return;
+    const handle = activeItem.contactPerson.match(/@[A-Za-z0-9_]{2,}/)?.[0];
+    if (handle) setRecipient(handle);
+  }, [activeItem, recipient]);
+
   if (!activeItem) return null;
+  const hasResume = Boolean(resumeFile || uploadedBlobUrl);
 
   const copyCurrent = async () => {
     try {
@@ -39,6 +88,70 @@ export function RecommendationCopyDialog({ items, initialJdId, onEditCandidateIn
       setTimeout(() => setCopiedJdId(''), 1600);
     } catch {
       setCopiedJdId('');
+    }
+  };
+
+  const ensureResumeBlob = async (): Promise<string> => {
+    if (uploadedBlobUrl) return uploadedBlobUrl;
+    if (!resumeFile) throw new Error('请先返回上一步上传简历');
+    const { upload } = await import('@vercel/blob/client');
+    const blob = await upload(resumeFile.name, resumeFile, {
+      access: 'public',
+      handleUploadUrl: '/api/resume/blob-upload',
+      contentType: resumeFile.type || 'application/octet-stream',
+    });
+    setUploadedBlobUrl(blob.url);
+    return blob.url;
+  };
+
+  const followDelivery = async (id: string, expected: number) => {
+    for (let attempt = 0; attempt < 35; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        const response = await fetch(`/api/tg/send?id=${encodeURIComponent(id)}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) continue;
+        if (data.status === 'sent') {
+          setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || expected} 份推荐` });
+          return;
+        }
+        if (data.status === 'failed') {
+          setDeliveryNotice({ ok: false, text: data.error || 'TG 发送失败' });
+          return;
+        }
+      } catch {
+        // 工作站队列稍后仍会继续处理，短暂查询失败不覆盖当前提示。
+      }
+    }
+  };
+
+  const sendRecommendations = async (deliveryItems: RecommendationCopyItem[], mode: 'current' | 'all') => {
+    if (!recipient.trim() || sendingMode) return;
+    setSendingMode(mode);
+    setDeliveryNotice(null);
+    try {
+      const fileUrl = await ensureResumeBlob();
+      const response = await fetch('/api/tg/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target: recipient.trim(),
+          fileUrl,
+          deliveries: deliveryItems.map((item) => ({ text: item.text, fileName: item.fileName })),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
+      if (data.queued && data.id) {
+        setDeliveryNotice({ ok: true, text: '已进入发送队列，工作站在线时通常 1 分钟内完成' });
+        void followDelivery(data.id, deliveryItems.length);
+      } else {
+        setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || deliveryItems.length} 份推荐` });
+      }
+    } catch (error) {
+      setDeliveryNotice({ ok: false, text: (error as Error).message || 'TG 发送失败' });
+    } finally {
+      setSendingMode('');
     }
   };
 
@@ -62,7 +175,7 @@ export function RecommendationCopyDialog({ items, initialJdId, onEditCandidateIn
                 {items.length} 个岗位
               </span>
             </h3>
-            <p className="mt-1 text-xs text-slate-400">每个岗位独立一份，选择左侧岗位后单独复制。</p>
+            <p className="mt-1 text-xs text-slate-400">每个岗位独立一份，可复制，也可连同改名后的简历发送到 TG。</p>
           </div>
           <div className="flex items-center gap-1.5">
             <button
@@ -134,8 +247,60 @@ export function RecommendationCopyDialog({ items, initialJdId, onEditCandidateIn
               readOnly
               value={activeItem.text}
               onFocus={(event) => event.currentTarget.select()}
-              className="min-h-[330px] flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100 md:min-h-[390px]"
+              className="min-h-[260px] flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100 md:min-h-[300px]"
             />
+
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <div className="mb-3 flex min-w-0 items-center gap-2 text-xs text-slate-500">
+                <FileCheck2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                <span className="shrink-0">发送文件：</span>
+                <span className="truncate font-medium text-slate-700" title={activeItem.fileName}>{activeItem.fileName}</span>
+                {!resumeFile && !uploadedBlobUrl && <span className="shrink-0 text-amber-500">尚未上传简历</span>}
+              </div>
+
+              <div className="flex flex-col gap-2 lg:flex-row">
+                <div className="relative min-w-0 flex-1">
+                  <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    list="tg-recommendation-dialogs"
+                    value={recipient}
+                    onChange={(event) => setRecipient(event.target.value)}
+                    placeholder={isLoadingDialogs ? '正在读取 TG 联系人和群组...' : '选择或输入 @用户名 / 群组 ID'}
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  />
+                  <datalist id="tg-recommendation-dialogs">
+                    {tgDialogs.map((dialog) => (
+                      <option key={dialog.id} value={dialog.target}>{dialog.type} · {dialog.title}</option>
+                    ))}
+                  </datalist>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => sendRecommendations([activeItem], 'current')}
+                  disabled={!recipient.trim() || !hasResume || !!sendingMode}
+                  className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 px-3.5 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {sendingMode === 'current' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  发送当前
+                </button>
+                {items.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => sendRecommendations(items, 'all')}
+                    disabled={!recipient.trim() || !hasResume || !!sendingMode}
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {sendingMode === 'all' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    全部发送（{items.length}）
+                  </button>
+                )}
+              </div>
+              {deliveryNotice && (
+                <p className={cn('mt-2 text-xs', deliveryNotice.ok ? 'text-emerald-600' : 'text-red-500')}>
+                  {deliveryNotice.text}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
