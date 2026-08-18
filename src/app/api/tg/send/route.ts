@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const QUEUE_KEY = 'recruit:tg-delivery-pending';
+const HEARTBEAT_KEY = 'recruit:tg-delivery-worker-heartbeat';
 const recordKey = (id: string) => `recruit:tg-delivery:${id}`;
 
 interface DeliveryRecord {
@@ -21,10 +22,20 @@ interface DeliveryRecord {
   finishedAt?: string;
 }
 
+interface WorkerHeartbeat {
+  at: string;
+}
+
 function parseRecord(value: DeliveryRecord | string | null): DeliveryRecord | null {
   if (!value) return null;
   if (typeof value !== 'string') return value;
   try { return JSON.parse(value) as DeliveryRecord; } catch { return null; }
+}
+
+function parseHeartbeat(value: WorkerHeartbeat | string | null): WorkerHeartbeat | null {
+  if (!value) return null;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value) as WorkerHeartbeat; } catch { return null; }
 }
 
 function safeFileName(value: string): string {
@@ -68,6 +79,15 @@ export async function POST(request: NextRequest) {
   }
   const urlError = blobUrlError(fileUrl);
   if (urlError) return NextResponse.json({ ok: false, error: urlError }, { status: 400 });
+
+  const heartbeat = parseHeartbeat(await kvGet<WorkerHeartbeat | string>(HEARTBEAT_KEY));
+  const heartbeatAt = heartbeat?.at ? new Date(heartbeat.at).getTime() : 0;
+  if (!heartbeatAt || Date.now() - heartbeatAt > 45_000) {
+    return NextResponse.json(
+      { ok: false, error: 'TG 发送器当前离线，请确认工作站代理已连接后重试' },
+      { status: 503 },
+    );
+  }
 
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const record: DeliveryRecord = {

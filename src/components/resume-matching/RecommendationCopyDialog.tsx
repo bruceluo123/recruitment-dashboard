@@ -105,7 +105,7 @@ export function RecommendationCopyDialog({
   };
 
   const followDelivery = async (id: string, expected: number) => {
-    for (let attempt = 0; attempt < 45; attempt += 1) {
+    for (let attempt = 0; attempt < 180; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       try {
         const response = await fetch(`/api/tg/send?id=${encodeURIComponent(id)}`);
@@ -123,6 +123,7 @@ export function RecommendationCopyDialog({
         // 工作站队列稍后仍会继续处理，短暂查询失败不覆盖当前提示。
       }
     }
+    setDeliveryNotice({ ok: false, text: '发送仍在后台处理中，请勿重复点击；完成后可在 TG 中确认' });
   };
 
   const sendRecommendations = async (deliveryItems: RecommendationCopyItem[], mode: 'current' | 'all') => {

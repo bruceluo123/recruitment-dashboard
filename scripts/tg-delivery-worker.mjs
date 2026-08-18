@@ -8,6 +8,7 @@ import { CustomFile } from 'telegram/client/uploads.js';
 const ROOT = process.cwd();
 const QUEUE_KEY = 'recruit:tg-delivery-pending';
 const DIALOGS_KEY = 'recruit:tg-delivery-dialogs';
+const HEARTBEAT_KEY = 'recruit:tg-delivery-worker-heartbeat';
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_BATCHES = 10;
 const POLL_INTERVAL_MS = 2_000;
@@ -198,6 +199,10 @@ async function refreshDialogs(client) {
   return dialogs;
 }
 
+async function writeHeartbeat() {
+  await kvSet(HEARTBEAT_KEY, { at: new Date().toISOString() });
+}
+
 async function popBatch(firstId = null) {
   const ids = firstId ? [firstId] : [];
   while (ids.length < MAX_BATCHES) {
@@ -242,6 +247,7 @@ async function runWatch() {
   const client = createClient();
   await client.connect();
   let dialogs = await refreshDialogs(client);
+  await writeHeartbeat();
   let refreshedAt = Date.now();
   let stopping = false;
   const stop = () => { stopping = true; };
@@ -255,7 +261,9 @@ async function runWatch() {
           dialogs = await refreshDialogs(client);
           refreshedAt = Date.now();
         }
+        await writeHeartbeat();
         const firstId = await kvBLPop(QUEUE_KEY, 15);
+        await writeHeartbeat();
         const processed = firstId ? await processBatch(client, dialogs, firstId) : 0;
         if (processed) await new Promise((resolve) => setTimeout(resolve, 300));
       } catch (error) {
