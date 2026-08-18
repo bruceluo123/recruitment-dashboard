@@ -45,6 +45,7 @@ function buildRecommendationCopy(
   jd: JD,
   candidateText: string,
   codeSuffix: string,
+  resumeSource: string,
   resumeFileName: string,
 ): RecommendationCopyItem {
   const resumeText = resume.rawText.slice(0, 6000);
@@ -78,7 +79,7 @@ function buildRecommendationCopy(
     `推荐编制组织/序列/服务单位：${organization}`,
     '招聘渠道：寻英',
     '简历推荐人：麦满分 @bruceluo123',
-    '简历来源：boss',
+    `简历来源：${resumeSource || 'boss'}`,
     `候选人联系方式：${info.contact || '/'}`,
     `简历对接BP：${jd.odc?.trim() || ''}`,
   ].join('\n');
@@ -102,6 +103,7 @@ export function ResumeMatchingPage() {
   const [candidateDialogOpen, setCandidateDialogOpen] = useState(false);
   const [candidateInfoText, setCandidateInfoText] = useState('');
   const [candidateCodeSuffix, setCandidateCodeSuffix] = useState('');
+  const [recommendationResumeSource, setRecommendationResumeSource] = useState('boss');
   const [recommendationResumeFile, setRecommendationResumeFile] = useState<File | null>(null);
   const [recommendationResumeBlobUrl, setRecommendationResumeBlobUrl] = useState('');
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -135,6 +137,7 @@ export function ResumeMatchingPage() {
     setCandidateDialogOpen(false);
     setCandidateInfoText('');
     setCandidateCodeSuffix('');
+    setRecommendationResumeSource('boss');
     setRecommendationResumeFile(null);
     setRecommendationResumeBlobUrl('');
     setCopyDialogOpen(false);
@@ -190,7 +193,7 @@ export function ResumeMatchingPage() {
     setCandidateDialogOpen(true);
   };
 
-  const handleGenerateRecommendationCopy = async (candidateText: string, codeSuffix: string, resumeFile: File | null) => {
+  const handleGenerateRecommendationCopy = async (candidateText: string, codeSuffix: string, resumeFile: File | null, resumeSource: string) => {
     if (!activeResume || selectedResultIds.size === 0 || isGeneratingCopy) return;
     const resumeId = activeResume.id;
     const selectedResults = activeResults.filter((result) => selectedResultIds.has(result.id));
@@ -198,6 +201,7 @@ export function ResumeMatchingPage() {
 
     setCandidateInfoText(candidateText);
     setCandidateCodeSuffix(codeSuffix);
+    setRecommendationResumeSource(resumeSource);
     setRecommendationResumeFile(resumeFile);
     setRecommendationResumeBlobUrl(resumeFile && resumeFile === activeResume.file ? activeResume.blobUrl || '' : '');
     setCandidateDialogOpen(false);
@@ -212,6 +216,7 @@ export function ResumeMatchingPage() {
           result.jd,
           candidateText,
           codeSuffix,
+          resumeSource,
           resumeFile?.name || activeResume.fileName,
         )
       ));
@@ -352,6 +357,7 @@ export function ResumeMatchingPage() {
           initialCandidateText={candidateInfoText}
           initialCodeSuffix={candidateCodeSuffix}
           initialResumeFile={recommendationResumeFile || activeResume?.file || null}
+          initialResumeSource={recommendationResumeSource}
           onClose={() => setCandidateDialogOpen(false)}
           onGenerate={handleGenerateRecommendationCopy}
         />
