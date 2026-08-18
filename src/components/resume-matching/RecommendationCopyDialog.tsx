@@ -31,6 +31,13 @@ interface RecommendationCopyDialogProps {
   onClose: () => void;
 }
 
+const UPLOAD_TIMEOUT_MS = 30_000;
+const SEND_TIMEOUT_MS = 20_000;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function RecommendationCopyDialog({
   items,
   initialJdId,
@@ -46,6 +53,7 @@ export function RecommendationCopyDialog({
   const [isLoadingDialogs, setIsLoadingDialogs] = useState(true);
   const [uploadedBlobUrl, setUploadedBlobUrl] = useState(resumeBlobUrl || '');
   const [sendingMode, setSendingMode] = useState<'current' | 'all' | ''>('');
+  const [sendingStep, setSendingStep] = useState<'uploading' | 'queueing' | ''>('');
   const [deliveryNotice, setDeliveryNotice] = useState<{ ok: boolean; text: string } | null>(null);
   useEscapeClose(onClose);
 
@@ -95,13 +103,56 @@ export function RecommendationCopyDialog({
     if (uploadedBlobUrl) return uploadedBlobUrl;
     if (!resumeFile) throw new Error('请先返回上一步上传简历');
     const { upload } = await import('@vercel/blob/client');
-    const blob = await upload(resumeFile.name, resumeFile, {
-      access: 'public',
-      handleUploadUrl: '/api/resume/blob-upload',
-      contentType: resumeFile.type || 'application/octet-stream',
-    });
-    setUploadedBlobUrl(blob.url);
-    return blob.url;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+      try {
+        const blob = await upload(resumeFile.name, resumeFile, {
+          access: 'public',
+          handleUploadUrl: '/api/resume/blob-upload',
+          contentType: resumeFile.type || 'application/octet-stream',
+          abortSignal: controller.signal,
+        });
+        setUploadedBlobUrl(blob.url);
+        return blob.url;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await wait(800);
+      } finally {
+        window.clearTimeout(timer);
+      }
+    }
+    throw new Error(lastError instanceof Error && lastError.name !== 'AbortError'
+      ? `简历上传失败：${lastError.message}`
+      : '简历上传超时，请检查网络后重试');
+  };
+
+  const enqueueDelivery = async (body: object) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+      try {
+        const response = await fetch('/api/tg/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
+        return data;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await wait(800);
+      } finally {
+        window.clearTimeout(timer);
+      }
+    }
+    throw new Error(lastError instanceof Error && lastError.name !== 'AbortError'
+      ? lastError.message
+      : '加入发送队列超时，请稍后重试');
   };
 
   const followDelivery = async (id: string, expected: number) => {
@@ -129,20 +180,20 @@ export function RecommendationCopyDialog({
   const sendRecommendations = async (deliveryItems: RecommendationCopyItem[], mode: 'current' | 'all') => {
     if (!recipient.trim() || sendingMode) return;
     setSendingMode(mode);
+    setSendingStep(uploadedBlobUrl ? 'queueing' : 'uploading');
     setDeliveryNotice(null);
     try {
       const fileUrl = await ensureResumeBlob();
-      const response = await fetch('/api/tg/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: recipient.trim(),
-          fileUrl,
-          deliveries: deliveryItems.map((item) => ({ text: item.text, fileName: item.fileName })),
-        }),
+      setSendingStep('queueing');
+      const requestId = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const data = await enqueueDelivery({
+        requestId,
+        target: recipient.trim(),
+        fileUrl,
+        deliveries: deliveryItems.map((item) => ({ text: item.text, fileName: item.fileName })),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
       if (data.queued && data.id) {
         setDeliveryNotice({ ok: true, text: '正在发送，通常几秒内完成' });
         void followDelivery(data.id, deliveryItems.length);
@@ -153,6 +204,7 @@ export function RecommendationCopyDialog({
       setDeliveryNotice({ ok: false, text: (error as Error).message || 'TG 发送失败' });
     } finally {
       setSendingMode('');
+      setSendingStep('');
     }
   };
 
@@ -282,7 +334,7 @@ export function RecommendationCopyDialog({
                   className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 px-3.5 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {sendingMode === 'current' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  发送当前
+                  {sendingMode === 'current' ? (sendingStep === 'uploading' ? '上传中' : '发送中') : '发送当前'}
                 </button>
                 {items.length > 1 && (
                   <button
@@ -292,7 +344,7 @@ export function RecommendationCopyDialog({
                     className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {sendingMode === 'all' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    全部发送（{items.length}）
+                    {sendingMode === 'all' ? (sendingStep === 'uploading' ? '上传中' : '发送中') : `全部发送（${items.length}）`}
                   </button>
                 )}
               </div>

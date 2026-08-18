@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
   if (blocked) return blocked;
 
   let body: {
+    requestId?: string;
     target?: string;
     text?: string;
     fileUrl?: string;
@@ -65,6 +66,10 @@ export async function POST(request: NextRequest) {
 
   const target = body.target?.trim() || '';
   const fileUrl = body.fileUrl?.trim() || '';
+  const requestId = body.requestId?.trim() || '';
+  if (requestId && !/^[A-Za-z0-9-]{8,80}$/.test(requestId)) {
+    return NextResponse.json({ ok: false, error: '发送请求编号无效' }, { status: 400 });
+  }
   const deliveries = (body.deliveries?.length
     ? body.deliveries
     : [{ text: body.text, fileName: body.fileName }])
@@ -80,6 +85,20 @@ export async function POST(request: NextRequest) {
   const urlError = blobUrlError(fileUrl);
   if (urlError) return NextResponse.json({ ok: false, error: urlError }, { status: 400 });
 
+  const id = requestId || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const existing = parseRecord(await kvGet<DeliveryRecord | string>(recordKey(id)));
+  if (existing) {
+    if (existing.status === 'failed') {
+      return NextResponse.json({ ok: false, error: existing.error || 'TG 发送失败' }, { status: 502 });
+    }
+    return NextResponse.json({
+      ok: true,
+      queued: existing.status === 'queued' || existing.status === 'sending',
+      id,
+      sent: existing.sent || 0,
+    });
+  }
+
   const heartbeat = parseHeartbeat(await kvGet<WorkerHeartbeat | string>(HEARTBEAT_KEY));
   const heartbeatAt = heartbeat?.at ? new Date(heartbeat.at).getTime() : 0;
   if (!heartbeatAt || Date.now() - heartbeatAt > 45_000) {
@@ -89,7 +108,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const record: DeliveryRecord = {
     id,
     status: 'queued',
