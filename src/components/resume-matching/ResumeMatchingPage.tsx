@@ -7,12 +7,33 @@ import { MatchingResultsList } from './MatchingResultsList';
 import { RecommendationCandidateDialog } from './RecommendationCandidateDialog';
 import { RecommendationCopyDialog, type RecommendationCopyItem } from './RecommendationCopyDialog';
 import { useResumeStore, MATCH_TTL_MS } from '@/store/resume-store';
+import { useRepushStore } from '@/store/repush-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
 import type { JD } from '@/types/jd';
 import type { Resume } from '@/types/resume';
 import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { extractRecommendationInfo, type ExtractedRecommendation } from '@/lib/recommendation';
+
+const NEXT_CANDIDATE_CODE_KEY = 'recruit:next-mmf-candidate-code';
+
+function nextCandidateCodeSuffix(): string {
+  const existingMax = useRepushStore.getState().items.reduce((max, item) => {
+    const match = item.candidateCode?.trim().toUpperCase().match(/^XYMMF00(\d{3})$/);
+    return match ? Math.max(max, Number.parseInt(match[1], 10)) : max;
+  }, 0);
+  const stored = typeof window === 'undefined'
+    ? 0
+    : Number.parseInt(window.localStorage.getItem(NEXT_CANDIDATE_CODE_KEY) || '', 10) || 0;
+  return String(Math.min(Math.max(existingMax + 1, stored, 1), 999)).padStart(3, '0');
+}
+
+function reserveNextCandidateCode(currentSuffix: string): void {
+  if (typeof window === 'undefined') return;
+  const current = Number.parseInt(currentSuffix, 10);
+  if (!Number.isFinite(current)) return;
+  window.localStorage.setItem(NEXT_CANDIDATE_CODE_KEY, String(Math.min(current + 1, 999)).padStart(3, '0'));
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -136,7 +157,7 @@ export function ResumeMatchingPage() {
     setRecommendationCopies([]);
     setCandidateDialogOpen(false);
     setCandidateInfoText('');
-    setCandidateCodeSuffix('');
+    setCandidateCodeSuffix(nextCandidateCodeSuffix());
     setRecommendationResumeSource('boss');
     setRecommendationResumeFile(null);
     setRecommendationResumeBlobUrl('');
@@ -185,6 +206,7 @@ export function ResumeMatchingPage() {
 
   const handleRequestRecommendationCopy = () => {
     if (!activeResume || selectedResultIds.size === 0 || isGeneratingCopy) return;
+    setCandidateCodeSuffix(nextCandidateCodeSuffix());
     if (!recommendationResumeFile && activeResume.file) {
       setRecommendationResumeFile(activeResume.file);
       setRecommendationResumeBlobUrl(activeResume.blobUrl || '');
@@ -221,6 +243,7 @@ export function ResumeMatchingPage() {
         )
       ));
       setRecommendationCopies(copies);
+      if (copies.length > 0) reserveNextCandidateCode(codeSuffix);
       setCopyDialogInitialJdId(copies[0]?.jdId || '');
       setCopyDialogOpen(copies.length > 0);
     } finally {
