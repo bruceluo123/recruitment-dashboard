@@ -42,7 +42,7 @@ export function RecommendationCopyDialog({
   const [activeJdId, setActiveJdId] = useState(initialJdId || items[0]?.jdId || '');
   const [copiedJdId, setCopiedJdId] = useState('');
   const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
-  const [recipient, setRecipient] = useState('');
+  const [recipient, setRecipient] = useState('@ojisamer');
   const [isLoadingDialogs, setIsLoadingDialogs] = useState(true);
   const [uploadedBlobUrl, setUploadedBlobUrl] = useState(resumeBlobUrl || '');
   const [sendingMode, setSendingMode] = useState<'current' | 'all' | ''>('');
