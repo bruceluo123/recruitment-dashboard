@@ -13,6 +13,7 @@ const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_BATCHES = 10;
 const POLL_INTERVAL_MS = 2_000;
 const DIALOG_REFRESH_MS = 15 * 60 * 1_000;
+const FETCH_RETRY_DELAYS_MS = [500, 1_500, 3_000];
 
 function loadEnv() {
   const envPath = path.join(ROOT, '.env.local');
@@ -48,6 +49,26 @@ function kvHeaders(contentType) {
   };
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(input, init) {
+  let lastError;
+  for (let attempt = 0; attempt <= FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      if (response.status < 500 || attempt === FETCH_RETRY_DELAYS_MS.length) return response;
+      if (response.body) await response.body.cancel().catch(() => {});
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await wait(FETCH_RETRY_DELAYS_MS[attempt]);
+  }
+  throw lastError || new Error('Network request failed');
+}
+
 function parseStored(value) {
   if (typeof value !== 'string') return value;
   try { return JSON.parse(value); } catch { return value; }
@@ -55,7 +76,7 @@ function parseStored(value) {
 
 async function kvCommand(command, ...args) {
   const url = `${process.env.KV_REST_API_URL}/${command}/${args.map((value) => encodeURIComponent(value)).join('/')}`;
-  const response = await fetch(url, { headers: kvHeaders() });
+  const response = await fetchWithRetry(url, { headers: kvHeaders() });
   if (!response.ok) throw new Error(`KV ${command} failed: ${response.status}`);
   return parseStored((await response.json()).result);
 }
@@ -65,7 +86,7 @@ async function kvGet(key) {
 }
 
 async function kvSet(key, value) {
-  const response = await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
+  const response = await fetchWithRetry(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
     method: 'POST',
     headers: kvHeaders('application/json'),
     body: JSON.stringify(value),
@@ -138,7 +159,12 @@ async function resolveTarget(client, rawTarget, dialogs) {
 }
 
 async function loadResume(fileUrl) {
-  const response = await fetch(fileUrl);
+  let response;
+  try {
+    response = await fetchWithRetry(fileUrl);
+  } catch (error) {
+    throw new Error(`Resume download failed: ${error?.message || 'network error'}`);
+  }
   if (!response.ok) throw new Error(`Resume download failed: ${response.status}`);
   const declaredSize = Number(response.headers.get('content-length') || 0);
   if (declaredSize > MAX_FILE_BYTES) throw new Error('Resume exceeds 50MB');
