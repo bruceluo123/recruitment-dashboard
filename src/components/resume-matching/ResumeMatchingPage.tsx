@@ -106,7 +106,7 @@ function buildRecommendationCopy(
 
   const recommendationText = [
     `候选人编码：${candidateCode}`,
-    `候选人姓名（英文名）：${candidateName}`,
+    `${owner === 'b' ? '候选人姓名' : '候选人姓名（英文名）'}：${candidateName}`,
     `应聘岗位：${jd.title}`,
     `工作年限：${workYears}`,
     `当前薪资：${currentSalary}`,

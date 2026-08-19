@@ -63,6 +63,9 @@ export function RecommendationCandidateDialog({
   useEscapeClose(onClose);
 
   const paddedSuffix = codeSuffix ? codeSuffix.padStart(3, '0') : '---';
+  const candidatePlaceholder = codePrefix === 'XYBB00'
+    ? CANDIDATE_PLACEHOLDER.replace('候选人姓名（英文名）', '候选人姓名')
+    : CANDIDATE_PLACEHOLDER;
 
   return (
     <div
@@ -161,7 +164,7 @@ export function RecommendationCandidateDialog({
               id="candidate-recommendation-info"
               value={candidateText}
               onChange={(event) => setCandidateText(event.target.value)}
-              placeholder={CANDIDATE_PLACEHOLDER}
+              placeholder={candidatePlaceholder}
               className="h-64 w-full resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
             />
           </div>
