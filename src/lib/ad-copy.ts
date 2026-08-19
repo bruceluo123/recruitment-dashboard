@@ -15,8 +15,8 @@ const CATEGORY_EMOJI: Record<JDCategory, string> = {
   content: '✍️',
 };
 
-/** 文案风格：麦满分（@bruceluo123）/ 铁牛（@forforle）。两者头部与署名不同。 */
-export type AdVariant = 'maimanfen' | 'tieniu';
+/** 文案风格：麦满分 / 啵啵。两者头部与署名不同。 */
+export type AdVariant = 'maimanfen' | 'bobo';
 
 interface VariantConfig {
   /** 风格中文名，用于按钮与标题 */
@@ -43,12 +43,12 @@ const VARIANTS: Record<AdVariant, VariantConfig> = {
         '想看看自己的岗位有没有需求的，欢迎找我聊聊 → @Robinlee99',
       ].join('\n'),
   },
-  tieniu: {
-    label: '铁牛',
+  bobo: {
+    label: '啵啵',
     buildHeader: () => '全远程居家工作—今日急招',
     buildHeading: (emoji, label) => `${emoji}${label}类`,
     buildLine: (title, salary, loc) => `- ${title}${salary ? ` ｜ ${salary}` : ''}${loc ? `  ${loc}` : ''}`,
-    signature: '欢迎自荐或转推荐，投递联系 @forforle',
+    signature: '欢迎自荐或转推荐，投递联系 @bobomiepucha',
   },
 };
 
@@ -197,7 +197,7 @@ function groupByCategory(jds: JD[]): CategoryGroup[] {
  * 为某一优先级（P0/P1）的岗位生成广告文案，按需分段。
  * @param jds 该优先级下的岗位（已过滤）
  * @param priorityLabel 如 "P0" / "P1"
- * @param variant 文案风格：麦满分 / 铁牛（头部与署名不同）
+ * @param variant 文案风格：麦满分 / 啵啵（头部与署名不同）
  * @param perSegment 每段岗位数上限（参考模板约 20~25）
  */
 export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22): AdSegment[] {

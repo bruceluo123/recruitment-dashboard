@@ -108,7 +108,7 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
             {!copyHideSalary && (
               <>
                 <div className="w-px self-stretch bg-gray-200 mx-0.5" />
-                {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
+                {(['maimanfen', 'bobo'] as AdVariant[]).map((v) => (
                   <button
                     key={v}
                     onClick={() => setCopyVariant(v)}

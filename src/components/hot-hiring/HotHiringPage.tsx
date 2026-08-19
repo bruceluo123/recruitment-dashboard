@@ -66,6 +66,13 @@ function buildUrgentGroups(jds: JD[]): UrgentGroup[] {
 export function HotHiringPage() {
   const [mounted, setMounted] = useState(false);
   const [adDialog, setAdDialog] = useState<{ jds: JD[]; label: string; variant: AdVariant } | null>(null);
+  const [smartDialog, setSmartDialog] = useState<{
+    maimanfen: JD[];
+    bobo: JD[];
+    reasons: string[];
+  } | null>(null);
+  const [smartLoading, setSmartLoading] = useState(false);
+  const [smartError, setSmartError] = useState('');
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
@@ -109,6 +116,52 @@ export function HotHiringPage() {
 
   const handleOpenJD = (id: string) => { selectJD(id); router.push('/jd-library'); };
 
+  const handleSmartGenerate = async () => {
+    if (smartLoading) return;
+    setSmartLoading(true);
+    setSmartError('');
+    try {
+      const response = await fetch('/api/hot-hiring/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobs: jds.map((jd) => ({
+            id: jd.id,
+            title: jd.title,
+            categories: jd.categories,
+            priority: jd.priority,
+            gap: jd.gap,
+            status: jd.status,
+            createdAt: jd.createdAt,
+            updatedAt: jd.updatedAt,
+            department: jd.department,
+            organization: jd.organization,
+            salary: jd.salaryText,
+          })),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || '智能选岗失败');
+      const byId = new Map(jds.map((jd) => [jd.id, jd]));
+      const maimanfen = (Array.isArray(data.maimanfen) ? data.maimanfen : [])
+        .map((id: string) => byId.get(id))
+        .filter((jd: JD | undefined): jd is JD => !!jd);
+      const bobo = (Array.isArray(data.bobo) ? data.bobo : [])
+        .map((id: string) => byId.get(id))
+        .filter((jd: JD | undefined): jd is JD => !!jd);
+      if (!maimanfen.length || !bobo.length) throw new Error('没有生成可用的岗位组合');
+      setSmartDialog({
+        maimanfen,
+        bobo,
+        reasons: Array.isArray(data.reasons) ? data.reasons.map(String) : [],
+      });
+    } catch (error) {
+      setSmartError(error instanceof Error ? error.message : '智能选岗失败，请重试');
+    } finally {
+      setSmartLoading(false);
+    }
+  };
+
   return (
     <div className="workspace-page max-w-7xl">
       <div>
@@ -135,6 +188,14 @@ export function HotHiringPage() {
           )}
           <div className="flex-1" />
           <button
+            onClick={handleSmartGenerate}
+            disabled={smartLoading || jds.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
+          >
+            <Sparkles className={cn('w-4 h-4', smartLoading && 'animate-spin')} />
+            {smartLoading ? 'AI 正在选岗' : '智能生成今日文案'}
+          </button>
+          <button
             onClick={() => setAdDialog({ jds: weeklyJds, label: '本周新增', variant: 'maimanfen' })}
             disabled={weeklyJds.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
@@ -146,8 +207,8 @@ export function HotHiringPage() {
               <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'maimanfen' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-sm font-semibold transition-colors">
                 <Megaphone className="w-4 h-4" />生成麦满分文案
               </button>
-              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'tieniu' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-semibold transition-colors">
-                <Megaphone className="w-4 h-4" />生成铁牛文案
+              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'bobo' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-semibold transition-colors">
+                <Megaphone className="w-4 h-4" />生成啵啵文案
               </button>
             </>
           ) : (
@@ -155,6 +216,10 @@ export function HotHiringPage() {
           )}
         </div>
       </GlassPanel>
+
+      {smartError && (
+        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">{smartError}</div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* P0 */}
@@ -198,6 +263,14 @@ export function HotHiringPage() {
 
       {adDialog && (
         <AdCopyDialog jds={adDialog.jds} label={adDialog.label} initialVariant={adDialog.variant} onClose={() => setAdDialog(null)} />
+      )}
+      {smartDialog && (
+        <SmartAdDialog
+          maimanfen={smartDialog.maimanfen}
+          bobo={smartDialog.bobo}
+          reasons={smartDialog.reasons}
+          onClose={() => setSmartDialog(null)}
+        />
       )}
     </div>
   );
@@ -274,6 +347,69 @@ function GroupCard({ group, checked, onToggle, onOpen }: GroupCardProps) {
 
 // ─── AdCopyDialog ─────────────────────────────────────────────────────────────
 
+interface SmartAdDialogProps {
+  maimanfen: JD[];
+  bobo: JD[];
+  reasons: string[];
+  onClose: () => void;
+}
+
+function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps) {
+  const [variant, setVariant] = useState<AdVariant>('maimanfen');
+  useEscapeClose(onClose);
+  const currentJds = variant === 'maimanfen' ? maimanfen : bobo;
+  const segments = useMemo(
+    () => buildAdCopy(currentJds, '今日智能推荐', variant, 9999),
+    [currentJds, variant],
+  );
+  const boboIds = useMemo(() => new Set(bobo.map((jd) => jd.id)), [bobo]);
+  const overlap = maimanfen.filter((jd) => boboIds.has(jd.id)).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="今日智能招聘文案">
+      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
+          <div>
+            <h3 className="flex items-center gap-2 text-base font-semibold text-gray-900">
+              <Sparkles className="h-5 w-5 text-indigo-500" />今日智能选岗
+            </h3>
+            <p className="mt-1 text-xs text-gray-400">
+              麦满分 {maimanfen.length} 个 · 啵啵 {bobo.length} 个 · 共同岗位 {overlap} 个
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" aria-label="关闭">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="border-b border-gray-100 bg-gray-50/60 px-5 py-3">
+          <div className="flex overflow-hidden rounded-lg border border-gray-200 bg-white text-sm">
+            {(['maimanfen', 'bobo'] as AdVariant[]).map((item) => (
+              <button
+                type="button"
+                key={item}
+                onClick={() => setVariant(item)}
+                className={cn(
+                  'h-9 flex-1 font-medium transition-colors',
+                  variant === item ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-indigo-50',
+                )}
+              >
+                {adVariantLabel(item)}版 · {item === 'maimanfen' ? maimanfen.length : bobo.length} 个岗位
+              </button>
+            ))}
+          </div>
+          {reasons.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+              {reasons.map((reason) => <span key={reason}>· {reason}</span>)}
+            </div>
+          )}
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {segments.map((segment, index) => <AdSegmentCard key={`${variant}-${index}`} segment={segment} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
 interface AdCopyDialogProps {
   jds: JD[];
   label: string;
@@ -345,11 +481,11 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
               onClick={() => setHideSalary(true)}
               className={cn('px-3 h-7 rounded-lg text-xs font-medium transition-all', hideSalary ? 'bg-gray-700 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50')}
             >脱敏</button>
-            {/* 麦满分 / 铁牛 — 脱敏模式下隐藏（模板固定） */}
+            {/* 麦满分 / 啵啵 — 脱敏模式下隐藏（模板固定） */}
             {!hideSalary && (
               <>
                 <div className="w-px h-4 bg-gray-200 mx-0.5" />
-                {(['maimanfen', 'tieniu'] as AdVariant[]).map((v) => (
+                {(['maimanfen', 'bobo'] as AdVariant[]).map((v) => (
                   <button
                     key={v}
                     onClick={() => setVariant(v)}
