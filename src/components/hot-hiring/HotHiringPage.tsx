@@ -361,12 +361,14 @@ function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps
   const [hideSalary, setHideSalary] = useState(true);
   useEscapeClose(onClose);
   const currentJds = variant === 'maimanfen' ? maimanfen : bobo;
-  const segments = useMemo(
-    () => hideSalary
-      ? [buildDesensitizedCopy(currentJds)]
-      : buildAdCopy(currentJds, '今日智能推荐', variant, 9999),
-    [currentJds, hideSalary, variant],
-  );
+  const [segments, setSegments] = useState<AdSegment[]>(() => [buildDesensitizedCopy(maimanfen)]);
+  useEffect(() => {
+    setSegments(
+      hideSalary
+        ? [buildDesensitizedCopy(currentJds)]
+        : buildAdCopy(currentJds, '今日智能推荐', variant, 9999),
+    );
+  }, [bobo, currentJds, hideSalary, maimanfen, variant]);
   const boboIds = useMemo(() => new Set(bobo.map((jd) => jd.id)), [bobo]);
   const overlap = maimanfen.filter((jd) => boboIds.has(jd.id)).length;
 
@@ -424,7 +426,16 @@ function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps
           )}
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          {segments.map((segment, index) => <AdSegmentCard key={`${variant}-${index}`} segment={segment} />)}
+          {segments.map((segment, index) => (
+            <AdSegmentCard
+              key={`${variant}-${hideSalary ? 'd' : 'n'}-${index}`}
+              segment={segment}
+              editable={hideSalary}
+              onChange={(next) => {
+                setSegments((current) => current.map((item, itemIndex) => (itemIndex === index ? next : item)));
+              }}
+            />
+          ))}
         </div>
       </div>
     </div>
