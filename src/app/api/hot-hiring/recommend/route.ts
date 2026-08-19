@@ -91,6 +91,22 @@ function uniqueValid(ids: unknown, valid: Set<string>): string[] {
   return Array.from(new Set(ids.map(String).filter((id) => valid.has(id))));
 }
 
+function isTechnicalJob(job?: SmartJob): boolean {
+  return !!job && (job.categories?.includes('backend') || job.categories?.includes('frontend'));
+}
+
+function ensureTechnicalCoverage(ids: string[], ranked: SmartJob[]): string[] {
+  const byId = new Map(ranked.map((job) => [job.id, job]));
+  if (ids.some((id) => isTechnicalJob(byId.get(id)))) return ids;
+  const technical = ranked.find((job) => job.categories?.includes('backend'))
+    || ranked.find((job) => job.categories?.includes('frontend'));
+  if (!technical) return ids;
+  const next = [...ids];
+  if (next.length >= 18) next[next.length - 1] = technical.id;
+  else next.push(technical.id);
+  return Array.from(new Set(next));
+}
+
 function fallbackSelection(jobs: SmartJob[]): SmartSelection {
   const ranked = [...jobs].sort((a, b) => jobScore(b) - jobScore(a));
   const common = ranked.slice(0, Math.min(3, ranked.length));
@@ -104,9 +120,9 @@ function fallbackSelection(jobs: SmartJob[]): SmartSelection {
     else if (other.length < TARGET_COUNT) other.push(rest[index]);
   }
   return {
-    maimanfen: maimanfen.map((job) => job.id),
-    bobo: bobo.map((job) => job.id),
-    reasons: ['集团指标部门优先', '优先本周新增与高优先级岗位', '主推运营、后端和前端岗位', '两版仅保留少量高复推价值岗位重合'],
+    maimanfen: ensureTechnicalCoverage(maimanfen.map((job) => job.id), ranked),
+    bobo: ensureTechnicalCoverage(bobo.map((job) => job.id), ranked),
+    reasons: ['集团指标部门优先', '每版至少包含后端或前端岗位', '优先本周新增与高优先级岗位', '两版仅保留少量高复推价值岗位重合'],
   };
 }
 
@@ -161,10 +177,11 @@ export async function POST(request: NextRequest) {
 规则：
 1. 集团指标部门必须最高优先：Happy、运营中心-体验中心、法务部、瑞升、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
 2. 每版选择 12-18 个，再优先本周新增、P0/P1、缺口大、最近更新的岗位；新岗位可能较快关闭，应提高优先级。
-3. 重点覆盖运营、后端、前端，并兼顾少量 AI、产品、测试等高价值岗位。
-4. 两版只允许 2-4 个适合长期复推的岗位重合，其余岗位必须不同，避免两人广告高度雷同。
-5. 同标题或高度相似岗位不要在同一版重复；选择要兼顾岗位吸引力和可投递人群广度。
-6. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
+3. 每一版都必须至少包含一个技术类别，优先后端、其次前端；后端岗位允许在两版重复，并计入共同岗位。
+4. 重点覆盖运营、后端、前端，并兼顾少量 AI、产品、测试等高价值岗位。
+5. 两版只允许 2-4 个适合长期复推的岗位重合，其余岗位必须不同，避免两人广告高度雷同。
+6. 同标题或高度相似岗位不要在同一版重复；选择要兼顾岗位吸引力和可投递人群广度。
+7. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
 
 候选岗位：${JSON.stringify(compactJobs)}`;
 
@@ -184,8 +201,8 @@ export async function POST(request: NextRequest) {
     const data = await upstream.json();
     const parsed = parseModelJson(data?.choices?.[0]?.message?.content || '') as Partial<SmartSelection>;
     const valid = new Set(ranked.map((job) => job.id));
-    const maimanfen = uniqueValid(parsed.maimanfen, valid).slice(0, 18);
-    const bobo = uniqueValid(parsed.bobo, valid).slice(0, 18);
+    const maimanfen = ensureTechnicalCoverage(uniqueValid(parsed.maimanfen, valid).slice(0, 18), ranked);
+    const bobo = ensureTechnicalCoverage(uniqueValid(parsed.bobo, valid).slice(0, 18), ranked);
     if (maimanfen.length < 8 || bobo.length < 8) throw new Error('AI 选岗数量不足');
     return NextResponse.json({
       ok: true,
