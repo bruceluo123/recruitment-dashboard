@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { FileCheck2, FileSearch, FileText, Hash, Sparkles, UploadCloud, X } from 'lucide-react';
+import { ChevronDown, FileCheck2, FileSearch, FileText, Hash, Sparkles, UploadCloud, X } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface RecommendationCandidateDialogProps {
@@ -26,6 +26,7 @@ const RESUME_SOURCE_OPTIONS = [
   '内推',
   '个人资源',
   '简历储备',
+  '社群',
 ];
 
 const CANDIDATE_PLACEHOLDER = `候选人姓名（英文名）：Austin
@@ -53,7 +54,9 @@ export function RecommendationCandidateDialog({
   const [candidateText, setCandidateText] = useState(initialCandidateText);
   const [codeSuffix, setCodeSuffix] = useState(initialCodeSuffix);
   const [resumeFile, setResumeFile] = useState<File | null>(initialResumeFile);
-  const [resumeSource, setResumeSource] = useState(initialResumeSource || 'boss');
+  const [resumeSource, setResumeSource] = useState(
+    RESUME_SOURCE_OPTIONS.includes(initialResumeSource) ? initialResumeSource : 'boss',
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   useEscapeClose(onClose);
 
@@ -137,17 +140,17 @@ export function RecommendationCandidateDialog({
             <label htmlFor="recommendation-resume-source" className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
               <FileSearch className="h-4 w-4 text-indigo-500" />简历来源
             </label>
-            <input
-              id="recommendation-resume-source"
-              list="recommendation-resume-source-options"
-              value={resumeSource}
-              onChange={(event) => setResumeSource(event.target.value)}
-              placeholder="选择或输入简历来源"
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-            />
-            <datalist id="recommendation-resume-source-options">
-              {RESUME_SOURCE_OPTIONS.map((source) => <option key={source} value={source} />)}
-            </datalist>
+            <div className="relative">
+              <select
+                id="recommendation-resume-source"
+                value={resumeSource}
+                onChange={(event) => setResumeSource(event.target.value)}
+                className="h-11 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              >
+                {RESUME_SOURCE_OPTIONS.map((source) => <option key={source} value={source}>{source}</option>)}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            </div>
           </div>
 
           <div>
