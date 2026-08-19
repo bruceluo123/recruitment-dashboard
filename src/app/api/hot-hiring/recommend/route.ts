@@ -91,20 +91,50 @@ function uniqueValid(ids: unknown, valid: Set<string>): string[] {
   return Array.from(new Set(ids.map(String).filter((id) => valid.has(id))));
 }
 
-function isTechnicalJob(job?: SmartJob): boolean {
-  return !!job && (job.categories?.includes('backend') || job.categories?.includes('frontend'));
+function isBackendJob(job?: SmartJob): boolean {
+  return !!job && (job.categories?.includes('backend') || /后端|golang|\bgo\b|java|php|node\.js/i.test(job.title));
 }
 
-function ensureTechnicalCoverage(ids: string[], ranked: SmartJob[]): string[] {
+function isFlutterJob(job?: SmartJob): boolean {
+  return !!job && /flutter/i.test(job.title);
+}
+
+function isOutsidePriorityTechnicalJob(job?: SmartJob): boolean {
+  return !!job
+    && !groupPriorityLabel(job)
+    && (isBackendJob(job) || job.categories?.includes('frontend'));
+}
+
+function addRequiredJob(
+  ids: string[],
+  ranked: SmartJob[],
+  predicate: (job?: SmartJob) => boolean,
+): string[] {
   const byId = new Map(ranked.map((job) => [job.id, job]));
-  if (ids.some((id) => isTechnicalJob(byId.get(id)))) return ids;
-  const technical = ranked.find((job) => job.categories?.includes('backend'))
-    || ranked.find((job) => job.categories?.includes('frontend'));
-  if (!technical) return ids;
+  if (ids.some((id) => predicate(byId.get(id)))) return ids;
+  const candidate = ranked.find((job) => predicate(job));
+  if (!candidate) return ids;
   const next = [...ids];
-  if (next.length >= 18) next[next.length - 1] = technical.id;
-  else next.push(technical.id);
+  if (next.length < 18) next.push(candidate.id);
+  else {
+    let replaceIndex = next.length - 1;
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      const selected = byId.get(next[index]);
+      if (!isBackendJob(selected) && !isFlutterJob(selected) && !isOutsidePriorityTechnicalJob(selected)) {
+        replaceIndex = index;
+        break;
+      }
+    }
+    next[replaceIndex] = candidate.id;
+  }
   return Array.from(new Set(next));
+}
+
+function ensureRequiredCoverage(ids: string[], ranked: SmartJob[]): string[] {
+  let next = addRequiredJob(ids, ranked, isBackendJob);
+  next = addRequiredJob(next, ranked, isFlutterJob);
+  next = addRequiredJob(next, ranked, isOutsidePriorityTechnicalJob);
+  return next;
 }
 
 function fallbackSelection(jobs: SmartJob[]): SmartSelection {
@@ -120,9 +150,9 @@ function fallbackSelection(jobs: SmartJob[]): SmartSelection {
     else if (other.length < TARGET_COUNT) other.push(rest[index]);
   }
   return {
-    maimanfen: ensureTechnicalCoverage(maimanfen.map((job) => job.id), ranked),
-    bobo: ensureTechnicalCoverage(bobo.map((job) => job.id), ranked),
-    reasons: ['集团指标部门优先', '每版至少包含后端或前端岗位', '优先本周新增与高优先级岗位', '两版仅保留少量高复推价值岗位重合'],
+    maimanfen: ensureRequiredCoverage(maimanfen.map((job) => job.id), ranked),
+    bobo: ensureRequiredCoverage(bobo.map((job) => job.id), ranked),
+    reasons: ['集团指标部门优先但不限定部门', '每版必含后端并优先 Flutter', '加入非集团优先部门的技术岗位', '其余按新岗位、缺口和优先级排序'],
   };
 }
 
@@ -175,13 +205,14 @@ export async function POST(request: NextRequest) {
 
   const prompt = `你是猎头团队的每日广告选岗助手。请从候选岗位中分别为“麦满分”和“啵啵”选择今天最值得发布的岗位。
 规则：
-1. 集团指标部门必须最高优先：Happy、运营中心-体验中心、法务部、瑞升、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
-2. 每版选择 12-18 个，再优先本周新增、P0/P1、缺口大、最近更新的岗位；新岗位可能较快关闭，应提高优先级。
-3. 每一版都必须至少包含一个技术类别，优先后端、其次前端；后端岗位允许在两版重复，并计入共同岗位。
-4. 重点覆盖运营、后端、前端，并兼顾少量 AI、产品、测试等高价值岗位。
-5. 两版只允许 2-4 个适合长期复推的岗位重合，其余岗位必须不同，避免两人广告高度雷同。
-6. 同标题或高度相似岗位不要在同一版重复；选择要兼顾岗位吸引力和可投递人群广度。
-7. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
+1. 集团指标部门优先但不是限定范围：Happy、运营中心-体验中心、法务部、瑞升、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
+2. 每版选择 12-18 个；每版必须包含后端岗位，后端允许两版重复。
+3. Flutter 当前缺口较高，有活跃 Flutter 岗位时两版都应优先包含。
+4. 每版至少加入一个非集团优先部门的技术岗位，避免文案只覆盖集团指标部门。
+5. 其余岗位再优先本周新增、P0/P1、缺口大、最近更新的岗位；重点覆盖运营、后端、前端。
+6. 两版允许 2-5 个高复推价值岗位重合，后端和 Flutter 可计入共同岗位，其余岗位尽量不同。
+7. 同标题或高度相似岗位不要在同一版重复；兼顾岗位吸引力和可投递人群广度。
+8. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
 
 候选岗位：${JSON.stringify(compactJobs)}`;
 
@@ -201,8 +232,8 @@ export async function POST(request: NextRequest) {
     const data = await upstream.json();
     const parsed = parseModelJson(data?.choices?.[0]?.message?.content || '') as Partial<SmartSelection>;
     const valid = new Set(ranked.map((job) => job.id));
-    const maimanfen = ensureTechnicalCoverage(uniqueValid(parsed.maimanfen, valid).slice(0, 18), ranked);
-    const bobo = ensureTechnicalCoverage(uniqueValid(parsed.bobo, valid).slice(0, 18), ranked);
+    const maimanfen = ensureRequiredCoverage(uniqueValid(parsed.maimanfen, valid).slice(0, 18), ranked);
+    const bobo = ensureRequiredCoverage(uniqueValid(parsed.bobo, valid).slice(0, 18), ranked);
     if (maimanfen.length < 8 || bobo.length < 8) throw new Error('AI 选岗数量不足');
     return NextResponse.json({
       ok: true,
