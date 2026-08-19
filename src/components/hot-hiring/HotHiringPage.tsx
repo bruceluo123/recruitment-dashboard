@@ -136,6 +136,8 @@ export function HotHiringPage() {
             updatedAt: jd.updatedAt,
             department: jd.department,
             organization: jd.organization,
+            serviceUnit: jd.serviceUnit,
+            requester: jd.requester,
             salary: jd.salaryText,
           })),
         }),

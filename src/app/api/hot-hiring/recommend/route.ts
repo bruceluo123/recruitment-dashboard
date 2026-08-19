@@ -19,7 +19,30 @@ interface SmartJob {
   updatedAt?: string;
   department?: string;
   organization?: string;
+  serviceUnit?: string;
+  requester?: string;
   salary?: string;
+}
+
+const GROUP_PRIORITY_RULES = [
+  { label: 'Happy', terms: ['happy'] },
+  { label: '运营中心-体验中心', terms: ['运营中心', '体验中心'] },
+  { label: '法务部', terms: ['法务部'] },
+  { label: '瑞升', terms: ['瑞升'] },
+  { label: '经纬', terms: ['经纬'] },
+  { label: '伊甸维度', terms: ['伊甸维度'] },
+  { label: '合规部', terms: ['合规部'] },
+  { label: '内务部英国岗位', terms: ['内务部', '英国'] },
+  { label: 'Ann总', terms: ['ann总'] },
+] as const;
+
+function groupPriorityLabel(job: SmartJob): string {
+  const haystack = [job.title, job.department, job.organization, job.serviceUnit, job.requester]
+    .filter(Boolean)
+    .join('|')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  return GROUP_PRIORITY_RULES.find((rule) => rule.terms.every((term) => haystack.includes(term)))?.label || '';
 }
 
 interface SmartSelection {
@@ -44,6 +67,7 @@ function jobScore(job: SmartJob): number {
   const createdDays = ageDays(job.createdAt);
   const updatedDays = ageDays(job.updatedAt);
   let score = 0;
+  if (groupPriorityLabel(job)) score += 80;
   if (createdDays <= 2) score += 42;
   else if (createdDays <= 7) score += 30;
   else if (createdDays <= 14) score += 12;
@@ -82,7 +106,7 @@ function fallbackSelection(jobs: SmartJob[]): SmartSelection {
   return {
     maimanfen: maimanfen.map((job) => job.id),
     bobo: bobo.map((job) => job.id),
-    reasons: ['优先本周新增与高优先级岗位', '主推运营、后端和前端岗位', '两版仅保留少量高复推价值岗位重合'],
+    reasons: ['集团指标部门优先', '优先本周新增与高优先级岗位', '主推运营、后端和前端岗位', '两版仅保留少量高复推价值岗位重合'],
   };
 }
 
@@ -124,18 +148,23 @@ export async function POST(request: NextRequest) {
     status: job.status,
     createdDays: Math.round(ageDays(job.createdAt)),
     updatedDays: Math.round(ageDays(job.updatedAt)),
-    department: job.department || job.organization || '',
+    department: job.department || '',
+    organization: job.organization || '',
+    serviceUnit: job.serviceUnit || '',
+    requester: job.requester || '',
+    groupPriority: groupPriorityLabel(job),
     salary: job.salary || '',
     baseScore: jobScore(job),
   }));
 
   const prompt = `你是猎头团队的每日广告选岗助手。请从候选岗位中分别为“麦满分”和“啵啵”选择今天最值得发布的岗位。
 规则：
-1. 每版选择 12-18 个，优先本周新增、P0/P1、缺口大、最近更新的岗位；新岗位可能较快关闭，应提高优先级。
-2. 重点覆盖运营、后端、前端，并兼顾少量 AI、产品、测试等高价值岗位。
-3. 两版只允许 2-4 个适合长期复推的岗位重合，其余岗位必须不同，避免两人广告高度雷同。
-4. 同标题或高度相似岗位不要在同一版重复；选择要兼顾岗位吸引力和可投递人群广度。
-5. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
+1. 集团指标部门必须最高优先：Happy、运营中心-体验中心、法务部、瑞升、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
+2. 每版选择 12-18 个，再优先本周新增、P0/P1、缺口大、最近更新的岗位；新岗位可能较快关闭，应提高优先级。
+3. 重点覆盖运营、后端、前端，并兼顾少量 AI、产品、测试等高价值岗位。
+4. 两版只允许 2-4 个适合长期复推的岗位重合，其余岗位必须不同，避免两人广告高度雷同。
+5. 同标题或高度相似岗位不要在同一版重复；选择要兼顾岗位吸引力和可投递人群广度。
+6. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
 
 候选岗位：${JSON.stringify(compactJobs)}`;
 
