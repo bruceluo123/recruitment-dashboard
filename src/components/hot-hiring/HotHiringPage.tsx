@@ -358,11 +358,14 @@ interface SmartAdDialogProps {
 
 function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps) {
   const [variant, setVariant] = useState<AdVariant>('maimanfen');
+  const [hideSalary, setHideSalary] = useState(true);
   useEscapeClose(onClose);
   const currentJds = variant === 'maimanfen' ? maimanfen : bobo;
   const segments = useMemo(
-    () => buildAdCopy(currentJds, '今日智能推荐', variant, 9999),
-    [currentJds, variant],
+    () => hideSalary
+      ? [buildDesensitizedCopy(currentJds)]
+      : buildAdCopy(currentJds, '今日智能推荐', variant, 9999),
+    [currentJds, hideSalary, variant],
   );
   const boboIds = useMemo(() => new Set(bobo.map((jd) => jd.id)), [bobo]);
   const overlap = maimanfen.filter((jd) => boboIds.has(jd.id)).length;
@@ -389,7 +392,10 @@ function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps
               <button
                 type="button"
                 key={item}
-                onClick={() => setVariant(item)}
+                onClick={() => {
+                  setVariant(item);
+                  setHideSalary(item === 'maimanfen');
+                }}
                 className={cn(
                   'h-9 flex-1 font-medium transition-colors',
                   variant === item ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-indigo-50',
@@ -398,6 +404,18 @@ function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps
                 {adVariantLabel(item)}版 · {item === 'maimanfen' ? maimanfen.length : bobo.length} 个岗位
               </button>
             ))}
+          </div>
+          <div className="mt-2 flex justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => setHideSalary(false)}
+              className={cn('rounded-md px-2.5 py-1 text-xs font-medium', !hideSalary ? 'bg-gray-700 text-white' : 'text-gray-500 hover:bg-gray-100')}
+            >常规</button>
+            <button
+              type="button"
+              onClick={() => setHideSalary(true)}
+              className={cn('rounded-md px-2.5 py-1 text-xs font-medium', hideSalary ? 'bg-gray-700 text-white' : 'text-gray-500 hover:bg-gray-100')}
+            >脱敏</button>
           </div>
           {reasons.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
@@ -421,7 +439,7 @@ interface AdCopyDialogProps {
 
 function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps) {
   const [variant, setVariant] = useState<AdVariant>(initialVariant);
-  const [hideSalary, setHideSalary] = useState(false);
+  const [hideSalary, setHideSalary] = useState(initialVariant === 'maimanfen');
   const [generatedSegments, setGeneratedSegments] = useState<AdSegment[]>([]);
   const [generatedSig, setGeneratedSig] = useState('');
   useEscapeClose(onClose);

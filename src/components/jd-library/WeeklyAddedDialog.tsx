@@ -12,7 +12,7 @@ export function WeeklyAddedDialog({ recentJds, onClose }: { recentJds: JD[]; onC
   const [previewJd, setPreviewJd] = useState<JD | null>(null);
   const [copyMode, setCopyMode] = useState(false);
   const [copyVariant, setCopyVariant] = useState<AdVariant>('maimanfen');
-  const [copyHideSalary, setCopyHideSalary] = useState(false);
+  const [copyHideSalary, setCopyHideSalary] = useState(true);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   useEscapeClose(onClose);
 
