@@ -1,3 +1,8 @@
+param(
+  [ValidateSet('a', 'b')]
+  [string]$Account = 'a'
+)
+
 Set-Location -LiteralPath 'D:\projects\recruitment-dashboard'
 
 function Get-ProxyPort {
@@ -29,9 +34,11 @@ while ($true) {
   $proxyPort = Get-ProxyPort
   if (Test-LocalPort $proxyPort) {
     $env:TG_PROXY = "127.0.0.1:$proxyPort"
+    $env:TG_ACCOUNT = $Account
     Remove-Item Env:HTTP_PROXY, Env:HTTPS_PROXY, Env:NODE_USE_ENV_PROXY -ErrorAction SilentlyContinue
     $env:NODE_NO_WARNINGS = '1'
-    & node scripts/tg-delivery-worker.mjs --watch >> artifacts/tg-delivery-worker.log 2>&1
+    $logPath = if ($Account -eq 'b') { 'artifacts/tg-delivery-worker-b.log' } else { 'artifacts/tg-delivery-worker.log' }
+    & node scripts/tg-delivery-worker.mjs --watch >> $logPath 2>&1
   }
   Start-Sleep -Seconds 5
 }

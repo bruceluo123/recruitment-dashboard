@@ -14,9 +14,23 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import input from 'input';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const apiId = parseInt(process.env.TG_API_ID || '', 10);
 const apiHash = process.env.TG_API_HASH || '';
+
+function saveSessionToEnv(key, value) {
+  if (!/^TG_[A-Z0-9_]*SESSION$/.test(key)) throw new Error('TG_SAVE_ENV_KEY 无效');
+  const envPath = path.join(process.cwd(), '.env.local');
+  const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+  const nextLine = `${key}=${value}`;
+  const pattern = new RegExp(`^${key}=.*$`, 'm');
+  const next = pattern.test(raw)
+    ? raw.replace(pattern, nextLine)
+    : `${raw.trimEnd()}${raw.trim() ? '\n' : ''}${nextLine}\n`;
+  fs.writeFileSync(envPath, next, 'utf8');
+}
 
 if (!apiId || !apiHash) {
   console.error('缺少 TG_API_ID / TG_API_HASH 环境变量。');
@@ -52,14 +66,20 @@ const client = new TelegramClient(session, apiId, apiHash, {
 });
 
 await client.start({
-  phoneNumber: async () => await input.text('手机号（带国家码，如 +86138...）: '),
+  phoneNumber: async () => process.env.TG_PHONE || await input.text('手机号（带国家码，如 +86138...）: '),
   password: async () => await input.text('两步验证密码（没开就直接回车）: '),
   phoneCode: async () => await input.text('收到的验证码: '),
   onError: (err) => console.error(err),
 });
 
-console.log('\n登录成功！下面是你的 SESSION（配置到 Vercel 环境变量 TG_SESSION）：\n');
-console.log(client.session.save());
-console.log('\n请妥善保管，勿外泄。');
+const savedSession = client.session.save();
+if (process.env.TG_SAVE_ENV_KEY) {
+  saveSessionToEnv(process.env.TG_SAVE_ENV_KEY, savedSession);
+  console.log(`\n登录成功，会话已安全写入 ${process.env.TG_SAVE_ENV_KEY}。`);
+} else {
+  console.log('\n登录成功！下面是你的 SESSION（配置到 Vercel 环境变量 TG_SESSION）：\n');
+  console.log(savedSession);
+  console.log('\n请妥善保管，勿外泄。');
+}
 await client.disconnect();
 process.exit(0);

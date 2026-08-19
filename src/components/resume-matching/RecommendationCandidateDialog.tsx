@@ -6,6 +6,7 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface RecommendationCandidateDialogProps {
   jobCount: number;
+  codePrefix: string;
   initialCandidateText: string;
   initialCodeSuffix: string;
   initialResumeFile: File | null;
@@ -44,6 +45,7 @@ function digitsOnly(value: string): string {
 
 export function RecommendationCandidateDialog({
   jobCount,
+  codePrefix,
   initialCandidateText,
   initialCodeSuffix,
   initialResumeFile,
@@ -93,7 +95,7 @@ export function RecommendationCandidateDialog({
               <Hash className="h-4 w-4 text-indigo-500" />候选人编号
             </label>
             <div className="flex h-11 items-center overflow-hidden rounded-lg border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
-              <span className="flex h-full items-center border-r border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-500">XYMMF00</span>
+              <span className="flex h-full items-center border-r border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-500">{codePrefix}</span>
               <input
                 id="candidate-code-suffix"
                 value={codeSuffix}
@@ -103,7 +105,7 @@ export function RecommendationCandidateDialog({
                 placeholder="062"
                 className="h-full min-w-0 flex-1 px-3 font-mono text-sm text-slate-900 outline-none"
               />
-              <span className="pr-3 text-xs text-slate-400">生成：XYMMF00{paddedSuffix}</span>
+              <span className="pr-3 text-xs text-slate-400">生成：{codePrefix}{paddedSuffix}</span>
             </div>
             </div>
 

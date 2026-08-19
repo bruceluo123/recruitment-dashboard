@@ -6,9 +6,13 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-const QUEUE_KEY = 'recruit:tg-delivery-pending';
-const HEARTBEAT_KEY = 'recruit:tg-delivery-worker-heartbeat';
 const recordKey = (id: string) => `recruit:tg-delivery:${id}`;
+
+function accountKeys(sender: 'a' | 'b') {
+  return sender === 'b'
+    ? { queue: 'recruit:tg-delivery-pending-b', heartbeat: 'recruit:tg-delivery-worker-heartbeat-b' }
+    : { queue: 'recruit:tg-delivery-pending', heartbeat: 'recruit:tg-delivery-worker-heartbeat' };
+}
 
 interface DeliveryRecord {
   id: string;
@@ -17,6 +21,7 @@ interface DeliveryRecord {
   target: string;
   fileUrl: string;
   deliveries: Array<{ text: string; fileName: string }>;
+  sender?: 'a' | 'b';
   sent?: number;
   error?: string;
   finishedAt?: string;
@@ -57,6 +62,7 @@ export async function POST(request: NextRequest) {
     fileUrl?: string;
     fileName?: string;
     deliveries?: Array<{ text?: string; fileName?: string }>;
+    sender?: 'a' | 'b';
   };
   try {
     body = await request.json();
@@ -65,6 +71,8 @@ export async function POST(request: NextRequest) {
   }
 
   const target = body.target?.trim() || '';
+  const sender: 'a' | 'b' = body.sender === 'b' ? 'b' : 'a';
+  const keys = accountKeys(sender);
   const fileUrl = body.fileUrl?.trim() || '';
   const requestId = body.requestId?.trim() || '';
   if (requestId && !/^[A-Za-z0-9-]{8,80}$/.test(requestId)) {
@@ -99,7 +107,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const heartbeat = parseHeartbeat(await kvGet<WorkerHeartbeat | string>(HEARTBEAT_KEY));
+  const heartbeat = parseHeartbeat(await kvGet<WorkerHeartbeat | string>(keys.heartbeat));
   const heartbeatAt = heartbeat?.at ? new Date(heartbeat.at).getTime() : 0;
   if (!heartbeatAt || Date.now() - heartbeatAt > 45_000) {
     return NextResponse.json(
@@ -115,9 +123,10 @@ export async function POST(request: NextRequest) {
     target,
     fileUrl,
     deliveries,
+    sender,
   };
   const saved = await kvSet(recordKey(id), record);
-  const queued = saved && await kvRPush(QUEUE_KEY, id);
+  const queued = saved && await kvRPush(keys.queue, id);
   if (!queued) {
     return NextResponse.json({ ok: false, error: '发送队列暂不可用，请稍后重试' }, { status: 503 });
   }

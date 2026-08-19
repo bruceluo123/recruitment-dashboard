@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Check, Copy, FileCheck2, FileText, Loader2, Send, Users, X } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { cn } from '@/lib/utils';
+import type { RepushColumnId } from '@/store/repush-store';
 
 export interface RecommendationCopyItem {
   jdId: string;
@@ -23,6 +24,7 @@ interface TgDialogOption {
 }
 
 interface RecommendationCopyDialogProps {
+  owner: RepushColumnId;
   items: RecommendationCopyItem[];
   initialJdId?: string;
   resumeFile: File | null;
@@ -39,6 +41,7 @@ function wait(ms: number): Promise<void> {
 }
 
 export function RecommendationCopyDialog({
+  owner,
   items,
   initialJdId,
   resumeFile,
@@ -65,7 +68,7 @@ export function RecommendationCopyDialog({
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/tg/dialogs')
+    fetch(`/api/tg/dialogs?sender=${owner}`)
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.ok) throw new Error(data.error || '读取 TG 会话失败');
@@ -78,7 +81,7 @@ export function RecommendationCopyDialog({
         if (!cancelled) setIsLoadingDialogs(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [owner]);
 
   useEffect(() => {
     if (recipient || !activeItem) return;
@@ -190,6 +193,7 @@ export function RecommendationCopyDialog({
         : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const data = await enqueueDelivery({
         requestId,
+        sender: owner,
         target: recipient.trim(),
         fileUrl,
         deliveries: deliveryItems.map((item) => ({ text: item.text, fileName: item.fileName })),

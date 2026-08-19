@@ -7,7 +7,8 @@ import { MatchingResultsList } from './MatchingResultsList';
 import { RecommendationCandidateDialog } from './RecommendationCandidateDialog';
 import { RecommendationCopyDialog, type RecommendationCopyItem } from './RecommendationCopyDialog';
 import { useResumeStore, MATCH_TTL_MS } from '@/store/resume-store';
-import { useRepushStore } from '@/store/repush-store';
+import { useRepushStore, type RepushColumnId } from '@/store/repush-store';
+import { usePrefStore } from '@/store/pref-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
 import type { JD } from '@/types/jd';
 import type { Resume } from '@/types/resume';
@@ -15,24 +16,39 @@ import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock } from
 import { cn } from '@/lib/utils';
 import { extractRecommendationInfo, type ExtractedRecommendation } from '@/lib/recommendation';
 
-const NEXT_CANDIDATE_CODE_KEY = 'recruit:next-mmf-candidate-code';
+const OWNER_CONFIG: Record<RepushColumnId, { name: string; codePrefix: string; storageKey: string; recommender: string }> = {
+  a: {
+    name: '麦满分',
+    codePrefix: 'XYMMF00',
+    storageKey: 'recruit:next-mmf-candidate-code',
+    recommender: '麦满分 @bruceluo123',
+  },
+  b: {
+    name: '啵啵',
+    codePrefix: 'XYBB00',
+    storageKey: 'recruit:next-bb-candidate-code',
+    recommender: 'BOBO @bobomiepucha',
+  },
+};
 
-function nextCandidateCodeSuffix(): string {
+function nextCandidateCodeSuffix(owner: RepushColumnId): string {
+  const config = OWNER_CONFIG[owner];
+  const codePattern = new RegExp(`^${config.codePrefix}(\\d{3})$`);
   const existingMax = useRepushStore.getState().items.reduce((max, item) => {
-    const match = item.candidateCode?.trim().toUpperCase().match(/^XYMMF00(\d{3})$/);
+    const match = item.candidateCode?.trim().toUpperCase().match(codePattern);
     return match ? Math.max(max, Number.parseInt(match[1], 10)) : max;
   }, 0);
   const stored = typeof window === 'undefined'
     ? 0
-    : Number.parseInt(window.localStorage.getItem(NEXT_CANDIDATE_CODE_KEY) || '', 10) || 0;
+    : Number.parseInt(window.localStorage.getItem(config.storageKey) || '', 10) || 0;
   return String(Math.min(Math.max(existingMax + 1, stored, 1), 999)).padStart(3, '0');
 }
 
-function reserveNextCandidateCode(currentSuffix: string): void {
+function reserveNextCandidateCode(owner: RepushColumnId, currentSuffix: string): void {
   if (typeof window === 'undefined') return;
   const current = Number.parseInt(currentSuffix, 10);
   if (!Number.isFinite(current)) return;
-  window.localStorage.setItem(NEXT_CANDIDATE_CODE_KEY, String(Math.min(current + 1, 999)).padStart(3, '0'));
+  window.localStorage.setItem(OWNER_CONFIG[owner].storageKey, String(Math.min(current + 1, 999)).padStart(3, '0'));
 }
 
 function escapeRegExp(value: string): string {
@@ -51,9 +67,10 @@ function readCandidateValue(candidateText: string, resumeText: string, labels: s
   return readLabeledValue(candidateText, labels) || readLabeledValue(resumeText, labels);
 }
 
-function buildCandidateCode(codeSuffix: string, extractedCode: string): string {
+function buildCandidateCode(owner: RepushColumnId, codeSuffix: string, extractedCode: string): string {
+  const prefix = OWNER_CONFIG[owner].codePrefix;
   const digits = codeSuffix.replace(/\D/g, '').slice(0, 3);
-  return digits ? `XYMMF00${digits.padStart(3, '0')}` : extractedCode || 'XYMMF00';
+  return digits ? `${prefix}${digits.padStart(3, '0')}` : extractedCode || prefix;
 }
 
 function safeFilePart(value: string): string {
@@ -68,6 +85,7 @@ function buildRecommendationCopy(
   codeSuffix: string,
   resumeSource: string,
   resumeFileName: string,
+  owner: RepushColumnId,
 ): RecommendationCopyItem {
   const resumeText = resume.rawText.slice(0, 6000);
   const workYears = readCandidateValue(candidateText, resumeText, ['工作年限', '工作经验年限', '工作经验'])
@@ -82,7 +100,7 @@ function buildRecommendationCopy(
     .filter((value): value is string => !!value);
   const organization = Array.from(new Set(organizationParts)).join('/');
   const candidateName = info.name || resume.parsedData.name || resume.fileName.replace(/\.(pdf|docx)$/i, '');
-  const candidateCode = buildCandidateCode(codeSuffix, info.candidateCode);
+  const candidateCode = buildCandidateCode(owner, codeSuffix, info.candidateCode);
   const extension = resumeFileName.match(/\.(pdf|docx?)$/i)?.[0].toLowerCase() || '.pdf';
   const renamedResume = `${[candidateName, jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
 
@@ -99,7 +117,7 @@ function buildRecommendationCopy(
     '是否已沟通行业背景要求：是',
     `推荐编制组织/序列/服务单位：${organization}`,
     '招聘渠道：寻英',
-    '简历推荐人：麦满分 @bruceluo123',
+    `简历推荐人：${OWNER_CONFIG[owner].recommender}`,
     `简历来源：${resumeSource || 'boss'}`,
     `候选人联系方式：${info.contact || '/'}`,
     `简历对接BP：${jd.odc?.trim() || ''}`,
@@ -130,6 +148,8 @@ export function ResumeMatchingPage() {
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [copyDialogInitialJdId, setCopyDialogInitialJdId] = useState('');
   const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
+  const activeOwner = usePrefStore((s) => s.activeOwner);
+  const setActiveOwner = usePrefStore((s) => s.setActiveOwner);
   const resumes = useResumeStore((s) => s.resumes);
   const activeResumeId = useResumeStore((s) => s.activeResumeId);
   const resultsByResume = useResumeStore((s) => s.resultsByResume);
@@ -157,14 +177,14 @@ export function ResumeMatchingPage() {
     setRecommendationCopies([]);
     setCandidateDialogOpen(false);
     setCandidateInfoText('');
-    setCandidateCodeSuffix(nextCandidateCodeSuffix());
+    setCandidateCodeSuffix(nextCandidateCodeSuffix(activeOwner));
     setRecommendationResumeSource('boss');
     setRecommendationResumeFile(null);
     setRecommendationResumeBlobUrl('');
     setCopyDialogOpen(false);
     setCopyDialogInitialJdId('');
     setIsGeneratingCopy(false);
-  }, [activeResumeId]);
+  }, [activeOwner, activeResumeId]);
 
   // 每 10 秒刷新一次时间并清理过期结果，驱动倒计时显示
   useEffect(() => {
@@ -206,7 +226,7 @@ export function ResumeMatchingPage() {
 
   const handleRequestRecommendationCopy = () => {
     if (!activeResume || selectedResultIds.size === 0 || isGeneratingCopy) return;
-    setCandidateCodeSuffix(nextCandidateCodeSuffix());
+    setCandidateCodeSuffix(nextCandidateCodeSuffix(activeOwner));
     if (!recommendationResumeFile && activeResume.file) {
       setRecommendationResumeFile(activeResume.file);
       setRecommendationResumeBlobUrl(activeResume.blobUrl || '');
@@ -240,10 +260,11 @@ export function ResumeMatchingPage() {
           codeSuffix,
           resumeSource,
           resumeFile?.name || activeResume.fileName,
+          activeOwner,
         )
       ));
       setRecommendationCopies(copies);
-      if (copies.length > 0) reserveNextCandidateCode(codeSuffix);
+      if (copies.length > 0) reserveNextCandidateCode(activeOwner, codeSuffix);
       setCopyDialogInitialJdId(copies[0]?.jdId || '');
       setCopyDialogOpen(copies.length > 0);
     } finally {
@@ -268,6 +289,21 @@ export function ResumeMatchingPage() {
         <div>
           <h2 className="page-title">简历匹配</h2>
           <p className="page-subtitle">上传简历，AI 智能匹配最适合的岗位</p>
+        </div>
+        <div className="flex overflow-hidden rounded-xl border border-gray-200 bg-white text-sm shadow-sm" aria-label="当前推荐人">
+          {(['a', 'b'] as RepushColumnId[]).map((owner) => (
+            <button
+              type="button"
+              key={owner}
+              onClick={() => setActiveOwner(owner)}
+              className={cn(
+                'h-10 px-4 font-medium transition-colors',
+                activeOwner === owner ? 'bg-indigo-500 text-white' : 'text-gray-500 hover:bg-indigo-50',
+              )}
+            >
+              {OWNER_CONFIG[owner].name}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -377,6 +413,7 @@ export function ResumeMatchingPage() {
       {candidateDialogOpen && (
         <RecommendationCandidateDialog
           jobCount={selectedResultIds.size}
+          codePrefix={OWNER_CONFIG[activeOwner].codePrefix}
           initialCandidateText={candidateInfoText}
           initialCodeSuffix={candidateCodeSuffix}
           initialResumeFile={recommendationResumeFile || activeResume?.file || null}
@@ -387,6 +424,7 @@ export function ResumeMatchingPage() {
       )}
       {copyDialogOpen && recommendationCopies.length > 0 && (
         <RecommendationCopyDialog
+          owner={activeOwner}
           items={recommendationCopies}
           initialJdId={copyDialogInitialJdId}
           resumeFile={recommendationResumeFile}

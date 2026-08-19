@@ -21,7 +21,9 @@ export async function GET(request: NextRequest) {
   const blocked = guardApi(request, 'tg-dialogs', 12, 60_000);
   if (blocked) return blocked;
 
-  const cache = parseCache(await kvGet<DialogCache | string>('recruit:tg-delivery-dialogs'));
+  const sender = request.nextUrl.searchParams.get('sender') === 'b' ? 'b' : 'a';
+  const cacheKey = sender === 'b' ? 'recruit:tg-delivery-dialogs-b' : 'recruit:tg-delivery-dialogs';
+  const cache = parseCache(await kvGet<DialogCache | string>(cacheKey));
   return NextResponse.json({
     ok: true,
     items: Array.isArray(cache?.items) ? cache.items : [],

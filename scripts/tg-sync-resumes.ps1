@@ -1,3 +1,8 @@
+param(
+  [ValidateSet('a', 'b')]
+  [string]$Account = 'a'
+)
+
 Set-Location -LiteralPath 'D:\projects\recruitment-dashboard'
 
 function Get-ProxyPort {
@@ -32,10 +37,12 @@ if (-not (Test-LocalPort $proxyPort)) {
 }
 
 $env:TG_PROXY = "127.0.0.1:$proxyPort"
+$env:TG_ACCOUNT = $Account
 $env:HTTP_PROXY = "http://127.0.0.1:$proxyPort"
 $env:HTTPS_PROXY = "http://127.0.0.1:$proxyPort"
 $env:NODE_USE_ENV_PROXY = '1'
 $env:NODE_NO_WARNINGS = '1'
 
-& node scripts/tg-sync-resumes.mjs --write --limit 180 >> artifacts/tg-sync-scheduled.log 2>&1
+$logPath = if ($Account -eq 'b') { 'artifacts/tg-sync-scheduled-b.log' } else { 'artifacts/tg-sync-scheduled.log' }
+& node scripts/tg-sync-resumes.mjs --write --limit 180 --account $Account >> $logPath 2>&1
 exit $LASTEXITCODE

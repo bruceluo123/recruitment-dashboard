@@ -6,14 +6,6 @@ import { StringSession } from 'telegram/sessions/index.js';
 import { CustomFile } from 'telegram/client/uploads.js';
 
 const ROOT = process.cwd();
-const QUEUE_KEY = 'recruit:tg-delivery-pending';
-const DIALOGS_KEY = 'recruit:tg-delivery-dialogs';
-const HEARTBEAT_KEY = 'recruit:tg-delivery-worker-heartbeat';
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
-const MAX_BATCHES = 10;
-const POLL_INTERVAL_MS = 2_000;
-const DIALOG_REFRESH_MS = 15 * 60 * 1_000;
-const FETCH_RETRY_DELAYS_MS = [500, 1_500, 3_000];
 
 function loadEnv() {
   const envPath = path.join(ROOT, '.env.local');
@@ -28,6 +20,21 @@ function loadEnv() {
     }
     if (!process.env[key]) process.env[key] = value;
   }
+}
+
+loadEnv();
+const ACCOUNT = process.env.TG_ACCOUNT === 'b' ? 'b' : 'a';
+const QUEUE_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-pending-b' : 'recruit:tg-delivery-pending';
+const DIALOGS_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-dialogs-b' : 'recruit:tg-delivery-dialogs';
+const HEARTBEAT_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-worker-heartbeat-b' : 'recruit:tg-delivery-worker-heartbeat';
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_BATCHES = 10;
+const POLL_INTERVAL_MS = 2_000;
+const DIALOG_REFRESH_MS = 15 * 60 * 1_000;
+const FETCH_RETRY_DELAYS_MS = [500, 1_500, 3_000];
+
+function tgEnv(name) {
+  return process.env[ACCOUNT === 'b' ? `TG_BB_${name}` : `TG_${name}`] || '';
 }
 
 function parseProxy(raw) {
@@ -205,16 +212,16 @@ async function processRecord(client, dialogs, id) {
 }
 
 function assertEnv() {
-  if (!process.env.TG_API_ID || !process.env.TG_API_HASH || !process.env.TG_SESSION) throw new Error('Missing TG API env');
+  if (!tgEnv('API_ID') || !tgEnv('API_HASH') || !tgEnv('SESSION')) throw new Error(`Missing TG API env for account ${ACCOUNT}`);
   if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) throw new Error('Missing KV env');
 }
 
 function createClient() {
   const proxy = parseProxy(process.env.TG_PROXY);
   return new TelegramClient(
-    new StringSession((process.env.TG_SESSION || '').replace(/\s+/g, '')),
-    Number.parseInt(process.env.TG_API_ID || '', 10),
-    process.env.TG_API_HASH || '',
+    new StringSession(tgEnv('SESSION').replace(/\s+/g, '')),
+    Number.parseInt(tgEnv('API_ID'), 10),
+    tgEnv('API_HASH'),
     { connectionRetries: 3, ...(proxy ? { proxy } : {}) },
   );
 }
@@ -302,7 +309,6 @@ async function runWatch() {
   }
 }
 
-loadEnv();
 assertEnv();
 const watchMode = process.argv.includes('--watch');
 (watchMode ? runWatch() : runOnce()).then(() => {

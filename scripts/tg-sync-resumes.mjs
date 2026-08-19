@@ -95,6 +95,10 @@ function isTargetCode(code) {
   return /^XY(?:MMF|BB)\d+$/i.test(code);
 }
 
+function isAccountCode(code, account) {
+  return account === 'b' ? /^XYBB\d+$/i.test(code) : /^XYMMF\d+$/i.test(code);
+}
+
 function parseRecommendation(text, fallbackCode = '') {
   const S = {
     candidateCode: '\u5019\u9009\u4eba\u7f16\u7801',
@@ -249,7 +253,7 @@ function findNearbyCodeMessage(messages, msg) {
   return candidates[0]?.item || null;
 }
 
-async function collectTargets(client, from, to, limit) {
+async function collectTargets(client, from, to, limit, account) {
   const dialogs = await client.getDialogs({ limit: parseInt(arg('--dialog-limit', '500'), 10) });
   const groups = dialogs
     .filter((d) => {
@@ -269,7 +273,7 @@ async function collectTargets(client, from, to, limit) {
       const directCode = codeFromText(msg.message || '');
       const nearby = directCode ? null : findNearbyCodeMessage(messages, msg);
       const code = directCode || codeFromText(nearby?.message || '');
-      if (!isTargetCode(code)) continue;
+      if (!isTargetCode(code) || !isAccountCode(code, account)) continue;
       const recommendationText = clean(msg.message || '') ? msg.message : nearby?.message || '';
       const parsed = parseRecommendation(recommendationText, code);
       if (!isTargetCode(parsed.code)) continue;
@@ -302,10 +306,16 @@ function findExistingRecommendation(repush, code, jobTitle, dateIso) {
 
 async function main() {
   loadEnv();
+  const account = arg('--account', process.env.TG_ACCOUNT || 'a') === 'b' ? 'b' : 'a';
+  const stateKey = account === 'b' ? 'recruit:tg-resume-sync-state-b' : 'recruit:tg-resume-sync-state';
+  const ledgerKey = account === 'b' ? 'recruit:tg-resume-sync-ledger-b' : 'recruit:tg-resume-sync-ledger';
+  const apiId = process.env[account === 'b' ? 'TG_BB_API_ID' : 'TG_API_ID'] || '';
+  const apiHash = process.env[account === 'b' ? 'TG_BB_API_HASH' : 'TG_API_HASH'] || '';
+  const session = process.env[account === 'b' ? 'TG_BB_SESSION' : 'TG_SESSION'] || '';
   const dryRun = hasFlag('--dry-run');
   const write = hasFlag('--write');
   const limit = parseInt(arg('--limit', process.env.TG_SYNC_LIMIT || '180'), 10);
-  const stateRaw = await kvGet('recruit:tg-resume-sync-state').catch(() => '');
+  const stateRaw = await kvGet(stateKey).catch(() => '');
   const state = stateRaw ? JSON.parse(stateRaw) : {};
   const fromArg = arg('--from', '');
   const toArg = arg('--to', '');
@@ -319,26 +329,26 @@ async function main() {
   const to = toArg ? shanghaiDayStart(toArg) : new Date(Date.now() + 60 * 1000);
 
   if (!dryRun && !write) throw new Error('Pass --dry-run to preview or --write to sync.');
-  if (!process.env.TG_API_ID || !process.env.TG_API_HASH || !process.env.TG_SESSION) throw new Error('Missing TG API env.');
+  if (!apiId || !apiHash || !session) throw new Error(`Missing TG API env for account ${account}.`);
   if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) throw new Error('Missing KV env.');
   if (write && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Missing BLOB_READ_WRITE_TOKEN.');
 
   const proxy = parseProxy(process.env.TG_PROXY);
   const client = new TelegramClient(
-    new StringSession((process.env.TG_SESSION || '').replace(/\s+/g, '')),
-    parseInt(process.env.TG_API_ID || '', 10),
-    process.env.TG_API_HASH || '',
+    new StringSession(session.replace(/\s+/g, '')),
+    parseInt(apiId, 10),
+    apiHash,
     { connectionRetries: 3, ...(proxy ? { proxy } : {}) },
   );
   await client.connect();
   let targets = [];
   try {
-    targets = await collectTargets(client, from, to, limit);
+    targets = await collectTargets(client, from, to, limit, account);
   } finally {
     if (dryRun) await client.disconnect();
   }
 
-  const ledgerRaw = await kvGet('recruit:tg-resume-sync-ledger').catch(() => '');
+  const ledgerRaw = await kvGet(ledgerKey).catch(() => '');
   let ledger = ledgerRaw ? JSON.parse(ledgerRaw) : [];
   if (!Array.isArray(ledger)) ledger = [];
   // 文件已入库但正文解析失败时不能永久跳过；后续网络恢复后自动重试并补齐全文索引。
@@ -366,7 +376,7 @@ async function main() {
 
   if (pending.length === 0) {
     try {
-      await kvSet('recruit:tg-resume-sync-state', JSON.stringify({
+      await kvSet(stateKey, JSON.stringify({
         lastScanAt: to.toISOString(),
         lastRunAt: new Date().toISOString(),
         lastFound: targets.length,
@@ -537,9 +547,9 @@ async function main() {
   codeLedger = [...byCodeLedger.values()].sort((a, b) => String(a.code).localeCompare(String(b.code)));
   await kvSet('recruit:talents', JSON.stringify(talents));
   await kvSet('recruit:repush', JSON.stringify(repush));
-  await kvSet('recruit:tg-resume-sync-ledger', JSON.stringify(ledger.slice(-3000)));
+  await kvSet(ledgerKey, JSON.stringify(ledger.slice(-3000)));
   await kvSet('recruit:candidate-code-ledger', JSON.stringify(codeLedger));
-  await kvSet('recruit:tg-resume-sync-state', JSON.stringify({
+  await kvSet(stateKey, JSON.stringify({
     lastScanAt: to.toISOString(),
     lastRunAt: new Date().toISOString(),
     lastFound: targets.length,
