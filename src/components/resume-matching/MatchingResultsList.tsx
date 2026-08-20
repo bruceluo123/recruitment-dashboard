@@ -25,10 +25,11 @@ export function MatchingResultsList({
   onGenerateRecommendationCopy,
   onOpenRecommendationCopy,
 }: MatchingResultsListProps) {
-  const visibleResults = results
-    .filter((result) => result.score >= 70)
+  const visibleResults = [...results]
     .sort((a, b) => {
-      const priorityDifference = Number(Boolean(groupPriorityLabel(b.jd))) - Number(Boolean(groupPriorityLabel(a.jd)));
+      const aPriority = a.score >= 70 && Boolean(groupPriorityLabel(a.jd));
+      const bPriority = b.score >= 70 && Boolean(groupPriorityLabel(b.jd));
+      const priorityDifference = Number(bPriority) - Number(aPriority);
       return priorityDifference || b.score - a.score;
     });
 
