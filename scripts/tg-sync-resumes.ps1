@@ -38,9 +38,7 @@ if (-not (Test-LocalPort $proxyPort)) {
 
 $env:TG_PROXY = "127.0.0.1:$proxyPort"
 $env:TG_ACCOUNT = $Account
-$env:HTTP_PROXY = "http://127.0.0.1:$proxyPort"
-$env:HTTPS_PROXY = "http://127.0.0.1:$proxyPort"
-$env:NODE_USE_ENV_PROXY = '1'
+Remove-Item Env:HTTP_PROXY, Env:HTTPS_PROXY, Env:NODE_USE_ENV_PROXY -ErrorAction SilentlyContinue
 $env:NODE_NO_WARNINGS = '1'
 
 $logPath = if ($Account -eq 'b') { 'artifacts/tg-sync-scheduled-b.log' } else { 'artifacts/tg-sync-scheduled.log' }
