@@ -41,6 +41,11 @@ export function MatchingResultsList({
       </div>
     );
   }
+  if (results.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-gray-400"><BarChart3 className="w-10 h-10 mb-3" /><p className="text-sm">点击「开始匹配」查看结果</p></div>
+    );
+  }
   if (visibleResults.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-gray-400"><BarChart3 className="w-10 h-10 mb-3" /><p className="text-sm">暂无 70 分以上的匹配岗位</p></div>
