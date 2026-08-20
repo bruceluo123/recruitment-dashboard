@@ -41,6 +41,39 @@ interface UrgentGroup {
   key: string;
 }
 
+const SMART_ROTATION_STORAGE_KEY = 'recruit:hot-hiring-smart-rotation-v1';
+
+interface SmartRotationRecord {
+  date: string;
+  maimanfen: string[];
+  bobo: string[];
+  reasons: string[];
+}
+
+function shanghaiDateKey(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function readSmartRotationHistory(): SmartRotationRecord[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SMART_ROTATION_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.date && Array.isArray(item.maimanfen) && Array.isArray(item.bobo)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSmartRotationRecord(record: SmartRotationRecord): void {
+  const next = [...readSmartRotationHistory().filter((item) => item.date !== record.date), record]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-3);
+  localStorage.setItem(SMART_ROTATION_STORAGE_KEY, JSON.stringify(next));
+}
+
 function buildUrgentGroups(jds: JD[]): UrgentGroup[] {
   const groups: UrgentGroup[] = [];
   for (const priority of ['P0', 'P1'] as const) {
@@ -121,10 +154,27 @@ export function HotHiringPage() {
     setSmartLoading(true);
     setSmartError('');
     try {
+      const rotationDate = shanghaiDateKey();
+      const history = readSmartRotationHistory();
+      const byId = new Map(jds.map((jd) => [jd.id, jd]));
+      const today = history.find((item) => item.date === rotationDate);
+      if (today) {
+        const maimanfen = today.maimanfen.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
+        const bobo = today.bobo.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
+        if (maimanfen.length >= 8 && bobo.length >= 8) {
+          setSmartDialog({ maimanfen, bobo, reasons: today.reasons });
+          return;
+        }
+      }
+      const recentIds = Array.from(new Set(
+        history.filter((item) => item.date !== rotationDate).slice(-2).flatMap((item) => [...item.maimanfen, ...item.bobo]),
+      ));
       const response = await fetch('/api/hot-hiring/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          rotationDate,
+          recentIds,
           jobs: jds.map((jd) => ({
             id: jd.id,
             title: jd.title,
@@ -144,7 +194,6 @@ export function HotHiringPage() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) throw new Error(data.error || '智能选岗失败');
-      const byId = new Map(jds.map((jd) => [jd.id, jd]));
       const maimanfen = (Array.isArray(data.maimanfen) ? data.maimanfen : [])
         .map((id: string) => byId.get(id))
         .filter((jd: JD | undefined): jd is JD => !!jd);
@@ -152,10 +201,17 @@ export function HotHiringPage() {
         .map((id: string) => byId.get(id))
         .filter((jd: JD | undefined): jd is JD => !!jd);
       if (!maimanfen.length || !bobo.length) throw new Error('没有生成可用的岗位组合');
+      const reasons = Array.isArray(data.reasons) ? data.reasons.map(String) : [];
+      saveSmartRotationRecord({
+        date: rotationDate,
+        maimanfen: maimanfen.map((jd: JD) => jd.id),
+        bobo: bobo.map((jd: JD) => jd.id),
+        reasons,
+      });
       setSmartDialog({
         maimanfen,
         bobo,
-        reasons: Array.isArray(data.reasons) ? data.reasons.map(String) : [],
+        reasons,
       });
     } catch (error) {
       setSmartError(error instanceof Error ? error.message : '智能选岗失败，请重试');
