@@ -119,7 +119,7 @@ function buildRecommendationCopy(
     '招聘渠道：寻英',
     `简历推荐人：${OWNER_CONFIG[owner].recommender}`,
     `简历来源：${resumeSource || 'boss'}`,
-    `候选人联系方式：${info.contact || '/'}`,
+    ...(owner === 'b' ? [] : [`候选人联系方式：${info.contact || '/'}`]),
     `简历对接BP：${jd.odc?.trim() || ''}`,
   ].join('\n');
 
