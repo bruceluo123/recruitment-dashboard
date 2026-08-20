@@ -48,6 +48,7 @@ interface SmartRotationRecord {
   maimanfen: string[];
   bobo: string[];
   reasons: string[];
+  variant?: number;
 }
 
 function shanghaiDateKey(): string {
@@ -169,11 +170,13 @@ export function HotHiringPage() {
       const recentRecords = history.filter((item) => item.date !== rotationDate).slice(-2);
       if (forceNew && today) recentRecords.push(today);
       const recentIds = Array.from(new Set(recentRecords.flatMap((item) => [...item.maimanfen, ...item.bobo])));
+      const rotationVariant = forceNew ? ((today?.variant || 0) + 1) % 3 : (today?.variant || 0);
       const response = await fetch('/api/hot-hiring/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rotationDate,
+          rotationVariant,
           recentIds,
           jobs: jds.map((jd) => ({
             id: jd.id,
@@ -207,6 +210,7 @@ export function HotHiringPage() {
         maimanfen: maimanfen.map((jd: JD) => jd.id),
         bobo: bobo.map((jd: JD) => jd.id),
         reasons,
+        variant: rotationVariant,
       });
       setSmartDialog({
         maimanfen,

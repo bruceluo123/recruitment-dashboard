@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
   const blocked = guardApi(request, 'hot-hiring-recommend', 8, 60_000);
   if (blocked) return blocked;
 
-  let body: { jobs?: SmartJob[]; rotationDate?: string; recentIds?: string[] };
+  let body: { jobs?: SmartJob[]; rotationDate?: string; rotationVariant?: number; recentIds?: string[] };
   try {
     body = await request.json();
   } catch {
@@ -228,7 +228,8 @@ export async function POST(request: NextRequest) {
   if (!jobs.length) return NextResponse.json({ ok: false, error: '当前没有可推荐的活跃岗位' }, { status: 400 });
 
   const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(body.rotationDate || '') ? body.rotationDate! : shanghaiDateKey();
-  const phase = rotationIndex(dateKey);
+  const variant = Number.isInteger(body.rotationVariant) ? Math.max(0, body.rotationVariant || 0) : 0;
+  const phase = (rotationIndex(dateKey) + variant) % ROTATION_THEMES.length;
   const validJobIds = new Set(jobs.map((job) => job.id));
   const recentIds = new Set((Array.isArray(body.recentIds) ? body.recentIds : []).map(String).filter((id) => validJobIds.has(id)));
   const ranked = [...jobs]
