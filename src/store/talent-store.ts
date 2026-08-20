@@ -59,6 +59,7 @@ interface TalentStore {
   clearAllTalents: () => void;
   archiveAll: () => void;
   setArchived: (id: string, archived: boolean) => void;
+  clearArchivedResumeFiles: (ids: string[], cleanedAt: string) => void;
   importFromFiles: (files: File[]) => Promise<TalentImportResult>;
 }
 
@@ -129,12 +130,28 @@ export const useTalentStore = create<TalentStore>()(
         return { talents: [s.lastDeletedTalent, ...s.talents], lastDeletedTalent: null };
       }),
       clearAllTalents: () => set({ talents: [], lastDeletedTalent: null }),
-      archiveAll: () => set((s) => ({
-        talents: s.talents.map((t) => ({ ...t, archived: true, updatedAt: new Date().toISOString() })),
-      })),
-      setArchived: (id, archived) => set((s) => ({
-        talents: s.talents.map((t) => t.id === id ? { ...t, archived, updatedAt: new Date().toISOString() } : t),
-      })),
+      archiveAll: () => set((s) => {
+        const now = new Date().toISOString();
+        return {
+          talents: s.talents.map((t) => ({ ...t, archived: true, archivedAt: now, updatedAt: now })),
+        };
+      }),
+      setArchived: (id, archived) => set((s) => {
+        const now = new Date().toISOString();
+        return {
+          talents: s.talents.map((t) => t.id === id
+            ? { ...t, archived, archivedAt: archived ? now : undefined, updatedAt: now }
+            : t),
+        };
+      }),
+      clearArchivedResumeFiles: (ids, cleanedAt) => set((s) => {
+        const idSet = new Set(ids);
+        return {
+          talents: s.talents.map((t) => idSet.has(t.id)
+            ? { ...t, resumeUrl: undefined, resumeFileName: undefined, resumeFileArchivedAt: cleanedAt, updatedAt: cleanedAt }
+            : t),
+        };
+      }),
 
       // 批量扫描未识别的简历：拉取 Blob → 提取文字 → 存入 KV，并在本地记录 hasResumeText/resumeChars。
       // 跳过无简历链接或已扫描过的人选。并发 6（文字型走快路径），可中途取消。

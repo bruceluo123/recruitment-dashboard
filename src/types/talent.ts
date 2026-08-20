@@ -59,6 +59,8 @@ export interface Talent {
   organization?: string;     // 推荐编制组织/序列（从推荐中心迁移）
   approvalNo?: string;       // 批据号（从推荐中心迁移）
 
+  archivedAt?: string;       // 归档时间，用于判断原始简历文件的保留期限
+  resumeFileArchivedAt?: string; // 原始简历文件从云端清理的时间，人才资料和识别正文仍保留
   createdAt: string;
   updatedAt: string;
 }

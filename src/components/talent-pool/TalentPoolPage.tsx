@@ -8,6 +8,7 @@ import { TalentImportDialog } from './TalentImportDialog';
 import { TalentQueryDialog } from './TalentQueryDialog';
 import { TalentEditPanel } from './TalentEditPanel';
 import { TalentEnrichDialog } from './TalentEnrichDialog';
+import { ResumeArchiveCleanupDialog } from './ResumeArchiveCleanupDialog';
 import { RecycleBinDialog } from '@/components/common/RecycleBinDialog';
 import { useTalentStore, useFilteredTalents, useTalentCategoryCounts } from '@/store/talent-store';
 import { useRepushStore } from '@/store/repush-store';
@@ -32,11 +33,13 @@ export function TalentPoolPage() {
   const [scanSummary, setScanSummary] = useState<{ scanned: number; failed: number } | null>(null);
   const [archiveView, setArchiveView] = useState<'active' | 'all' | 'archived'>('active');
   const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [archiveCleanupOpen, setArchiveCleanupOpen] = useState(false);
 
   const talents = useTalentStore((s) => s.talents);
   const filter = useTalentStore((s) => s.filter);
   const setFilter = useTalentStore((s) => s.setFilter);
   const archiveAll = useTalentStore((s) => s.archiveAll);
+  const clearArchivedResumeFiles = useTalentStore((s) => s.clearArchivedResumeFiles);
   const repushItems = useRepushStore((s) => s.items);
   const repushColumnNames = useRepushStore((s) => s.columnNames);
   const addTalent = useTalentStore((s) => s.addTalent);
@@ -281,6 +284,15 @@ export function TalentPoolPage() {
             title="把当前所有活跃人才标记为归档（不删除数据）">
             <Archive className="w-3.5 h-3.5" />归档全部旧人才
           </button>
+          <button
+            type="button"
+            onClick={() => setArchiveCleanupOpen(true)}
+            disabled={archivedCount === 0}
+            className="h-9 px-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-600 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800 transition-all flex items-center gap-1.5 disabled:opacity-40"
+            title="预览并清理归档人才中过期的原始简历文件"
+          >
+            <Archive className="w-3.5 h-3.5" />清理旧简历
+          </button>
         </div>
       </div>
 
@@ -396,6 +408,11 @@ export function TalentPoolPage() {
       <TalentImportDialog isOpen={importOpen} onClose={() => setImportOpen(false)} />
       <TalentQueryDialog isOpen={queryOpen} onClose={() => { setQueryOpen(false); setQueryAutoRun(false); }} initialQuery={queryInitial} autoRun={queryAutoRun} />
       <TalentEnrichDialog isOpen={enrichOpen} onClose={() => setEnrichOpen(false)} />
+      <ResumeArchiveCleanupDialog
+        open={archiveCleanupOpen}
+        onClose={() => setArchiveCleanupOpen(false)}
+        onCleaned={clearArchivedResumeFiles}
+      />
 
       {/* 归档确认弹窗 */}
       {archiveConfirm && (
