@@ -14,6 +14,7 @@ import { ChevronRight, AlertTriangle, ThumbsUp, FileText, Sparkles, ExternalLink
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJDStore } from '@/store/jd-store';
+import { groupPriorityLabel } from '@/lib/group-priority';
 
 interface MatchingResultCardProps {
   result: MatchingResult;
@@ -31,6 +32,7 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
   const [jdCopied, setJdCopied] = useState(false);
   const [orgCopied, setOrgCopied] = useState(false);
   const { jd, score, breakdown, reasoning, highlights, concerns } = result;
+  const priorityDepartment = groupPriorityLabel(jd);
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
   const router = useRouter();
   const selectJD = useJDStore((s) => s.selectJD);
@@ -78,7 +80,11 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
     <GlassPanel
       padding="md"
       hover
-      className={cn('cursor-pointer', selected && 'border-indigo-300 bg-indigo-50/20 ring-1 ring-indigo-100')}
+      className={cn(
+        'cursor-pointer',
+        priorityDepartment && 'border-amber-200 bg-amber-50/20',
+        selected && 'border-indigo-300 bg-indigo-50/20 ring-1 ring-indigo-100',
+      )}
       onClick={() => setExpanded(!expanded)}
     >
       <div className="flex items-start gap-4">
@@ -107,6 +113,14 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
                 <h4 className="text-base font-semibold text-gray-800">{jd.title}</h4>
                 {isUrgentPriority(jd.priority) && (
                   <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold', PRIORITY_COLORS[jd.priority!])}>急招 {jd.priority}</span>
+                )}
+                {priorityDepartment && (
+                  <span
+                    title={`集团优先：${priorityDepartment}`}
+                    className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200"
+                  >
+                    <Sparkles className="h-3 w-3" />集团优先
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">

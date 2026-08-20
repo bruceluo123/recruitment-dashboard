@@ -2,6 +2,7 @@
 import { MatchingResultCard } from './MatchingResultCard';
 import { Loader2, BarChart3, FileText } from 'lucide-react';
 import type { MatchingResult } from '@/types/matching';
+import { groupPriorityLabel } from '@/lib/group-priority';
 
 interface MatchingResultsListProps {
   results: MatchingResult[];
@@ -24,8 +25,15 @@ export function MatchingResultsList({
   onGenerateRecommendationCopy,
   onOpenRecommendationCopy,
 }: MatchingResultsListProps) {
+  const visibleResults = results
+    .filter((result) => result.score >= 70)
+    .sort((a, b) => {
+      const priorityDifference = Number(Boolean(groupPriorityLabel(b.jd))) - Number(Boolean(groupPriorityLabel(a.jd)));
+      return priorityDifference || b.score - a.score;
+    });
+
   // 流式：首条结果到达前显示加载态；到达后即展示，匹配中持续追加
-  if (isMatching && results.length === 0) {
+  if (isMatching && visibleResults.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 space-y-4">
         <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
@@ -33,22 +41,21 @@ export function MatchingResultsList({
       </div>
     );
   }
-  if (results.length === 0) {
+  if (visibleResults.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-gray-400"><BarChart3 className="w-10 h-10 mb-3" /><p className="text-sm">点击「开始匹配」查看结果</p></div>
+      <div className="flex flex-col items-center justify-center py-16 text-gray-400"><BarChart3 className="w-10 h-10 mb-3" /><p className="text-sm">暂无 70 分以上的匹配岗位</p></div>
     );
   }
   return (
     <div className="space-y-3">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
-          匹配结果 <span className="text-gray-400">({results.length} 个岗位)</span>
+          匹配结果 <span className="text-gray-400">({visibleResults.length} 个岗位)</span>
           {isMatching && <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />}
         </p>
         <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-gray-400">
           <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-green-500" />高匹配 (≥80)</span>
-          <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-amber-500" />中匹配 (≥60)</span>
-          <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-red-500" />低匹配</span>
+          <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-amber-500" />可推荐 (70-79)</span>
           <button
             type="button"
             onClick={onGenerateRecommendationCopy}
@@ -62,7 +69,7 @@ export function MatchingResultsList({
           </button>
         </div>
       </div>
-      {results.map((result, index) => (
+      {visibleResults.map((result, index) => (
         <MatchingResultCard
           key={result.id}
           result={result}
