@@ -44,5 +44,24 @@ $env:NODE_USE_ENV_PROXY = '1'
 $env:NODE_NO_WARNINGS = '1'
 
 $logPath = if ($Account -eq 'b') { 'artifacts/tg-sync-scheduled-b.log' } else { 'artifacts/tg-sync-scheduled.log' }
-& node scripts/tg-sync-resumes.mjs --write --limit 180 --account $Account >> $logPath 2>&1
-exit $LASTEXITCODE
+$deliveryTask = if ($Account -eq 'b') { 'PenguinIslandTgDeliveryWorkerBobo' } else { 'PenguinIslandTgDeliveryWorker' }
+$restartDelivery = $false
+$exitCode = 1
+
+try {
+  $task = Get-ScheduledTask -TaskName $deliveryTask -ErrorAction SilentlyContinue
+  if ($task -and $task.State -eq 'Running') {
+    Stop-ScheduledTask -TaskName $deliveryTask
+    $restartDelivery = $true
+    Start-Sleep -Seconds 2
+  }
+
+  & node scripts/tg-sync-resumes.mjs --write --limit 180 --account $Account >> $logPath 2>&1
+  $exitCode = $LASTEXITCODE
+} finally {
+  if ($restartDelivery) {
+    Start-ScheduledTask -TaskName $deliveryTask
+  }
+}
+
+exit $exitCode
