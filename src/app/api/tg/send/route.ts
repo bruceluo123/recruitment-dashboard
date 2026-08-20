@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { del } from '@vercel/blob';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
 import { kvGet, kvRPush, kvSet } from '@/lib/kv';
 
@@ -25,6 +26,7 @@ interface DeliveryRecord {
   sent?: number;
   error?: string;
   finishedAt?: string;
+  cleanedAt?: string;
 }
 
 interface WorkerHeartbeat {
@@ -141,6 +143,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: '发送编号无效' }, { status: 400 });
   }
   const record = parseRecord(await kvGet<DeliveryRecord | string>(recordKey(id)));
+  if (record?.status === 'sent' && !record.cleanedAt) {
+    try {
+      const pathname = new URL(record.fileUrl).pathname;
+      if (pathname.startsWith('/tg-delivery/')) {
+        await del(record.fileUrl);
+        record.cleanedAt = new Date().toISOString();
+        await kvSet(recordKey(id), record);
+      }
+    } catch {
+      // Cleanup is best-effort and must never turn a successful TG delivery into a failure.
+    }
+  }
   if (!record) return NextResponse.json({ ok: false, error: '未找到发送记录' }, { status: 404 });
   return NextResponse.json({
     ok: true,

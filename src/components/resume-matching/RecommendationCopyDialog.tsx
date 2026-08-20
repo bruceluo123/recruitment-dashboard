@@ -54,7 +54,7 @@ export function RecommendationCopyDialog({
   const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
   const [recipient, setRecipient] = useState('@ojisamer');
   const [isLoadingDialogs, setIsLoadingDialogs] = useState(true);
-  const [uploadedBlobUrl, setUploadedBlobUrl] = useState(resumeBlobUrl || '');
+  const uploadedBlobUrl = resumeBlobUrl || '';
   const [sendingMode, setSendingMode] = useState<'current' | 'all' | ''>('');
   const [sendingStep, setSendingStep] = useState<'uploading' | 'queueing' | ''>('');
   const [deliveryNotice, setDeliveryNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -111,13 +111,12 @@ export function RecommendationCopyDialog({
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
       try {
-        const blob = await upload(resumeFile.name, resumeFile, {
+        const blob = await upload(`tg-delivery/${Date.now()}-${resumeFile.name}`, resumeFile, {
           access: 'public',
           handleUploadUrl: '/api/resume/blob-upload',
           contentType: resumeFile.type || 'application/octet-stream',
           abortSignal: controller.signal,
         });
-        setUploadedBlobUrl(blob.url);
         return blob.url;
       } catch (error) {
         lastError = error;
