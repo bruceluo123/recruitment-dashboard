@@ -149,7 +149,7 @@ export function HotHiringPage() {
 
   const handleOpenJD = (id: string) => { selectJD(id); router.push('/jd-library'); };
 
-  const handleSmartGenerate = async () => {
+  const handleSmartGenerate = async (forceNew = false) => {
     if (smartLoading) return;
     setSmartLoading(true);
     setSmartError('');
@@ -158,7 +158,7 @@ export function HotHiringPage() {
       const history = readSmartRotationHistory();
       const byId = new Map(jds.map((jd) => [jd.id, jd]));
       const today = history.find((item) => item.date === rotationDate);
-      if (today) {
+      if (today && !forceNew) {
         const maimanfen = today.maimanfen.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
         const bobo = today.bobo.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
         if (maimanfen.length >= 8 && bobo.length >= 8) {
@@ -166,9 +166,9 @@ export function HotHiringPage() {
           return;
         }
       }
-      const recentIds = Array.from(new Set(
-        history.filter((item) => item.date !== rotationDate).slice(-2).flatMap((item) => [...item.maimanfen, ...item.bobo]),
-      ));
+      const recentRecords = history.filter((item) => item.date !== rotationDate).slice(-2);
+      if (forceNew && today) recentRecords.push(today);
+      const recentIds = Array.from(new Set(recentRecords.flatMap((item) => [...item.maimanfen, ...item.bobo])));
       const response = await fetch('/api/hot-hiring/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -246,7 +246,7 @@ export function HotHiringPage() {
           )}
           <div className="flex-1" />
           <button
-            onClick={handleSmartGenerate}
+            onClick={() => handleSmartGenerate()}
             disabled={smartLoading || jds.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
           >
@@ -327,6 +327,8 @@ export function HotHiringPage() {
           maimanfen={smartDialog.maimanfen}
           bobo={smartDialog.bobo}
           reasons={smartDialog.reasons}
+          regenerating={smartLoading}
+          onRegenerate={() => handleSmartGenerate(true)}
           onClose={() => setSmartDialog(null)}
         />
       )}
@@ -409,10 +411,12 @@ interface SmartAdDialogProps {
   maimanfen: JD[];
   bobo: JD[];
   reasons: string[];
+  regenerating: boolean;
+  onRegenerate: () => void;
   onClose: () => void;
 }
 
-function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps) {
+function SmartAdDialog({ maimanfen, bobo, reasons, regenerating, onRegenerate, onClose }: SmartAdDialogProps) {
   const [variant, setVariant] = useState<AdVariant>('maimanfen');
   const [hideSalary, setHideSalary] = useState(true);
   useEscapeClose(onClose);
@@ -440,9 +444,20 @@ function SmartAdDialog({ maimanfen, bobo, reasons, onClose }: SmartAdDialogProps
               麦满分 {maimanfen.length} 个 · 啵啵 {bobo.length} 个 · 共同岗位 {overlap} 个
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" aria-label="关闭">
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onRegenerate}
+              disabled={regenerating}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+            >
+              <Sparkles className={cn('h-4 w-4', regenerating && 'animate-spin')} />
+              {regenerating ? '正在换一版' : '换一版'}
+            </button>
+            <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" aria-label="关闭">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         <div className="border-b border-gray-100 bg-gray-50/60 px-5 py-3">
           <div className="flex overflow-hidden rounded-lg border border-gray-200 bg-white text-sm">
