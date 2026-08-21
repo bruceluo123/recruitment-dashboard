@@ -12,21 +12,21 @@ import { detectCategories } from './jd-parse-core';
  * AI 候选集，由 AI 做语义层面的精排判断，而不是被哑过滤提前删掉。
  */
 
-// 主职方向必须优先于相邻方向；辅助经历只用于补充候选，不能与主职同权。
-const CATEGORY_BOOSTS = [12000, 9000, 3000];
+// 主职方向必须优先于相邻方向；最多提升两个有充分证据的方向。
+const CATEGORY_BOOSTS = [12000, 6500];
 
 const RESUME_ROLE_SIGNALS: Array<[JDCategory, RegExp, number]> = [
   ['seo', /seo(?:运营|优化|专员|经理)?|搜索引擎优化/gi, 14],
   ['advertising', /(?:广告|信息流|媒介|kol|koc)(?:投放|优化|增长)|投手|sem/gi, 16],
   ['gaming', /游戏(?:运营|策划|开发|制作)|unity|unreal|cocos/gi, 14],
-  ['ai', /ai(?:产品|运营|内容|工程师|研发|应用)|人工智能|大模型|llm|aigc/gi, 12],
+  ['ai', /ai(?:产品经理|运营|内容(?:创作|生产|运营)|视频(?:生成|制作)|工程师|研发|应用(?:开发|工程))|人工智能(?:工程师|研发|应用)|rag(?:知识库|检索|系统|服务)|llm(?:网关|服务|应用)|agent(?:开发|工程|系统|应用)|aigc(?:内容|视频|生成|制作|运营)/gi, 12],
   ['algorithm', /算法(?:工程师|研发)|机器学习|深度学习|计算机视觉|nlp/gi, 14],
-  ['frontend', /前端(?:开发|工程师|负责人)|react|vue|flutter|android|ios/gi, 14],
+  ['frontend', /前端(?:开发|工程师|负责人)|react(?:开发|工程师)|vue(?:开发|工程师)|flutter(?:开发|工程师)|android(?:开发|工程师)|ios(?:开发|工程师)/gi, 14],
   ['backend', /后端(?:开发|工程师|负责人)|golang|java(?:开发|工程师)|php(?:开发|工程师)|服务端/gi, 14],
-  ['devops', /运维(?:开发|工程师|负责人)|devops|sre|kubernetes|k8s/gi, 14],
+  ['devops', /运维(?:开发|工程师|负责人)|devops(?:工程师|负责人)?|sre(?:工程师|负责人)?/gi, 14],
   ['testing', /测试(?:开发|工程师|负责人)|质量保证|qa工程师/gi, 14],
   ['training', /培训(?:师|经理|负责人)|课程开发|教学设计|学习发展/gi, 14],
-  ['product', /产品(?:经理|运营|负责人|总监|助理)/gi, 14],
+  ['product', /产品(?:经理|负责人|总监|助理)/gi, 14],
   ['design', /(?:ui|ux|视觉|平面|交互|品牌)设计(?:师|负责人)?/gi, 14],
   ['art', /美术(?:设计|负责人|总监)|原画师|插画师|3d(?:角色|动画|建模)/gi, 14],
   ['marketing', /市场(?:运营|营销|推广|经理|总监)|品牌(?:运营|营销|推广)|公关(?:经理|运营)/gi, 14],
@@ -42,7 +42,6 @@ const RESUME_ROLE_SIGNALS: Array<[JDCategory, RegExp, number]> = [
   ['content', /内容(?:策略|生产|创作|编辑|策划|运营)|品牌pr|官网文案|白皮书|文案(?:策划|编辑)/gi, 10],
   ['operations', /内容运营|社媒运营|新媒体运营|社区运营|社群运营|用户运营|活动运营|上币运营|增长运营|电商运营|直播运营/gi, 18],
   ['project', /项目(?:经理|管理|负责人)|pmo|scrum master/gi, 14],
-  ['director', /总监|负责人|组长|vp|cto|ceo/gi, 10],
   ['administration', /行政(?:专员|经理|负责人)|督导专员|办公室主任|秘书|前台/gi, 14],
 ];
 
@@ -97,7 +96,7 @@ export function detectResumeCategories(resumeText: string): JDCategory[] {
     /\n\s*(?:工作经历|工作经验|项目经历|项目经验|教育经历|教育背景|专业技能|技能清单|证书|获奖)\s*[：:]?/gi,
     2000,
   );
-  const primaryEvidence = `${recentWork || factualResumeText.slice(0, 5000)}\n${selfEvaluation}`;
+  const primaryEvidence = recentWork || factualResumeText.slice(0, 5000);
   const roleTitleLines = primaryEvidence
     .split('\n')
     .map((line) => line.trim())
@@ -105,24 +104,31 @@ export function detectResumeCategories(resumeText: string): JDCategory[] {
     .join('\n');
 
   for (const [category, re, points] of RESUME_ROLE_SIGNALS) {
-    const fullCount = matchCount(factualResumeText, re);
+    const fullCount = matchCount(factualResumeText, re, 3);
     const primaryCount = matchCount(primaryEvidence, re, 4);
     const titleCount = matchCount(roleTitleLines, re, 3);
-    if (fullCount) add(category, fullCount * points);
-    if (primaryCount) add(category, primaryCount * Math.max(4, Math.round(points * 0.5)));
-    if (titleCount) add(category, titleCount * Math.max(6, Math.round(points * 0.75)));
+    const evaluationCount = matchCount(selfEvaluation, re, 2);
+    // 最近工作与明确岗位名是主证据；全文和自我评价只防止漏召回，不能抢走主方向。
+    if (fullCount) add(category, fullCount * Math.max(1, Math.round(points * 0.2)));
+    if (primaryCount) add(category, primaryCount * points);
+    if (titleCount) add(category, titleCount * Math.max(8, Math.round(points * 1.2)));
+    if (evaluationCount) add(category, evaluationCount * Math.max(2, Math.round(points * 0.35)));
   }
   for (const [category, re, points] of RESUME_SUPPORT_SIGNALS) {
     const count = matchCount(factualResumeText, re, 3);
     if (count) add(category, count * points);
   }
 
-  // 宽口径分类只作为很弱的兜底，避免一次“AI增效”“数据复盘”抢走主方向。
-  detectCategories(factualResumeText).forEach((category, index) => add(category, 3 - index));
+  // 宽口径分类只在完全没有主职证据时兜底。
+  if (scores.size === 0) {
+    detectCategories(factualResumeText).slice(0, 1).forEach((category) => add(category, 1));
+  }
 
-  return Array.from(scores.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
+  const ranked = Array.from(scores.entries()).sort((a, b) => b[1] - a[1]);
+  const topScore = ranked[0]?.[1] || 0;
+  return ranked
+    .filter(([, score], index) => index === 0 || (index === 1 && score >= 35 && score >= topScore * 0.55))
+    .slice(0, 2)
     .map(([category]) => category);
 }
 

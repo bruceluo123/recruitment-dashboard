@@ -43,26 +43,41 @@ function clampNum(v: unknown): number {
   return Math.min(100, Math.max(0, Number(v) || 0));
 }
 
+const VALID_SCORE_CAPS = new Set([50, 55, 59, 69, 100]);
+
+function scoreCap(parsed: Record<string, unknown>): number {
+  const value = Number(parsed.scoreCap);
+  return VALID_SCORE_CAPS.has(value) ? value : 100;
+}
+
 function parseJson(content: string): Record<string, unknown> {
   const cleaned = content.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
   return JSON.parse(cleaned);
 }
 
 function buildResult(jd: JD, resumeId: string, parsed: Record<string, unknown>): MatchingResult {
+  const cap = scoreCap(parsed);
+  const rawScore = clampNum(parsed.score);
+  const rawBreakdown = parsed.breakdown as Record<string, unknown>;
+  const rawConcerns = Array.isArray(parsed.concerns) ? parsed.concerns.map(String) : [];
+  const capReason = String(parsed.capReason || '').trim();
+  const concerns = cap < 100 && capReason
+    ? [...rawConcerns, `匹配上限：${capReason}`]
+    : rawConcerns;
   return {
     id: `${jd.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     jdId: jd.id, jd, resumeId,
-    score: clampNum(parsed.score),
+    score: Math.min(rawScore, cap),
     breakdown: {
-      skillsMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.skillsMatch),
-      experienceMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.experienceMatch),
-      domainMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.domainMatch),
-      seniorityMatch: clampNum((parsed.breakdown as Record<string, unknown>)?.seniorityMatch),
-      overallFit: clampNum((parsed.breakdown as Record<string, unknown>)?.overallFit),
+      skillsMatch: clampNum(rawBreakdown?.skillsMatch),
+      experienceMatch: clampNum(rawBreakdown?.experienceMatch),
+      domainMatch: clampNum(rawBreakdown?.domainMatch),
+      seniorityMatch: clampNum(rawBreakdown?.seniorityMatch),
+      overallFit: Math.min(clampNum(rawBreakdown?.overallFit), cap),
     },
     reasoning: String(parsed.reasoning || ''),
     highlights: Array.isArray(parsed.highlights) ? parsed.highlights.map(String) : [],
-    concerns: Array.isArray(parsed.concerns) ? parsed.concerns.map(String) : [],
+    concerns,
     matchedAt: new Date().toISOString(),
   };
 }
