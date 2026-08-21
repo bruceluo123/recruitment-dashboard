@@ -4,9 +4,8 @@ import { buildBatchMatchingPrompt, buildMatchingPrompt, buildStreamMatchingPromp
 import { aiHttpError } from './ai-fetch';
 import { detectResumeCategories, prefilterJDs } from './jd-prefilter';
 
-// 一次 AI 精排的 JD 数。“全部”模式会先本地粗排，再只交给 AI 最相关的一小批，避免 300+ JD 拖慢首屏结果。
+// 一次 AI 精排的 JD 数。无论岗位总量多少，都先由本地粗排选出最相关的 24 个交给 AI。
 const MAX_AI_CANDIDATES = 24;
-const MAX_ALL_AI_CANDIDATES = 14;
 // 简历正文进 prompt 的字数上限：匹配证据通常集中在前部，截短能明显降低 AI 等待时间。
 const MAX_RESUME_CHARS = 10000;
 
@@ -69,7 +68,7 @@ function buildResult(jd: JD, resumeId: string, parsed: Record<string, unknown>):
 }
 
 function candidateLimit(total: number): number {
-  return total > 100 ? MAX_ALL_AI_CANDIDATES : MAX_AI_CANDIDATES;
+  return Math.min(total, MAX_AI_CANDIDATES);
 }
 
 function resultTokenBudget(count: number): number {
