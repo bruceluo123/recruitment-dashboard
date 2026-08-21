@@ -2,8 +2,7 @@ import type { JD } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { buildBatchMatchingPrompt, buildMatchingPrompt, buildStreamMatchingPrompt } from './matching-prompt';
 import { aiHttpError } from './ai-fetch';
-import { prefilterJDs } from './jd-prefilter';
-import { detectCategories } from './jd-parse-core';
+import { detectResumeCategories, prefilterJDs } from './jd-prefilter';
 
 // 一次 AI 精排的 JD 数。“全部”模式会先本地粗排，再只交给 AI 最相关的一小批，避免 300+ JD 拖慢首屏结果。
 const MAX_AI_CANDIDATES = 24;
@@ -69,16 +68,6 @@ function buildResult(jd: JD, resumeId: string, parsed: Record<string, unknown>):
   };
 }
 
-function makeFallback(jd: JD, resumeId: string): MatchingResult {
-  const s = () => Math.floor(Math.random() * 25) + 40;
-  return buildResult(jd, resumeId, {
-    score: s(),
-    breakdown: { skillsMatch: s(), experienceMatch: s(), domainMatch: s(), seniorityMatch: s(), overallFit: s() },
-    reasoning: 'API 暂不可用，显示为估算结果',
-    highlights: [], concerns: ['当前为估算模式，分数仅供参考'],
-  });
-}
-
 function candidateLimit(total: number): number {
   return total > 100 ? MAX_ALL_AI_CANDIDATES : MAX_AI_CANDIDATES;
 }
@@ -98,7 +87,7 @@ export async function matchResumeToJDs(
 
   // 本地预筛：岗位过多时只把最相关的 Top N 交给 AI，避免超大 prompt + 输出截断
   // 传入候选人主职能分类：同类岗位获得大额加权，即使词面零重叠也保证进入 AI 候选集
-  const candidates = prefilterJDs(resumeText, openJds, candidateLimit(openJds.length), detectCategories(resumeText));
+  const candidates = prefilterJDs(resumeText, openJds, candidateLimit(openJds.length), detectResumeCategories(resumeText));
 
   // Single batch call for speed
   try {
@@ -124,8 +113,8 @@ export async function matchResumeToJDs(
     try {
       return await matchPerJd(resumeText, candidates, resumeId, signal);
     } catch (err2) {
-      console.warn(`逐个匹配也失败，返回估算分数(${candidates.length}个JD)`, (err2 as Error)?.message);
-      return candidates.map((jd) => makeFallback(jd, resumeId)).sort((a, b) => b.score - a.score);
+      console.warn('逐个匹配也失败', (err2 as Error)?.message);
+      throw new Error('匹配服务暂不可用，请稍后重试');
     }
   }
 }
@@ -158,7 +147,7 @@ export async function matchResumeToJDsStream(
   const openJds = jds.filter(hasOpenGap);
   if (openJds.length === 0) return;
 
-  const candidates = prefilterJDs(resumeText, openJds, candidateLimit(openJds.length), detectCategories(resumeText));
+  const candidates = prefilterJDs(resumeText, openJds, candidateLimit(openJds.length), detectResumeCategories(resumeText));
 
   const seen = new Set<string>();
   const emit = (result: MatchingResult) => {
@@ -227,7 +216,7 @@ export async function matchResumeToJDsStream(
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     // 流式失败且尚无结果 → 回退批量；已有部分结果则保留
     if (seen.size === 0) {
-      const batch = await matchResumeToJDs(resumeText, jds, resumeId, signal).catch(() => [] as MatchingResult[]);
+      const batch = await matchResumeToJDs(resumeText, jds, resumeId, signal);
       batch.forEach(emit);
     }
   }
@@ -246,10 +235,11 @@ async function matchPerJd(
           const prompt = buildMatchingPrompt(resumeText.slice(0, MAX_RESUME_CHARS), jd);
           const content = await callAI([{ role: 'user', content: prompt }], signal);
           return buildResult(jd, resumeId, parseJson(content));
-        } catch { return makeFallback(jd, resumeId); }
+        } catch { return null; }
       }),
     );
-    results.push(...batchResults);
+    results.push(...batchResults.filter((result): result is MatchingResult => result !== null));
   }
+  if (results.length === 0) throw new Error('匹配服务暂不可用，请稍后重试');
   return results.sort((a, b) => b.score - a.score);
 }

@@ -1,5 +1,6 @@
 import type { JD, JDCategory } from '@/types/jd';
 import { hasCategory } from '@/types/jd';
+import { detectCategories } from './jd-parse-core';
 
 /**
  * 本地预筛：用「关键词重叠 + 候选人主职能分类」为 JD 粗排，避免把全部岗位塞给 AI。
@@ -11,8 +12,103 @@ import { hasCategory } from '@/types/jd';
  * AI 候选集，由 AI 做语义层面的精排判断，而不是被哑过滤提前删掉。
  */
 
-// 命中候选人主分类的加权：远大于任何词面分，确保同类岗位优先入选 AI 候选集
-const CATEGORY_BOOST = 10000;
+// 主职方向必须优先于相邻方向；辅助经历只用于补充候选，不能与主职同权。
+const CATEGORY_BOOSTS = [12000, 9000, 3000];
+
+const RESUME_ROLE_SIGNALS: Array<[JDCategory, RegExp, number]> = [
+  ['seo', /seo(?:运营|优化|专员|经理)?|搜索引擎优化/gi, 14],
+  ['advertising', /(?:广告|信息流|媒介|kol|koc)(?:投放|优化|增长)|投手|sem/gi, 16],
+  ['gaming', /游戏(?:运营|策划|开发|制作)|unity|unreal|cocos/gi, 14],
+  ['ai', /ai(?:产品|运营|内容|工程师|研发|应用)|人工智能|大模型|llm|aigc/gi, 12],
+  ['algorithm', /算法(?:工程师|研发)|机器学习|深度学习|计算机视觉|nlp/gi, 14],
+  ['frontend', /前端(?:开发|工程师|负责人)|react|vue|flutter|android|ios/gi, 14],
+  ['backend', /后端(?:开发|工程师|负责人)|golang|java(?:开发|工程师)|php(?:开发|工程师)|服务端/gi, 14],
+  ['devops', /运维(?:开发|工程师|负责人)|devops|sre|kubernetes|k8s/gi, 14],
+  ['testing', /测试(?:开发|工程师|负责人)|质量保证|qa工程师/gi, 14],
+  ['training', /培训(?:师|经理|负责人)|课程开发|教学设计|学习发展/gi, 14],
+  ['product', /产品(?:经理|运营|负责人|总监|助理)/gi, 14],
+  ['design', /(?:ui|ux|视觉|平面|交互|品牌)设计(?:师|负责人)?/gi, 14],
+  ['art', /美术(?:设计|负责人|总监)|原画师|插画师|3d(?:角色|动画|建模)/gi, 14],
+  ['marketing', /市场(?:运营|营销|推广|经理|总监)|品牌(?:运营|营销|推广)|公关(?:经理|运营)/gi, 14],
+  ['video', /视频(?:运营|剪辑|制作|编导)|短视频(?:运营|制作)|剪辑师|编导/gi, 14],
+  ['live', /直播(?:运营|策划|负责人)|主播|场控|中控/gi, 14],
+  ['legal', /法务|律师|法律顾问|合规(?:专员|经理)|知识产权/gi, 14],
+  ['finance', /财务|会计|出纳|审计|税务/gi, 14],
+  ['data', /数据(?:分析师|运营|工程师|增长|产品)|商业分析|bi分析/gi, 14],
+  ['hardware', /硬件(?:工程师|开发)|嵌入式|芯片|固件|gpu|cuda/gi, 14],
+  ['hr', /招聘(?:专员|经理|负责人)|人力资源|hrbp|薪酬绩效|员工关系/gi, 14],
+  ['bd', /商务(?:拓展|经理|负责人)|渠道(?:拓展|经理)|\bbd\b|销售(?:经理|负责人)/gi, 14],
+  ['customer-service', /客服(?:专员|经理|负责人)|客户服务|售后服务/gi, 14],
+  ['content', /内容(?:策略|生产|创作|编辑|策划|运营)|品牌pr|官网文案|白皮书|文案(?:策划|编辑)/gi, 10],
+  ['operations', /内容运营|社媒运营|新媒体运营|社区运营|社群运营|用户运营|活动运营|上币运营|增长运营|电商运营|直播运营/gi, 18],
+  ['project', /项目(?:经理|管理|负责人)|pmo|scrum master/gi, 14],
+  ['director', /总监|负责人|组长|vp|cto|ceo/gi, 10],
+  ['administration', /行政(?:专员|经理|负责人)|督导专员|办公室主任|秘书|前台/gi, 14],
+];
+
+const RESUME_SUPPORT_SIGNALS: Array<[JDCategory, RegExp, number]> = [
+  ['marketing', /kol(?:\/koc)?合作|品牌pr|公关稿|品牌文案/gi, 2],
+  ['data', /数据复盘|数据监测|数据看板|阅读量|互动率|转化率/gi, 2],
+  ['ai', /ai增效|ai工具|使用ai|借助ai/gi, 1],
+  ['project', /项目支持|项目协作|跨部门协作/gi, 1],
+];
+
+const RESUME_INTENT_SIGNALS: Array<[JDCategory, RegExp]> = [
+  ['operations', /运营|社媒|社区|社群|上币/gi],
+  ['content', /内容|文案|编辑|策划/gi],
+  ['advertising', /投放|广告|媒介/gi],
+  ['marketing', /市场|品牌|公关|kol/gi],
+  ['product', /产品/gi],
+  ['design', /设计|视觉|交互/gi],
+  ['frontend', /前端|flutter|android|ios/gi],
+  ['backend', /后端|java|golang|php|服务端/gi],
+  ['data', /数据|商业分析/gi],
+  ['ai', /ai|人工智能|大模型/gi],
+  ['legal', /法务|合规|知识产权/gi],
+  ['hr', /招聘|人力|hr/gi],
+];
+
+function matchCount(text: string, re: RegExp, cap = 5): number {
+  re.lastIndex = 0;
+  return Math.min(cap, text.match(re)?.length || 0);
+}
+
+/**
+ * 从简历中识别有优先级的主职方向。
+ * 求职意向和明确岗位名权重最高；协作、复盘、工具使用等只算辅助证据。
+ */
+export function detectResumeCategories(resumeText: string): JDCategory[] {
+  const scores = new Map<JDCategory, number>();
+  const add = (category: JDCategory, score: number) => {
+    scores.set(category, (scores.get(category) || 0) + score);
+  };
+
+  const intentText = Array.from(
+    resumeText.matchAll(/(?:求职意向|应聘岗位|目标岗位|期望岗位)[：:\s]*([^\n。]{1,80})/gi),
+  ).map((m) => m[1]).join(' ');
+
+  for (const [category, re, points] of RESUME_ROLE_SIGNALS) {
+    const count = matchCount(resumeText, re);
+    if (count) add(category, count * points);
+  }
+  for (const [category, re, points] of RESUME_SUPPORT_SIGNALS) {
+    const count = matchCount(resumeText, re, 3);
+    if (count) add(category, count * points);
+  }
+  if (intentText) {
+    for (const [category, re] of RESUME_INTENT_SIGNALS) {
+      if (matchCount(intentText, re, 1)) add(category, 30);
+    }
+  }
+
+  // 宽口径分类只作为很弱的兜底，避免一次“AI增效”“数据复盘”抢走主方向。
+  detectCategories(resumeText).forEach((category, index) => add(category, 3 - index));
+
+  return Array.from(scores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([category]) => category);
+}
 
 const STOP_TERMS = new Set([
   '负责', '要求', '岗位', '工作', '相关', '能力', '经验', '优先', '熟悉', '了解',
@@ -72,15 +168,25 @@ export function prefilterJDs(
 
   const resumeLower = resumeText.toLowerCase();
   const resumeTerms = extractTerms(resumeText);
-  const boostSet = new Set(boostCategories);
-  const inBoost = (jd: JD) => boostSet.size > 0 && boostCategories.some((c) => hasCategory(jd, c));
+  const categoryBoost = (jd: JD) => boostCategories.reduce((best, category, index) => (
+    hasCategory(jd, category) ? Math.max(best, CATEGORY_BOOSTS[index] || 0) : best
+  ), 0);
 
   const ranked = jds
     .map((jd) => ({
       jd,
-      s: scoreJD(jd, resumeLower, resumeTerms) + (inBoost(jd) ? CATEGORY_BOOST : 0),
+      s: scoreJD(jd, resumeLower, resumeTerms) + categoryBoost(jd),
     }))
     .sort((a, b) => b.s - a.s);
 
-  return ranked.slice(0, limit).map((r) => r.jd);
+  const seen = new Set<string>();
+  return ranked
+    .filter(({ jd }) => {
+      const key = jd.reqKey?.trim() || [jd.title, jd.organization, jd.department, jd.serviceUnit].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit)
+    .map((r) => r.jd);
 }
