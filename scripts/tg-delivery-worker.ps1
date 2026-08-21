@@ -4,36 +4,12 @@ param(
 )
 
 Set-Location -LiteralPath 'D:\projects\recruitment-dashboard'
-
-function Get-ProxyPort {
-  $configs = @(
-    'C:\Users\Administrator\AppData\Local\com.fnjs.clash\data\clash\config.yaml',
-    'C:\Users\Administrator\AppData\Local\com.fnjs.clash\data\clashExtra\config.yaml'
-  )
-  foreach ($config in $configs) {
-    if (-not (Test-Path -LiteralPath $config)) { continue }
-    $match = [regex]::Match((Get-Content -LiteralPath $config -Raw -Encoding utf8), '(?m)^\s*mixed-port:\s*(\d+)')
-    if ($match.Success) { return [int]$match.Groups[1].Value }
-  }
-  return 23308
-}
-
-function Test-LocalPort([int]$Port) {
-  $client = New-Object System.Net.Sockets.TcpClient
-  try {
-    $task = $client.ConnectAsync('127.0.0.1', $Port)
-    return $task.Wait(1000) -and $client.Connected
-  } catch {
-    return $false
-  } finally {
-    $client.Dispose()
-  }
-}
+. (Join-Path $PSScriptRoot 'windows-system-proxy.ps1')
 
 while ($true) {
-  $proxyPort = Get-ProxyPort
-  if (Test-LocalPort $proxyPort) {
-    $env:TG_PROXY = "127.0.0.1:$proxyPort"
+  $proxy = Wait-WindowsSystemProxy -TimeoutSeconds 5
+  if ($proxy) {
+    $env:TG_PROXY = $proxy.Endpoint
     $env:TG_ACCOUNT = $Account
     Remove-Item Env:HTTP_PROXY, Env:HTTPS_PROXY, Env:NODE_USE_ENV_PROXY -ErrorAction SilentlyContinue
     $env:NODE_NO_WARNINGS = '1'

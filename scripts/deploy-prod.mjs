@@ -47,16 +47,22 @@ function readJson(p) {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
 
-// —— 探测一个可用的本地 HTTP 代理（端口随代理软件重启会变）——
-function listLocalListeningPorts() {
-  const out = execSync('netstat -ano -p tcp', { encoding: 'utf8' });
-  const ports = new Set();
-  for (const line of out.split('\n')) {
-    if (!line.includes('LISTENING')) continue;
-    const m = line.match(/127\.0\.0\.1:(\d+)\s/);
-    if (m) ports.add(Number(m[1]));
-  }
-  return [...ports];
+// Windows system proxy is maintained by the proxy client and may change at runtime.
+function readWindowsSystemProxy() {
+  const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
+  const query = (name) => execSync(`reg query "${key}" /v ${name}`, { encoding: 'utf8' });
+  const enabled = query('ProxyEnable').match(/ProxyEnable\s+REG_DWORD\s+0x([0-9a-f]+)/i);
+  const server = query('ProxyServer').match(/ProxyServer\s+REG_SZ\s+(.+)$/im);
+  if (!enabled || Number.parseInt(enabled[1], 16) !== 1 || !server) return null;
+
+  const raw = server[1].trim();
+  const entries = Object.fromEntries(
+    raw.split(';').map((part) => part.split('=', 2)).filter((part) => part.length === 2),
+  );
+  const endpoint = raw.includes('=') ? entries.https || entries.http || entries.socks : raw;
+  const match = endpoint?.match(/^(?:[a-z][a-z0-9+.-]*:\/\/)?(127\.0\.0\.1|localhost|\[?::1\]?):(\d+)$/i);
+  if (!match) return null;
+  return { host: match[1].replace(/^\[|\]$/g, ''), port: Number(match[2]) };
 }
 
 function testProxy(port, timeoutMs = 2500) {
@@ -86,18 +92,15 @@ function testProxy(port, timeoutMs = 2500) {
 }
 
 async function findProxy() {
-  const ports = listLocalListeningPorts();
-  // 并发探测，返回第一个能 CONNECT 通外网的端口
-  const results = await Promise.all(
-    ports.map(async (p) => ({ p, ok: await testProxy(p) })),
-  );
-  const hit = results.find((r) => r.ok);
-  if (!hit) {
+  const current = readWindowsSystemProxy();
+  // Windows system proxy is the source of truth; never guess a local port.
+  const isAvailable = current ? await testProxy(current.port) : false;
+  if (!isAvailable) {
     throw new Error(
-      '没找到可用的本地 HTTP 代理。请确认代理软件在运行，或手动设置 DEPLOY_PROXY=http://127.0.0.1:端口',
+      'Windows 系统代理未启用、格式无效或当前端口未监听。',
     );
   }
-  return `http://127.0.0.1:${hit.p}`;
+  return `http://${current.host}:${current.port}`;
 }
 
 async function refreshTokenIfNeeded(dispatcher) {
@@ -158,7 +161,7 @@ async function api(pathname, token, teamId, dispatcher, init = {}) {
 }
 
 async function main() {
-  const proxyUrl = process.env.DEPLOY_PROXY || (await findProxy());
+  const proxyUrl = await findProxy();
   console.log(`✓ 使用代理 ${proxyUrl}`);
   const dispatcher = new ProxyAgent(proxyUrl);
 
@@ -210,7 +213,16 @@ async function main() {
   console.log('完成。如仍看到旧页面，浏览器按 Ctrl+Shift+R 硬刷新。');
 }
 
-main().catch((e) => {
-  console.error('部署失败：', e.message);
-  process.exit(1);
-});
+if (process.argv.includes('--check-proxy')) {
+  findProxy()
+    .then((proxyUrl) => console.log(proxyUrl))
+    .catch((e) => {
+      console.error(e.message);
+      process.exit(1);
+    });
+} else {
+  main().catch((e) => {
+    console.error('部署失败：', e.message);
+    process.exit(1);
+  });
+}
