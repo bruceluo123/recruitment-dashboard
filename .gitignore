@@ -7,6 +7,10 @@ out/
 logs/
 backups/
 
+# Local matching audits may contain private resume text.
+artifacts/matching-evidence-*.json
+artifacts/matching-evidence-*.csv
+
 .vercel
 .env*.local
 .env*
