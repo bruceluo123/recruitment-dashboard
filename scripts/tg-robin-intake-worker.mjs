@@ -108,6 +108,16 @@ function formatCandidateTemplate(candidate) {
   ].join('\n');
 }
 
+function naturalMmfReply(pair) {
+  const replies = [
+    '好的兄弟，我去推进下，有结果跟你说。',
+    '收到兄弟，我去推动下，有消息跟你说。',
+    '好的，我先去推进，有结果第一时间跟你说。',
+  ];
+  const seed = [...pair.key].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return replies[seed % replies.length];
+}
+
 function fileNameOf(message) {
   for (const attr of message.document?.attributes || []) {
     if (attr instanceof Api.DocumentAttributeFilename || attr.className === 'DocumentAttributeFilename') {
@@ -289,10 +299,7 @@ async function sendMmfReplyToRobin(robin, pair) {
     });
     const target = dialog?.entity || (robinUsername ? await client.getInputEntity(`@${robinUsername}`) : null);
     if (!target) throw new Error('MMF cannot resolve the Robin private chat.');
-    await client.sendMessage(target, { message: '收到，我先看一下简历。' });
-    await client.sendMessage(target, {
-      message: `${pair.candidate.jobTitle}这边我会优先对一下合适岗位，有结果跟你说。`,
-    });
+    await client.sendMessage(target, { message: naturalMmfReply(pair) });
   } finally {
     await client.disconnect();
   }
