@@ -256,6 +256,50 @@ async function sendPair(client, target, pair) {
   }
 }
 
+async function sendRobinFollowup(client, target, pair) {
+  await client.sendMessage(target, {
+    message: `这个人我刚沟通过，${pair.candidate.years}经验，资料也比较完整，你帮忙看看能不能推进一下。合适的话我再去确认面试时间。`,
+  });
+}
+
+async function sendMmfReplyToRobin(robin, pair) {
+  const apiId = process.env.TG_API_ID || '';
+  const apiHash = process.env.TG_API_HASH || '';
+  const session = process.env.TG_SESSION || '';
+  if (!apiId || !apiHash || !session) throw new Error('Missing MMF Telegram account environment.');
+
+  const client = new TelegramClient(
+    new StringSession(session.replace(/\s+/g, '')),
+    Number.parseInt(apiId, 10),
+    apiHash,
+    { connectionRetries: 3, ...(process.env.TG_PROXY ? { proxy: parseProxy(process.env.TG_PROXY) } : {}) },
+  );
+  await client.connect();
+  try {
+    const robinId = String(robin.id || '');
+    const robinUsername = clean(robin.username).replace(/^@/, '').toLowerCase();
+    const dialog = (await client.getDialogs({ limit: 200 })).find((item) => {
+      const entity = item.entity || {};
+      return String(entity.id || '') === robinId
+        || (robinUsername && clean(entity.username).replace(/^@/, '').toLowerCase() === robinUsername);
+    });
+    const target = dialog?.entity || (robinUsername ? await client.getInputEntity(`@${robinUsername}`) : null);
+    if (!target) throw new Error('MMF cannot resolve the Robin private chat.');
+    await client.sendMessage(target, { message: '收到，我先看一下简历。' });
+    await client.sendMessage(target, {
+      message: `${pair.candidate.jobTitle}这边我会优先对一下合适岗位，有结果跟你说。`,
+    });
+  } finally {
+    await client.disconnect();
+  }
+}
+
+async function sendConversation(client, target, robin, pair) {
+  await sendPair(client, target, pair);
+  await sendRobinFollowup(client, target, pair);
+  await sendMmfReplyToRobin(robin, pair);
+}
+
 async function persistState(state) {
   state.processed = state.processed.slice(-4000);
   state.recentDetected = state.recentDetected.slice(-200);
@@ -292,11 +336,12 @@ async function main() {
   const targetName = process.env.ROBIN_FORWARD_TARGET || DEFAULT_TARGET;
   const scanOnly = hasFlag('--scan');
   const watch = hasFlag('--watch');
+  const sendCandidate = clean(arg('--send-candidate', ''));
   const days = Number.parseInt(arg('--days', scanOnly ? '14' : '7'), 10);
   const searchLimit = Number.parseInt(arg('--search-limit', '300'), 10);
   const messageLimit = Number.parseInt(arg('--message-limit', '80'), 10);
 
-  if (!scanOnly && !watch) throw new Error('Pass --scan or --watch.');
+  if (!scanOnly && !watch && !sendCandidate) throw new Error('Pass --scan, --watch or --send-candidate.');
   if (!apiId || !apiHash || !session) throw new Error('Missing TG_ROBIN_API_ID, TG_ROBIN_API_HASH or TG_ROBIN_SESSION.');
   if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) throw new Error('Missing KV environment.');
 
@@ -313,6 +358,36 @@ async function main() {
   const state = normalizeState(await kvGet(STATE_KEY).catch(() => ''));
   const processedSet = new Set(state.processed);
 
+  if (sendCandidate) {
+    try {
+      const result = await collectPrivatePairs(client, { searchLimit, messageLimit, days });
+      const query = sendCandidate.toLowerCase();
+      const pair = result.pairs
+        .filter((item) => item.candidate.name.toLowerCase() === query || item.chatName.toLowerCase().includes(query))
+        .sort((a, b) => b.templateDate.localeCompare(a.templateDate))[0];
+      if (!pair) throw new Error(`No complete candidate and resume PDF found for: ${sendCandidate}`);
+      const target = await client.getInputEntity(targetName);
+      await sendConversation(client, target, me, pair);
+      processedSet.add(pair.key);
+      state.processed = [...processedSet];
+      state.recentDetected.push({
+        sender: pair.chatName,
+        username: pair.username ? `@${pair.username}` : '',
+        candidate: pair.candidate.name,
+        jobTitle: pair.candidate.jobTitle,
+        templateDate: pair.templateDate,
+        pdf: pair.pdfFileName,
+        status: '已手动转发',
+        forwardedAt: new Date().toISOString(),
+      });
+      await persistState(state);
+      console.log(`[manual forwarded] ${pair.chatName} / ${pair.candidate.name} / ${pair.pdfFileName}`);
+    } finally {
+      await client.disconnect();
+    }
+    return;
+  }
+
   if (scanOnly) {
     try {
       const result = await collectPrivatePairs(client, { searchLimit, messageLimit, days });
@@ -327,7 +402,7 @@ async function main() {
   const forwardPairs = async (result) => {
     for (const pair of result.pairs.sort((a, b) => a.templateDate.localeCompare(b.templateDate))) {
       if (processedSet.has(pair.key)) continue;
-      await sendPair(client, target, pair);
+      await sendConversation(client, target, me, pair);
       processedSet.add(pair.key);
       state.processed = [...processedSet];
       state.recentDetected.push({
