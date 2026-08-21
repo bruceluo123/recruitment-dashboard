@@ -27,6 +27,40 @@ interface ScheduleDeps {
   updateItem: (id: string, partial: Partial<RepushItem>) => void;
 }
 
+export function reconcileScheduledRecommendations(items: RepushItem[], candidates: Candidate[]): { items: RepushItem[]; changed: boolean } {
+  let changed = false;
+  const reconciled = items.map((item) => {
+    const name = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+    const linkedCandidate = candidates.find((candidate) => candidate.id === item.candidateId)
+      || candidates.find((candidate) => (
+        (candidate.owner || 'a') === item.column
+        && candidate.name === name
+        && candidate.jdTitle === (item.jdTitle || '')
+      ));
+
+    if (!linkedCandidate?.interviewDate) return item;
+    const round: InterviewRound = linkedCandidate.interviewRound
+      || (linkedCandidate.stage === 'interview-1' ? '一面' : '二面');
+    if (
+      item.interviewStatus === 'scheduled'
+      && item.candidateId === linkedCandidate.id
+      && item.interviewAt === linkedCandidate.interviewDate
+      && item.interviewRound === round
+    ) return item;
+
+    changed = true;
+    return {
+      ...item,
+      interviewStatus: 'scheduled' as const,
+      candidateId: linkedCandidate.id,
+      interviewAt: linkedCandidate.interviewDate,
+      interviewRound: round,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  return { items: reconciled, changed };
+}
+
 export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, deps: ScheduleDeps): void {
   const { interviewAt, interviewer, round } = args;
   const { jds, candidates, addCandidate, updateCandidate, updateItem } = deps;

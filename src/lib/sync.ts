@@ -15,7 +15,7 @@ type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'compani
 // 接收端据此决定是否允许用空数组覆盖本地（修复「清空到 0」被永久阻断的问题）。
 type ChangeHandler = (type: DataType, data: unknown[], version: number, readOk: boolean) => void;
 
-interface Item { id?: string }
+interface Item { id?: string; updatedAt?: string }
 /** 墓碑：{ [type]: { [id]: 删除时间戳ms } } */
 type Tombstones = Record<string, Record<string, number>>;
 
@@ -96,7 +96,7 @@ async function bumpVersion(): Promise<number> {
 }
 
 /** 按 id 合并：incoming 在 id 冲突时获胜；保留只存在于 base 的项（添加不丢失） */
-function mergeById(base: unknown[], incoming: unknown[]): unknown[] {
+function mergeById(base: unknown[], incoming: unknown[], type?: DataType): unknown[] {
   const map = new Map<string, unknown>();
   const noId: unknown[] = [];
   for (const it of base) {
@@ -105,7 +105,16 @@ function mergeById(base: unknown[], incoming: unknown[]): unknown[] {
   }
   for (const it of incoming) {
     const id = (it as Item)?.id;
-    if (id) map.set(id, it); else noId.push(it);
+    if (id) {
+      const existing = map.get(id) as Item | undefined;
+      if (type === 'repush' && existing) {
+        const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        const incomingItem = it as Item;
+        const incomingTime = incomingItem.updatedAt ? new Date(incomingItem.updatedAt).getTime() : 0;
+        if (existingTime > incomingTime) continue;
+      }
+      map.set(id, it);
+    } else noId.push(it);
   }
   return [...Array.from(map.values()), ...noId];
 }
@@ -175,7 +184,7 @@ async function pushData(type: DataType, local: unknown[]) {
   tombstones = await fetchTombstones();
   const remoteRaw = await kvCmd('get', KV_KEYS[type]);
   const remote = (safeParse(remoteRaw) as unknown[]) || [];
-  const merged = applyTombstones(type, mergeById(remote, local)); // 本地获胜
+  const merged = applyTombstones(type, mergeById(remote, local, type)); // 推荐记录按更新时间取最新，其余类型本地获胜
   const ok = await apiDataWrite(type, merged);
   if (!ok) return null;
   return await bumpVersion();

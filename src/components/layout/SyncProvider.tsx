@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded, pushWeeklyAdded } from '@/lib/sync';
+import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded, pushWeeklyAdded, isTombstoned } from '@/lib/sync';
+import { reconcileScheduledRecommendations } from '@/lib/schedule';
 import { stripContactMeta } from '@/lib/jd-parse-core';
 import { isMockJds } from '@/lib/mock-guard';
 import { mondayKey } from '@/lib/utils';
@@ -34,6 +35,22 @@ function shouldApply(incoming: unknown[], currentLen: number): boolean {
 function removedIds(prev: string[], next: string[]): string[] {
   const nextSet = new Set(next);
   return prev.filter((id) => !nextSet.has(id));
+}
+
+function mergeRepushByRevision(remote: RepushItem[], local: RepushItem[]): RepushItem[] {
+  const merged = new Map(remote.map((item) => [item.id, item]));
+  for (const item of local) {
+    if (isTombstoned('repush', item.id)) continue;
+    const remoteItem = merged.get(item.id);
+    if (!remoteItem) {
+      merged.set(item.id, item);
+      continue;
+    }
+    const remoteTime = remoteItem.updatedAt ? new Date(remoteItem.updatedAt).getTime() : 0;
+    const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+    if (localTime > remoteTime) merged.set(item.id, item);
+  }
+  return Array.from(merged.values());
 }
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
@@ -87,7 +104,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       }
       if (type === 'repush') {
         const d = data as RepushItem[];
-        if (shouldApply(d, useRepushStore.getState().items.length)) useRepushStore.setState({ items: d });
+        const local = useRepushStore.getState().items;
+        if (shouldApply(d, local.length)) {
+          const merged = mergeRepushByRevision(d, local);
+          const repaired = reconcileScheduledRecommendations(merged, useInterviewStore.getState().candidates);
+          useRepushStore.setState({ items: repaired.items });
+          if (repaired.changed) syncPush('repush', repaired.items);
+        }
       }
       if (type === 'todos') {
         const d = data as TodoItem[];

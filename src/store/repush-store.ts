@@ -36,6 +36,7 @@ export interface RepushItem {
   organization?: string;       // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
   department?: string;         // 该简历推荐到的部门（来源于 JD 库的部门列表）
   uploadedAt: string;          // 推荐时间（按天分组用）
+  updatedAt?: string;          // 最后修改时间（跨端同步时防止旧状态覆盖新状态）
 }
 
 /** 未反馈清单快照：每生成一次自动记录，供「上周未反馈」回看复制 */
@@ -88,21 +89,26 @@ export const useRepushStore = create<RepushStore>()(
       items: [],
       columnNames: DEFAULT_NAMES,
       unfeedbackSnapshots: [],
-      addItem: (column, fileName) => set((s) => ({
-        items: [
-          ...s.items,
-          {
+      addItem: (column, fileName) => set((s) => {
+        const now = new Date().toISOString();
+        return {
+          items: [
+            ...s.items,
+            {
             id: generateId(),
             column,
             fileName,
             feedback: 'pending' as const,
             interviewStatus: 'none' as const,
-            uploadedAt: new Date().toISOString(),
-          },
-        ],
-      })),
+              uploadedAt: now,
+              updatedAt: now,
+            },
+          ],
+        };
+      }),
       addRecommendation: (rec) => set((s) => {
         const displayName = rec.jdTitle ? `${rec.candidateName}-${rec.jdTitle}` : rec.candidateName;
+        const now = new Date().toISOString();
         return {
           items: [
             ...s.items,
@@ -125,23 +131,24 @@ export const useRepushStore = create<RepushStore>()(
               interviewStatus: 'none' as const,
               organization: rec.organization || undefined,
               department: rec.department || undefined,
-              uploadedAt: new Date().toISOString(),
+              uploadedAt: now,
+              updatedAt: now,
             },
           ],
         };
       }),
       updateItem: (id, partial) => set((s) => ({
-        items: s.items.map((it) => (it.id === id ? { ...it, ...partial } : it)),
+        items: s.items.map((it) => (it.id === id ? { ...it, ...partial, updatedAt: new Date().toISOString() } : it)),
       })),
       removeItem: (id) => set((s) => ({ items: s.items.filter((it) => it.id !== id) })),
       setFeedback: (id, feedback) => set((s) => ({
-        items: s.items.map((it) => (it.id === id ? { ...it, feedback } : it)),
+        items: s.items.map((it) => (it.id === id ? { ...it, feedback, updatedAt: new Date().toISOString() } : it)),
       })),
       setOrganization: (id, organization) => set((s) => ({
-        items: s.items.map((it) => (it.id === id ? { ...it, organization: organization || undefined } : it)),
+        items: s.items.map((it) => (it.id === id ? { ...it, organization: organization || undefined, updatedAt: new Date().toISOString() } : it)),
       })),
       setDepartment: (id, department) => set((s) => ({
-        items: s.items.map((it) => (it.id === id ? { ...it, department: department || undefined } : it)),
+        items: s.items.map((it) => (it.id === id ? { ...it, department: department || undefined, updatedAt: new Date().toISOString() } : it)),
       })),
       renameColumn: (column, name) => set((s) => ({
         columnNames: { ...s.columnNames, [column]: name.trim() || DEFAULT_NAMES[column] },

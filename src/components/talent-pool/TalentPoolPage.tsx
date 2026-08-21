@@ -204,7 +204,7 @@ export function TalentPoolPage() {
       useRepushStore.setState((state) => ({
         items: state.items.map((item) => {
           const talentId = linkedTalentIds.get(item.id);
-          return talentId ? { ...item, talentId } : item;
+          return talentId ? { ...item, talentId, updatedAt: new Date().toISOString() } : item;
         }),
       }));
     }
