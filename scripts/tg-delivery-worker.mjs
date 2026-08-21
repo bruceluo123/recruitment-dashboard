@@ -23,7 +23,9 @@ function loadEnv() {
 }
 
 loadEnv();
-const ACCOUNT = process.env.TG_ACCOUNT === 'b' ? 'b' : 'a';
+const accountArgIndex = process.argv.indexOf('--account');
+const accountArg = accountArgIndex !== -1 ? process.argv[accountArgIndex + 1] : '';
+const ACCOUNT = (accountArg || process.env.TG_ACCOUNT) === 'b' ? 'b' : 'a';
 const QUEUE_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-pending-b' : 'recruit:tg-delivery-pending';
 const DIALOGS_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-dialogs-b' : 'recruit:tg-delivery-dialogs';
 const HEARTBEAT_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-worker-heartbeat-b' : 'recruit:tg-delivery-worker-heartbeat';
