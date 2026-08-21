@@ -10,6 +10,14 @@ Set-Location -LiteralPath $root
 . $proxyScript
 New-Item -ItemType Directory -Path (Split-Path $stdoutLog) -Force | Out-Null
 
+# A stopped scheduled-task wrapper can leave its child behind. Always begin with
+# one Robin watcher so a candidate is never forwarded more than once.
+Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'node.exe' -and $_.CommandLine -like '*tg-robin-intake-worker.mjs*--watch*'
+} | ForEach-Object {
+  Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}
+
 while ($true) {
   $proxy = Wait-WindowsSystemProxy -TimeoutSeconds 15
   if (-not $proxy) {

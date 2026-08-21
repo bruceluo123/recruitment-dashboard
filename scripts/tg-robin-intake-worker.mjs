@@ -60,14 +60,18 @@ function parseProxy(raw) {
   };
 }
 
-function field(text, labels) {
+function field(text, labels, multiline = false) {
   const lines = String(text || '').replace(/\r/g, '').split('\n');
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     for (const label of labels) {
       const index = line.indexOf(label);
       if (index === -1) continue;
       const value = clean(line.slice(index + label.length).replace(/^[\s:：-]+/, ''));
-      if (value) return value;
+      if (!value) continue;
+      if (!multiline) return value;
+      const continuation = lines.slice(lineIndex + 1).map(clean).filter(Boolean);
+      return clean([value, ...continuation].join(' '));
     }
   }
   return '';
@@ -86,7 +90,7 @@ function parseCandidateTemplate(text) {
       '面试是否接受开视频（主要为了验证真人和避免AI辅助面试）',
       '面试是否接受开视频(主要为了验证真人和避免AI辅助面试)',
       '面试是否接受开视频',
-    ]),
+    ], true),
   };
   return REQUIRED_FIELDS.every((key) => parsed[key]) ? parsed : null;
 }
