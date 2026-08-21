@@ -53,29 +53,26 @@ const RESUME_SUPPORT_SIGNALS: Array<[JDCategory, RegExp, number]> = [
   ['project', /项目支持|项目协作|跨部门协作/gi, 1],
 ];
 
-const RESUME_INTENT_SIGNALS: Array<[JDCategory, RegExp]> = [
-  ['operations', /运营|社媒|社区|社群|上币/gi],
-  ['content', /内容|文案|编辑|策划/gi],
-  ['advertising', /投放|广告|媒介/gi],
-  ['marketing', /市场|品牌|公关|kol/gi],
-  ['product', /产品/gi],
-  ['design', /设计|视觉|交互/gi],
-  ['frontend', /前端|flutter|android|ios/gi],
-  ['backend', /后端|java|golang|php|服务端/gi],
-  ['data', /数据|商业分析/gi],
-  ['ai', /ai|人工智能|大模型/gi],
-  ['legal', /法务|合规|知识产权/gi],
-  ['hr', /招聘|人力|hr/gi],
-];
-
 function matchCount(text: string, re: RegExp, cap = 5): number {
   re.lastIndex = 0;
   return Math.min(cap, text.match(re)?.length || 0);
 }
 
+function extractSection(text: string, start: RegExp, end: RegExp, maxChars: number): string {
+  start.lastIndex = 0;
+  const startMatch = start.exec(text);
+  if (!startMatch) return '';
+  const sectionStart = startMatch.index + startMatch[0].length;
+  const rest = text.slice(sectionStart);
+  end.lastIndex = 0;
+  const endMatch = end.exec(rest);
+  return rest.slice(0, endMatch?.index ?? maxChars).slice(0, maxChars);
+}
+
 /**
  * 从简历中识别有优先级的主职方向。
- * 求职意向和明确岗位名权重最高；协作、复盘、工具使用等只算辅助证据。
+ * 最近工作经历、明确岗位名、实际职责和自我评价权重最高；求职意向不参与判断。
+ * 协作、复盘、工具使用等只算辅助证据。
  */
 export function detectResumeCategories(resumeText: string): JDCategory[] {
   const scores = new Map<JDCategory, number>();
@@ -83,26 +80,45 @@ export function detectResumeCategories(resumeText: string): JDCategory[] {
     scores.set(category, (scores.get(category) || 0) + score);
   };
 
-  const intentText = Array.from(
-    resumeText.matchAll(/(?:求职意向|应聘岗位|目标岗位|期望岗位)[：:\s]*([^\n。]{1,80})/gi),
-  ).map((m) => m[1]).join(' ');
+  // 求职意向经常是临时填写的投递目标，不作为能力或职业方向证据。
+  const factualResumeText = resumeText.replace(
+    /^\s*(?:求职意向|应聘岗位|目标岗位|期望岗位)[：:].*$/gim,
+    '',
+  );
+  const recentWork = extractSection(
+    factualResumeText,
+    /(?:工作经历|工作经验|职业经历|任职经历)\s*[：:]?/gi,
+    /\n\s*(?:项目经历|项目经验|教育经历|教育背景|自我评价|个人评价|个人总结|专业技能|技能清单|证书|获奖)\s*[：:]?/gi,
+    5000,
+  );
+  const selfEvaluation = extractSection(
+    factualResumeText,
+    /(?:自我评价|个人评价|个人总结|职业概述|个人简介)\s*[：:]?/gi,
+    /\n\s*(?:工作经历|工作经验|项目经历|项目经验|教育经历|教育背景|专业技能|技能清单|证书|获奖)\s*[：:]?/gi,
+    2000,
+  );
+  const primaryEvidence = `${recentWork || factualResumeText.slice(0, 5000)}\n${selfEvaluation}`;
+  const roleTitleLines = primaryEvidence
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line.length <= 50)
+    .join('\n');
 
   for (const [category, re, points] of RESUME_ROLE_SIGNALS) {
-    const count = matchCount(resumeText, re);
-    if (count) add(category, count * points);
+    const fullCount = matchCount(factualResumeText, re);
+    const primaryCount = matchCount(primaryEvidence, re, 4);
+    const titleCount = matchCount(roleTitleLines, re, 3);
+    if (fullCount) add(category, fullCount * points);
+    if (primaryCount) add(category, primaryCount * Math.max(4, Math.round(points * 0.5)));
+    if (titleCount) add(category, titleCount * Math.max(6, Math.round(points * 0.75)));
   }
   for (const [category, re, points] of RESUME_SUPPORT_SIGNALS) {
-    const count = matchCount(resumeText, re, 3);
+    const count = matchCount(factualResumeText, re, 3);
     if (count) add(category, count * points);
-  }
-  if (intentText) {
-    for (const [category, re] of RESUME_INTENT_SIGNALS) {
-      if (matchCount(intentText, re, 1)) add(category, 30);
-    }
   }
 
   // 宽口径分类只作为很弱的兜底，避免一次“AI增效”“数据复盘”抢走主方向。
-  detectCategories(resumeText).forEach((category, index) => add(category, 3 - index));
+  detectCategories(factualResumeText).forEach((category, index) => add(category, 3 - index));
 
   return Array.from(scores.entries())
     .sort((a, b) => b[1] - a[1])
