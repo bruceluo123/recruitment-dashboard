@@ -108,14 +108,28 @@ function formatCandidateTemplate(candidate) {
   ].join('\n');
 }
 
+function conversationVariant(pair, role, variants) {
+  let hash = 2166136261;
+  for (const char of `${role}:${pair.key}`) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return variants[(hash >>> 0) % variants.length];
+}
+
 function naturalMmfReply(pair) {
-  const replies = [
-    '好的兄弟，我去推进下，有结果跟你说。',
-    '收到兄弟，我去推动下，有消息跟你说。',
-    '好的，我先去推进，有结果第一时间跟你说。',
-  ];
-  const seed = [...pair.key].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return replies[seed % replies.length];
+  return conversationVariant(pair, 'mmf', [
+    '好的，没问题。',
+    '感谢兄弟，我来推。',
+    '可以的，我试下。',
+    '好啊，我推一下。',
+    '行，我来跟。',
+    '收到，我先看下。',
+    '可以，我去推动下。',
+    '好的兄弟，我来处理。',
+    '没问题，我试着推下。',
+    '好，我先往前推一下。',
+  ]);
 }
 
 function fileNameOf(message) {
@@ -271,8 +285,20 @@ async function sendPair(client, target, pair) {
 }
 
 async function sendRobinFollowup(client, target, pair) {
+  const message = conversationVariant(pair, 'robin', [
+    '兄弟，推一个。',
+    '这个你看看，直接扔。',
+    '这个人也可以推荐。',
+    '帮忙推下这个人吧。',
+    '这个可以推一下。',
+    '这份你帮忙看下。',
+    '这个人选你过一下。',
+    '再来一个，你看看。',
+    '这份可以试试。',
+    '这个也帮我推下。',
+  ]);
   await client.sendMessage(target, {
-    message: `这个人我刚沟通过，${pair.candidate.years}经验，资料也比较完整，你帮忙看看能不能推进一下。合适的话我再去确认面试时间。`,
+    message,
   });
 }
 
