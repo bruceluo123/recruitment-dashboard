@@ -99,9 +99,9 @@ function buildRecommendationCopy(
     .map((value) => value?.trim())
     .filter((value): value is string => !!value);
   const organization = Array.from(new Set(organizationParts)).join('/');
-  const candidateName = info.name || resume.parsedData.name || resume.fileName.replace(/\.(pdf|docx)$/i, '');
+  const candidateName = info.name || resume.parsedData.name || resume.fileName.replace(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i, '');
   const candidateCode = buildCandidateCode(owner, codeSuffix, info.candidateCode);
-  const extension = resumeFileName.match(/\.(pdf|docx?)$/i)?.[0].toLowerCase() || '.pdf';
+  const extension = resumeFileName.match(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i)?.[0].toLowerCase() || '.pdf';
   const renamedResume = `${[candidateName, jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
 
   const recommendationText = [

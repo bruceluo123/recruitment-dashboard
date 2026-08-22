@@ -56,7 +56,7 @@ async function extractOne(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-flash',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0,
         max_tokens: 400,

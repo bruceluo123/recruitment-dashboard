@@ -123,14 +123,14 @@ export function RecommendationCandidateDialog({
               >
                 {resumeFile ? <FileCheck2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <UploadCloud className="h-4 w-4 shrink-0 text-indigo-500" />}
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-600">
-                  {resumeFile?.name || '选择 PDF / DOC / DOCX'}
+                  {resumeFile?.name || '选择 PDF / DOC / DOCX / 图片'}
                 </span>
                 <span className="text-xs text-indigo-500">{resumeFile ? '更换' : '选择'}</span>
               </button>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.doc,.docx"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.gif"
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0] || null;

@@ -15,7 +15,7 @@ function hasOpenGap(jd: JD): boolean {
   return Number.isFinite(n) && n > 0;
 }
 // 非推理快速模型：实测 ~24s 完成；推理模型(deepseek-v4-pro)会思考耗光token预算、~84s且空输出
-const MATCH_MODEL = 'deepseek-chat';
+const MATCH_MODEL = 'deepseek-v4-flash';
 
 async function callAI(
   messages: Array<{ role: string; content: string }>,

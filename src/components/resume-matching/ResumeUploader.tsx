@@ -1,5 +1,5 @@
 'use client';
-import { Upload, FileText, Loader2, Check, AlertCircle, Trash2, UserPlus } from 'lucide-react';
+import { Upload, FileText, Image as ImageIcon, Loader2, Check, AlertCircle, Trash2, UserPlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Resume } from '@/types/resume';
@@ -14,7 +14,7 @@ interface ResumeUploaderProps {
   resultCounts?: Record<string, number>;
 }
 
-const ACCEPTED_EXT = /\.(pdf|docx?)$/i;
+const ACCEPTED_EXT = /\.(pdf|docx?|jpe?g|png|webp|gif)$/i;
 
 export function ResumeUploader({ onFileSelected, isUploading, resumes, activeResumeId, onSelectResume, onRemoveResume, resultCounts }: ResumeUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -72,9 +72,9 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
         </div>
         <div className="text-center">
           <p className="text-sm text-gray-600">{atCapacity ? `已达上限（${MAX_RESUMES} 份），请先删除` : isDragging ? '松开鼠标即可上传' : '拖拽简历到此处，或点击上传'}</p>
-          <p className="text-xs text-gray-400 mt-1">支持 PDF / DOC / DOCX 格式</p>
+          <p className="text-xs text-gray-400 mt-1">支持 PDF / DOC / DOCX，以及 JPG / PNG / WebP 简历截图</p>
         </div>
-        <input ref={inputRef} type="file" accept=".pdf,.docx,.doc" className="hidden" disabled={isUploading || atCapacity}
+        <input ref={inputRef} type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp,.gif" className="hidden" disabled={isUploading || atCapacity}
           onChange={(e) => { pickFile(e.target.files); e.target.value = ''; }} />
       </div>
       {resumes.length > 0 && (
@@ -85,8 +85,18 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
           </div>
           {resumes.map((r) => (
             <div key={r.id} onClick={() => onSelectResume(r.id)} className={cn('group w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all border cursor-pointer', activeResumeId === r.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100 hover:bg-gray-50')}>
-              <FileText className="w-5 h-5 text-gray-400 shrink-0" />
-              <div className="flex-1 min-w-0"><p className="text-sm text-gray-700 truncate">{r.fileName}</p><p className={cn('text-xs truncate', r.parsingStatus === 'failed' ? 'text-red-500' : 'text-gray-400')} title={r.parsingStatus === 'failed' ? r.parseError : undefined}>{r.parsingStatus === 'parsing' ? '解析中...' : r.parsingStatus === 'completed' ? `${r.rawText.length} 字符` : r.parsingStatus === 'failed' ? (r.parseError || '解析失败') : '等待解析'}</p></div>
+              {r.fileType === 'image'
+                ? <ImageIcon className="w-5 h-5 text-indigo-400 shrink-0" />
+                : <FileText className="w-5 h-5 text-gray-400 shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-700 truncate">{r.fileName}</p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className={cn('text-xs truncate', r.parsingStatus === 'failed' ? 'text-red-500' : 'text-gray-400')} title={r.parsingStatus === 'failed' ? r.parseError : undefined}>{r.parsingStatus === 'parsing' ? '解析中...' : r.parsingStatus === 'completed' ? `${r.rawText.length} 字符` : r.parsingStatus === 'failed' ? (r.parseError || '解析失败') : '等待解析'}</p>
+                  {r.parsingStatus === 'completed' && r.parseSource === 'deepseek-vision' && (
+                    <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">视觉识别</span>
+                  )}
+                </div>
+              </div>
               {resultCounts && resultCounts[r.id] > 0 && (
                 <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 text-[10px] font-semibold shrink-0" title="已有匹配结果">{resultCounts[r.id]} 条结果</span>
               )}

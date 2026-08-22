@@ -8,7 +8,7 @@ import { aiHttpError } from './ai-fetch';
 const MAX_AI_CANDIDATES = 24;
 const TEXT_FETCH_CONCURRENCY = 5;
 const MAX_RESUME_CHARS = 6000;
-const MATCH_MODEL = 'deepseek-chat';
+const MATCH_MODEL = 'deepseek-v4-flash';
 
 const EN_TOKEN = /[a-zA-Z][a-zA-Z0-9+.#-]{1,}/g;
 const SPLIT = /[\s,，;；、。()（）/|:：\n\t+-]+/;

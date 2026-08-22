@@ -1,5 +1,6 @@
-// 简历文字提取（PDF / DOC / DOCX）共享实现：被 /api/resume/parse 与 /api/talent/scan 复用。
+// 简历文字提取（PDF / DOC / DOCX / 图片）共享实现：被 /api/resume/parse 与 /api/talent/scan 复用。
 import { extractPdfTextViaGemini } from '@/lib/ocr-gemini';
+import { extractImageTextViaDeepSeek, isSupportedVisionImage } from '@/lib/ocr-deepseek-vision';
 
 export interface ExtractOk { text: string; source: string; }
 export interface ExtractErr { error: string; }
@@ -77,9 +78,18 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
   return { error: 'PDF 无可识别文字，请尝试上传 DOCX 格式或复制粘贴简历文本' };
 }
 
-/** 从文件 buffer 提取简历正文。支持 PDF / DOC / DOCX。 */
+/** 从文件 buffer 提取简历正文。支持文档与常见图片格式。 */
 export async function extractResumeText(buffer: Buffer, fileName: string): Promise<ExtractResult> {
   const lower = (fileName || '').toLowerCase();
+  if (isSupportedVisionImage(lower)) {
+    try {
+      const text = await extractImageTextViaDeepSeek(buffer, fileName);
+      if (meaningfulLength(text) === 0) return { error: '图片中没有识别到简历文字' };
+      return { text: clipForStorage(text), source: 'deepseek-vision' };
+    } catch (e) {
+      return { error: (e as Error).message || '图片简历识别失败，请重试' };
+    }
+  }
   if (lower.endsWith('.pdf')) return extractPdf(buffer);
   if (lower.endsWith('.docx')) {
     try {
@@ -102,5 +112,5 @@ export async function extractResumeText(buffer: Buffer, fileName: string): Promi
       return { error: '.doc 解析失败，请尝试转为 PDF / DOCX 或复制粘贴简历文本' };
     }
   }
-  return { error: '仅支持 PDF / DOC / DOCX 格式' };
+  return { error: '仅支持 PDF / DOC / DOCX / JPG / PNG / WebP / GIF 格式' };
 }

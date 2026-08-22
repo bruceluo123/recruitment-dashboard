@@ -56,7 +56,10 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
     }
     set({ isUploading: true, uploadError: null });
     const id = generateId();
-    const fileType = file.name.endsWith('.pdf') ? 'pdf' : 'docx';
+    const lowerName = file.name.toLowerCase();
+    const fileType: Resume['fileType'] = lowerName.endsWith('.pdf')
+      ? 'pdf'
+      : /\.(jpe?g|png|webp|gif)$/.test(lowerName) ? 'image' : 'docx';
 
     const resume: Resume = {
       id, fileName: file.name, fileType, rawText: '',
@@ -100,7 +103,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
         }));
         return id;
       }
-      const data = await res.json().catch(() => ({} as { text?: string; error?: string }));
+      const data = await res.json().catch(() => ({} as { text?: string; source?: string; error?: string }));
       // 解析失败（如图片型 PDF 无法识别）或正文为空 → 标记失败，保留错误信息
       if (data.error || !data.text) {
         const errMsg = data.error || '简历正文为空，无法解析';
@@ -113,7 +116,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       set((s) => ({
         isUploading: false,
         resumes: s.resumes.map((r) =>
-          r.id === id ? { ...r, rawText: data.text, parsingStatus: 'completed' as const } : r),
+          r.id === id ? { ...r, rawText: data.text, parseSource: data.source, parsingStatus: 'completed' as const } : r),
       }));
     } catch (err) {
       const errMsg = `上传失败：${(err as Error).message || '网络异常，请重试'}`;
