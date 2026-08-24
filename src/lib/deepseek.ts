@@ -184,7 +184,7 @@ function candidateLimit(total: number): number {
 }
 
 function resultTokenBudget(count: number): number {
-  return Math.min(4500, Math.max(1800, count * 180));
+  return Math.min(6500, Math.max(2200, count * 240));
 }
 
 export async function matchResumeToJDs(
