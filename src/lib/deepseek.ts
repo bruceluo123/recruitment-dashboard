@@ -1,6 +1,6 @@
 import type { JD } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
-import { buildBatchMatchingPrompt, buildMatchingPrompt, buildStreamMatchingPrompt } from './matching-prompt';
+import { buildBatchMatchingPrompt, buildMatchingPrompt } from './matching-prompt';
 import { aiHttpError } from './ai-fetch';
 import { detectResumeCategories, prefilterJDs } from './jd-prefilter';
 
@@ -16,6 +16,7 @@ function hasOpenGap(jd: JD): boolean {
 }
 // 非推理快速模型：实测 ~24s 完成；推理模型(deepseek-v4-pro)会思考耗光token预算、~84s且空输出
 const MATCH_MODEL = 'deepseek-v4-flash';
+const MATCH_BATCH_SIZE = 8;
 
 async function callAI(
   messages: Array<{ role: string; content: string }>,
@@ -111,13 +112,18 @@ export async function matchResumeToJDs(
     const parsed = parseJson(content);
 
     if (parsed.results && Array.isArray(parsed.results)) {
-      return (parsed.results as Array<Record<string, unknown>>)
+      const results = (parsed.results as Array<Record<string, unknown>>)
         .map((r) => {
           const idx = Number(r.jdIndex) - 1;
           return candidates[idx] ? buildResult(candidates[idx], resumeId, r) : null;
         })
         .filter((r): r is MatchingResult => r !== null)
         .sort((a, b) => b.score - a.score);
+      const uniqueCount = new Set(results.map((result) => result.jdId)).size;
+      if (uniqueCount !== candidates.length) {
+        throw new Error(`Incomplete batch result: ${uniqueCount}/${candidates.length}`);
+      }
+      return results;
     }
     throw new Error('Unexpected response format');
   } catch (err) {
@@ -135,22 +141,9 @@ export async function matchResumeToJDs(
 
 export type OnResult = (result: MatchingResult) => void;
 
-/** 把一行 JSONL 解析为匹配结果，失败返回 null */
-function parseStreamLine(line: string, candidates: JD[], resumeId: string): MatchingResult | null {
-  const trimmed = line.trim().replace(/^```json\s*/i, '').replace(/```$/, '').trim();
-  if (!trimmed || trimmed[0] !== '{') return null;
-  try {
-    const r = JSON.parse(trimmed) as Record<string, unknown>;
-    const idx = Number(r.jdIndex) - 1;
-    return candidates[idx] ? buildResult(candidates[idx], resumeId, r) : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * 流式匹配：边生成边把结果逐条回调给 UI（体感更快，总耗时与批量相当）。
- * 模型按 JSONL 逐行输出，收到完整一行即解析回调。失败时回退到批量匹配。
+ * 分批匹配：24 个候选岗位拆为三批并行分析，每批完成后立即回调给 UI。
+ * 批次结果不完整时会自动降级为逐岗位分析，避免提前结束造成结果缺失。
  */
 export async function matchResumeToJDsStream(
   resumeText: string, jds: JD[], resumeId: string, onResult: OnResult, signal?: AbortSignal,
@@ -170,69 +163,25 @@ export async function matchResumeToJDsStream(
     onResult(result);
   };
 
-  try {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const prompt = buildStreamMatchingPrompt(resumeText.slice(0, MAX_RESUME_CHARS), candidates);
-    const response = await fetch('/api/match', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MATCH_MODEL, stream: true,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0, max_tokens: resultTokenBudget(candidates.length),
-      }),
-      signal,
-    });
-    if (!response.ok || !response.body) throw new Error(`API ${response.status}`);
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  const batches: JD[][] = [];
+  for (let index = 0; index < candidates.length; index += MATCH_BATCH_SIZE) {
+    batches.push(candidates.slice(index, index + MATCH_BATCH_SIZE));
+  }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let sseBuf = '';
-    let contentBuf = '';
-
-    const drainContent = () => {
-      const lines = contentBuf.split('\n');
-      contentBuf = lines.pop() ?? '';
-      for (const l of lines) {
-        const r = parseStreamLine(l, candidates, resumeId);
-        if (r) emit(r);
-      }
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      sseBuf += decoder.decode(value, { stream: true });
-      const events = sseBuf.split('\n');
-      sseBuf = events.pop() ?? '';
-      for (const ev of events) {
-        const line = ev.trim();
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') continue;
-        try {
-          const obj = JSON.parse(payload);
-          const delta: string | undefined = obj?.choices?.[0]?.delta?.content;
-          if (delta) { contentBuf += delta; drainContent(); }
-        } catch { /* 不完整的 data 行，等后续 chunk 补全 */ }
-      }
+  const outcomes = await Promise.all(batches.map(async (batch) => {
+    try {
+      const results = await matchResumeToJDs(resumeText, batch, resumeId, signal);
+      results.forEach(emit);
+      return true;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      return false;
     }
-    // flush 最后一行（无换行结尾的对象）
-    const last = parseStreamLine(contentBuf, candidates, resumeId);
-    if (last) emit(last);
+  }));
 
-    // 一条都没解析出来 → 回退批量
-    if (seen.size === 0) {
-      const batch = await matchResumeToJDs(resumeText, jds, resumeId, signal);
-      batch.forEach(emit);
-    }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') throw err;
-    // 流式失败且尚无结果 → 回退批量；已有部分结果则保留
-    if (seen.size === 0) {
-      const batch = await matchResumeToJDs(resumeText, jds, resumeId, signal);
-      batch.forEach(emit);
-    }
+  if (seen.size === 0 && !outcomes.some(Boolean)) {
+    throw new Error('匹配服务暂不可用，请稍后重试');
   }
 }
 

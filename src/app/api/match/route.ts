@@ -3,6 +3,8 @@ import { guardApi } from '@/lib/api-guard';
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const blocked = guardApi(req, 'match', 30, 60_000);
   if (blocked) return blocked;
@@ -28,6 +30,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model,
         messages: body.messages,
+        thinking: body.thinking ?? { type: 'disabled' },
         temperature: body.temperature ?? 0.3,
         max_tokens: body.max_tokens ?? 2000,
         ...(stream ? { stream: true } : {}),
