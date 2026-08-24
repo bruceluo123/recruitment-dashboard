@@ -2,9 +2,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GlassPanel } from '@/components/ui/GlassPanel';
-import { EmptyState } from '@/components/ui/EmptyState';
 import {
-  AlertTriangle, Megaphone, X, Copy, Check,
+  Building2, Megaphone, X, Copy, Check,
   ChevronDown, ChevronUp, Bell, Sparkles,
 } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
@@ -12,8 +11,6 @@ import type { JDCategory } from '@/types/jd';
 import { recentlyAddedJds } from '@/lib/jd-recent';
 import {
   PRIORITY_COLORS,
-  isUrgentPriority,
-  priorityRank,
   JD_STATUS_COLORS,
   JD_STATUS_LABELS,
   JD_CATEGORY_LABELS,
@@ -34,11 +31,19 @@ function parseGap(gap?: string): number {
   return m ? parseInt(m[0], 10) : 0;
 }
 
-interface UrgentGroup {
-  priority: 'P0' | 'P1';
+interface CategoryGroup {
   cat: JDCategory;
   jds: JD[];
   key: string;
+}
+
+interface DepartmentGroup {
+  key: string;
+  name: string;
+  organization: string;
+  serviceUnit: string;
+  groups: CategoryGroup[];
+  jds: JD[];
 }
 
 const SMART_ROTATION_STORAGE_KEY = 'recruit:hot-hiring-smart-rotation-v1';
@@ -75,26 +80,60 @@ function saveSmartRotationRecord(record: SmartRotationRecord): void {
   localStorage.setItem(SMART_ROTATION_STORAGE_KEY, JSON.stringify(next));
 }
 
-function buildUrgentGroups(jds: JD[]): UrgentGroup[] {
-  const groups: UrgentGroup[] = [];
-  for (const priority of ['P0', 'P1'] as const) {
-    const pJds = jds.filter((j) => j.priority === priority);
-    const catMap = new Map<JDCategory, JD[]>();
-    for (const jd of pJds) {
-      const cat = getPrimaryCategory(jd);
-      if (!catMap.has(cat)) catMap.set(cat, []);
-      catMap.get(cat)!.push(jd);
+function departmentIdentity(jd: JD) {
+  const organization = (jd.organization || '').trim();
+  const department = (jd.department || '').trim();
+  const serviceUnit = (jd.serviceUnit || '').trim();
+  const name = department || organization || serviceUnit || '未分部门';
+  return {
+    key: JSON.stringify([organization, name]),
+    name,
+    organization: organization !== name ? organization : '',
+    serviceUnit: serviceUnit !== name && serviceUnit !== organization ? serviceUnit : '',
+  };
+}
+
+function buildDepartmentGroups(jds: JD[]): DepartmentGroup[] {
+  const departments = new Map<string, {
+    name: string;
+    organization: string;
+    serviceUnit: string;
+    jds: JD[];
+    categories: Map<JDCategory, JD[]>;
+  }>();
+
+  for (const jd of jds) {
+    const identity = departmentIdentity(jd);
+    if (!departments.has(identity.key)) {
+      departments.set(identity.key, { ...identity, jds: [], categories: new Map() });
     }
-    const sorted = Array.from(catMap.entries()).sort((a, b) => {
-      if (a[0] === 'ai') return -1;
-      if (b[0] === 'ai') return 1;
-      return b[1].length - a[1].length;
-    });
-    for (const [cat, list] of sorted) {
-      groups.push({ priority, cat, jds: list, key: `${priority}:${cat}` });
-    }
+    const department = departments.get(identity.key)!;
+    department.jds.push(jd);
+    const cat = getPrimaryCategory(jd);
+    if (!department.categories.has(cat)) department.categories.set(cat, []);
+    department.categories.get(cat)!.push(jd);
   }
-  return groups;
+
+  return Array.from(departments.entries())
+    .map(([key, department]) => ({
+      key,
+      name: department.name,
+      organization: department.organization,
+      serviceUnit: department.serviceUnit,
+      jds: department.jds,
+      groups: Array.from(department.categories.entries())
+        .sort((a, b) => {
+          if (a[0] === 'ai') return -1;
+          if (b[0] === 'ai') return 1;
+          return b[1].length - a[1].length || (JD_CATEGORY_LABELS[a[0]] || a[0]).localeCompare(JD_CATEGORY_LABELS[b[0]] || b[0], 'zh-CN');
+        })
+        .map(([cat, categoryJds]) => ({
+          cat,
+          key: JSON.stringify([key, cat]),
+          jds: categoryJds.sort((a, b) => parseGap(b.gap) - parseGap(a.gap) || (b.updatedAt || '').localeCompare(a.updatedAt || '')),
+        })),
+    }))
+    .sort((a, b) => b.jds.length - a.jds.length || a.name.localeCompare(b.name, 'zh-CN'));
 }
 
 export function HotHiringPage() {
@@ -120,18 +159,14 @@ export function HotHiringPage() {
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
-  const urgent = jds
-    .filter((jd) => isUrgentPriority(jd.priority))
-    .sort((a, b) => {
-      const r = priorityRank(a.priority) - priorityRank(b.priority);
-      return r !== 0 ? r : parseGap(b.gap) - parseGap(a.gap);
-    });
-
-  const urgentGroups = buildUrgentGroups(urgent);
-  const p0Groups = urgentGroups.filter((g) => g.priority === 'P0');
-  const p1Groups = urgentGroups.filter((g) => g.priority === 'P1');
-
-  const selectedJDs = urgentGroups
+  const availableJDs = jds.filter((jd) => jd.status !== 'paused');
+  const departmentGroups = buildDepartmentGroups(availableJDs);
+  const categoryGroups = departmentGroups.flatMap((department) => department.groups);
+  const selectedCategoryGroups = categoryGroups.filter((group) => selectedGroups.has(group.key));
+  const selectedDepartmentCount = departmentGroups.filter((department) =>
+    department.groups.some((group) => selectedGroups.has(group.key)),
+  ).length;
+  const selectedJDs = categoryGroups
     .filter((g) => selectedGroups.has(g.key))
     .flatMap((g) => g.jds);
 
@@ -142,10 +177,16 @@ export function HotHiringPage() {
       return next;
     });
 
-  const selectAllP0 = () =>
-    setSelectedGroups((prev) => new Set([...Array.from(prev), ...p0Groups.map((g) => g.key)]));
-  const selectAllP1 = () =>
-    setSelectedGroups((prev) => new Set([...Array.from(prev), ...p1Groups.map((g) => g.key)]));
+  const toggleDepartment = (department: DepartmentGroup) =>
+    setSelectedGroups((prev) => {
+      const next = new Set(prev);
+      const allSelected = department.groups.every((group) => next.has(group.key));
+      department.groups.forEach((group) => {
+        if (allSelected) next.delete(group.key); else next.add(group.key);
+      });
+      return next;
+    });
+  const selectAll = () => setSelectedGroups(new Set(categoryGroups.map((group) => group.key)));
   const clearSelection = () => setSelectedGroups(new Set());
 
   const handleOpenJD = (id: string) => { selectJD(id); router.push('/jd-library'); };
@@ -229,24 +270,23 @@ export function HotHiringPage() {
       <div>
         <h2 className="page-title">热招看板</h2>
         <p className="page-subtitle">
-          P0 急招 {p0Groups.reduce((s, g) => s + g.jds.length, 0)} 个 · P1 急招 {p1Groups.reduce((s, g) => s + g.jds.length, 0)} 个
+          {departmentGroups.length} 个部门 · {categoryGroups.length} 个岗位类别 · {availableJDs.length} 个在招岗位
         </p>
       </div>
 
-      {/* 快捷选择 + 文案生成 — 横跨两列 */}
+      {/* 快捷选择 + 文案生成 */}
       <GlassPanel>
         <div className="flex items-center gap-1.5 flex-wrap">
-          {p0Groups.length > 0 && (
-            <button onClick={selectAllP0} className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-medium transition-colors">全选 P0</button>
-          )}
-          {p1Groups.length > 0 && (
-            <button onClick={selectAllP1} className="text-xs px-2 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-medium transition-colors">全选 P1</button>
+          {categoryGroups.length > 0 && selectedGroups.size < categoryGroups.length && (
+            <button onClick={selectAll} className="text-xs px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-medium transition-colors">全选岗位</button>
           )}
           {selectedGroups.size > 0 && (
             <button onClick={clearSelection} className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors">清空</button>
           )}
           {selectedGroups.size > 0 && (
-            <span className="text-xs text-indigo-500 ml-1">已选 {selectedGroups.size} 个分类 · {selectedJDs.length} 个岗位</span>
+            <span className="text-xs text-indigo-500 ml-1">
+              已选 {selectedDepartmentCount} 个部门 · {selectedCategoryGroups.length} 个分类 · {selectedJDs.length} 个岗位
+            </span>
           )}
           <div className="flex-1" />
           <button
@@ -266,15 +306,15 @@ export function HotHiringPage() {
           </button>
           {selectedGroups.size > 0 ? (
             <>
-              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'maimanfen' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-sm font-semibold transition-colors">
+              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '自选岗位', variant: 'maimanfen' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-sm font-semibold transition-colors">
                 <Megaphone className="w-4 h-4" />生成麦满分文案
               </button>
-              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '急招', variant: 'bobo' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-semibold transition-colors">
+              <button onClick={() => setAdDialog({ jds: selectedJDs, label: '自选岗位', variant: 'bobo' })} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-semibold transition-colors">
                 <Megaphone className="w-4 h-4" />生成啵啵文案
               </button>
             </>
           ) : (
-            <span className="text-xs text-gray-400">勾选分类后生成急招文案</span>
+            <span className="text-xs text-gray-400">勾选部门或岗位类别后生成文案</span>
           )}
         </div>
       </GlassPanel>
@@ -283,45 +323,30 @@ export function HotHiringPage() {
         <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">{smartError}</div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* P0 */}
-        <GlassPanel>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-500" />P0 急招
-            </h3>
-            <span className="text-xs text-gray-400">共 {p0Groups.reduce((s, g) => s + g.jds.length, 0)} 个</span>
+      <GlassPanel>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-base font-semibold text-gray-800">
+            <Building2 className="h-4 w-4 text-indigo-500" />按部门选择岗位
+          </h3>
+          <span className="text-xs text-gray-400">可跨部门勾选，展开后选择具体类别</span>
+        </div>
+        {departmentGroups.length > 0 ? (
+          <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
+            {departmentGroups.map((department) => (
+              <DepartmentCard
+                key={department.key}
+                department={department}
+                selectedGroups={selectedGroups}
+                onToggleDepartment={() => toggleDepartment(department)}
+                onToggleGroup={toggleGroup}
+                onOpen={handleOpenJD}
+              />
+            ))}
           </div>
-          {p0Groups.length > 0 ? (
-            <div className="space-y-1.5">
-              {p0Groups.map((group) => (
-                <GroupCard key={group.key} group={group} checked={selectedGroups.has(group.key)} onToggle={() => toggleGroup(group.key)} onOpen={handleOpenJD} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={AlertTriangle} title="暂无 P0 岗位" description="源表「优先级」列标记 P0 后将在此展示" />
-          )}
-        </GlassPanel>
-
-        {/* P1 */}
-        <GlassPanel>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-500" />P1 急招
-            </h3>
-            <span className="text-xs text-gray-400">共 {p1Groups.reduce((s, g) => s + g.jds.length, 0)} 个</span>
-          </div>
-          {p1Groups.length > 0 ? (
-            <div className="space-y-1.5">
-              {p1Groups.map((group) => (
-                <GroupCard key={group.key} group={group} checked={selectedGroups.has(group.key)} onToggle={() => toggleGroup(group.key)} onOpen={handleOpenJD} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={AlertTriangle} title="暂无 P1 岗位" description="源表「优先级」列标记 P1 后将在此展示" />
-          )}
-        </GlassPanel>
-      </div>
+        ) : (
+          <div className="py-12 text-center text-sm text-gray-400">暂无在招岗位</div>
+        )}
+      </GlassPanel>
 
       {adDialog && (
         <AdCopyDialog jds={adDialog.jds} label={adDialog.label} initialVariant={adDialog.variant} onClose={() => setAdDialog(null)} />
@@ -340,28 +365,90 @@ export function HotHiringPage() {
   );
 }
 
-// ─── GroupCard ────────────────────────────────────────────────────────────────
+// ─── Department / category selection ─────────────────────────────────────────
 
-interface GroupCardProps {
-  group: UrgentGroup;
+interface DepartmentCardProps {
+  department: DepartmentGroup;
+  selectedGroups: Set<string>;
+  onToggleDepartment: () => void;
+  onToggleGroup: (key: string) => void;
+  onOpen: (id: string) => void;
+}
+
+function DepartmentCard({ department, selectedGroups, onToggleDepartment, onToggleGroup, onOpen }: DepartmentCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const selectedCount = department.groups.filter((group) => selectedGroups.has(group.key)).length;
+  const allSelected = selectedCount === department.groups.length;
+  const partiallySelected = selectedCount > 0 && !allSelected;
+  const meta = [department.organization, department.serviceUnit].filter(Boolean).join(' · ');
+
+  return (
+    <section className={cn(
+      'overflow-hidden rounded-lg border bg-white transition-colors',
+      selectedCount > 0 ? 'border-indigo-200' : 'border-gray-200',
+    )}>
+      <div className={cn('flex min-h-16 items-center gap-3 px-4 py-3', selectedCount > 0 && 'bg-indigo-50/50')}>
+        <input
+          ref={(input) => { if (input) input.indeterminate = partiallySelected; }}
+          type="checkbox"
+          checked={allSelected}
+          onChange={onToggleDepartment}
+          className="h-4 w-4 shrink-0 cursor-pointer accent-indigo-500"
+          aria-label={`选择${department.name}全部岗位类别`}
+        />
+        <button type="button" onClick={() => setExpanded((value) => !value)} className="min-w-0 flex-1 text-left">
+          <span className="block truncate text-sm font-semibold text-gray-800">{department.name}</span>
+          {meta && <span className="mt-0.5 block truncate text-xs text-gray-400">{meta}</span>}
+        </button>
+        {selectedCount > 0 && (
+          <span className="shrink-0 rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-600">
+            已选 {selectedCount}/{department.groups.length} 类
+          </span>
+        )}
+        <span className="shrink-0 text-xs text-gray-400">{department.jds.length} 个岗位</span>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          aria-label={expanded ? '收起部门' : '展开部门'}
+        >
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="divide-y divide-gray-100 border-t border-gray-100">
+          {department.groups.map((group) => (
+            <CategoryGroupRow
+              key={group.key}
+              group={group}
+              checked={selectedGroups.has(group.key)}
+              onToggle={() => onToggleGroup(group.key)}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface CategoryGroupRowProps {
+  group: CategoryGroup;
   checked: boolean;
   onToggle: () => void;
   onOpen: (id: string) => void;
 }
 
-function GroupCard({ group, checked, onToggle, onOpen }: GroupCardProps) {
+function CategoryGroupRow({ group, checked, onToggle, onOpen }: CategoryGroupRowProps) {
   const [expanded, setExpanded] = useState(false);
   const emoji = getCategoryEmoji(group.cat);
   const label = JD_CATEGORY_LABELS[group.cat] ?? group.cat;
 
   return (
-    <div className={cn(
-      'rounded-xl border transition-all',
-      checked ? 'border-indigo-200 bg-indigo-50/40' : 'border-gray-100 hover:border-gray-200',
-    )}>
-      {/* Row header — click = toggle selection */}
+    <div className={cn('transition-colors', checked ? 'bg-indigo-50/40' : 'hover:bg-gray-50/70')}>
       <div
-        className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer"
+        className="flex cursor-pointer items-center gap-2.5 px-4 py-2.5 pl-8"
         onClick={onToggle}
       >
         <input
@@ -373,15 +460,9 @@ function GroupCard({ group, checked, onToggle, onOpen }: GroupCardProps) {
         />
         <span className="text-base leading-none">{emoji}</span>
         <span className="text-sm font-medium text-gray-700 flex-1">{label}类</span>
-        <span className={cn(
-          'text-xs px-1.5 py-0.5 rounded-md font-medium shrink-0',
-          group.priority === 'P0'
-            ? 'bg-red-100 text-red-600'
-            : 'bg-amber-100 text-amber-600',
-        )}>
+        <span className="shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-500">
           {group.jds.length} 个
         </span>
-        {/* Expand/collapse toggle — stops propagation so it doesn't toggle checkbox */}
         <button
           className="p-0.5 rounded-md hover:bg-gray-100 text-gray-400 shrink-0"
           onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
@@ -391,9 +472,8 @@ function GroupCard({ group, checked, onToggle, onOpen }: GroupCardProps) {
         </button>
       </div>
 
-      {/* Expanded JD list */}
       {expanded && (
-        <div className="border-t border-gray-100 px-2 py-1.5 space-y-1">
+        <div className="space-y-1 border-t border-gray-100 bg-gray-50/50 px-3 py-2 pl-10">
           {group.jds.map((jd) => (
             <HotJDRow
               key={jd.id}
