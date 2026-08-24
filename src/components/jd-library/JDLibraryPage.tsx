@@ -18,6 +18,7 @@ import { ImportDiffDialog } from './ImportDiffDialog';
 import { WeeklyAddedDialog } from './WeeklyAddedDialog';
 import { detectCat, parseSalary, parseRawJD } from '@/lib/jd-paste-parse';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
+import { groupPriorityRank } from '@/lib/group-priority';
 
 export function JDLibraryPage() {
   const [mounted, setMounted] = useState(false);
@@ -88,7 +89,7 @@ export function JDLibraryPage() {
     (orgFilter.size === 0 || orgFilter.has(orgOf(j))) &&
     (serviceFilter.size === 0 || serviceFilter.has(svcOf(j))) &&
     (!gapOnly || (!!j.gap && j.gap !== '0')),
-  );
+  ).sort((a, b) => groupPriorityRank(a) - groupPriorityRank(b));
   const selectedJd = jds.find((j) => j.id === selectedJdId) || null;
   const visibleIds = finalFiltered.map((j) => j.id);
   const visibleSelectedCount = selectedIds.filter((id) => visibleIds.includes(id)).length;
