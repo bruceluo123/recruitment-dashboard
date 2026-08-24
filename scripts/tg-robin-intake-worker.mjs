@@ -9,6 +9,7 @@ import { NewMessage } from 'telegram/events/index.js';
 const ROOT = process.cwd();
 const ENV_PATH = path.join(ROOT, '.env.local');
 const STATE_KEY = 'recruit:tg-robin-intake-state';
+const CONTACT_INDEX_KEY = 'recruit:tg-robin-contact-index';
 const DEFAULT_TARGET = '@bruceluo123';
 const REQUIRED_FIELDS = [
   'name',
@@ -388,6 +389,34 @@ async function persistState(state) {
   await kvSet(STATE_KEY, JSON.stringify(state));
 }
 
+function normalizeContactIndex(raw) {
+  let parsed = {};
+  try { parsed = raw ? JSON.parse(raw) : {}; } catch { parsed = {}; }
+  return {
+    updatedAt: parsed.updatedAt || '',
+    items: Array.isArray(parsed.items) ? parsed.items : [],
+  };
+}
+
+async function persistContactIndex(result) {
+  const existing = normalizeContactIndex(await kvGet(CONTACT_INDEX_KEY).catch(() => ''));
+  const records = [...result.pairs, ...result.pending].map((item) => ({
+    key: item.key,
+    chatId: item.chatId,
+    sender: item.chatName,
+    username: item.username ? `@${item.username}` : '',
+    candidate: item.candidate.name,
+    jobTitle: item.candidate.jobTitle,
+    templateDate: item.templateDate,
+  }));
+  const merged = new Map(existing.items.map((item) => [item.key, item]));
+  for (const record of records) merged.set(record.key, record);
+  const items = [...merged.values()]
+    .sort((a, b) => String(b.templateDate || '').localeCompare(String(a.templateDate || '')))
+    .slice(0, 5000);
+  await kvSet(CONTACT_INDEX_KEY, JSON.stringify({ updatedAt: new Date().toISOString(), items }));
+}
+
 function scanSummary(result, processedSet) {
   const records = [...result.pairs, ...result.pending]
     .sort((a, b) => b.templateDate.localeCompare(a.templateDate))
@@ -442,6 +471,7 @@ async function main() {
   if (sendCandidate) {
     try {
       const result = await collectPrivatePairs(client, { searchLimit, messageLimit, days });
+      await persistContactIndex(result).catch((error) => console.error(`[contact index failed] ${error?.message || error}`));
       const query = sendCandidate.toLowerCase();
       const pair = result.pairs
         .filter((item) => item.candidate.name.toLowerCase() === query || item.chatName.toLowerCase().includes(query))
@@ -472,6 +502,7 @@ async function main() {
   if (scanOnly) {
     try {
       const result = await collectPrivatePairs(client, { searchLimit, messageLimit, days });
+      await persistContactIndex(result).catch((error) => console.error(`[contact index failed] ${error?.message || error}`));
       console.log(JSON.stringify(scanSummary(result, processedSet), null, 2));
     } finally {
       await client.disconnect();
@@ -502,6 +533,7 @@ async function main() {
   };
 
   const initial = await collectPrivatePairs(client, { searchLimit, messageLimit, days });
+  await persistContactIndex(initial).catch((error) => console.error(`[contact index failed] ${error?.message || error}`));
   if (!state.initializedAt) {
     for (const pair of initial.pairs) processedSet.add(pair.key);
     state.processed = [...processedSet];
@@ -530,6 +562,7 @@ async function main() {
         messageLimit,
         cutoff: Date.now() - days * 24 * 60 * 60 * 1000,
       });
+      await persistContactIndex(result).catch((error) => console.error(`[contact index failed] ${error?.message || error}`));
       await forwardPairs(result);
     }).catch((error) => console.error(`[event failed] ${error?.message || error}`));
   }, new NewMessage({ incoming: true }));
@@ -547,6 +580,7 @@ async function main() {
         30_000,
         'Robin catch-up scan',
       );
+      await persistContactIndex(result).catch((error) => console.error(`[contact index failed] ${error?.message || error}`));
       await forwardPairs(result);
       console.log(`[scan] ${new Date().toISOString()} ready=${result.pairs.length} pendingPdf=${result.pending.length}`);
     }).catch((error) => {

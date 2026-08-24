@@ -86,6 +86,19 @@ export function RecommendationCenter() {
   const scheduledCount = viewItems.filter((it) => it.interviewStatus === 'scheduled').length;
   const hasFilter = Object.values(filters).some((v) => v.trim());
 
+  const updateRecommendationContact = (id: string, contact?: string) => {
+    const current = items.find((item) => item.id === id);
+    if (!current?.candidateCode) {
+      updateItem(id, { contact });
+      return;
+    }
+    for (const item of items) {
+      if (item.column === current.column && item.candidateCode === current.candidateCode) {
+        updateItem(item.id, { contact });
+      }
+    }
+  };
+
   const confirmSchedule = (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => {
     if (!scheduling) return;
     scheduleRecommendation(scheduling, args, { jds, candidates, addCandidate, updateCandidate, updateItem });
@@ -253,7 +266,7 @@ export function RecommendationCenter() {
                       offerRecorded={candidates.some((candidate) => candidate.id === it.candidateId && candidate.stage === 'offer')}
                       interviewFailed={candidates.some((candidate) => candidate.id === it.candidateId && candidate.outcome === 'failed')}
                       onRemove={removeItem}
-                      onUpdateContact={(id, contact) => updateItem(id, { contact })}
+                      onUpdateContact={updateRecommendationContact}
                     />
                   ))}
                 </div>

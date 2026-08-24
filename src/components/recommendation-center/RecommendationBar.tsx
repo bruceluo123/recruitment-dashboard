@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X, BriefcaseBusiness } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X, BriefcaseBusiness, Loader2 } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 
@@ -22,6 +22,8 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState(item.contact || '');
   const [showHighlights, setShowHighlights] = useState(false);
+  const [lookingUpContact, setLookingUpContact] = useState(false);
+  const [contactHint, setContactHint] = useState('');
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
   const scheduleLabel = item.interviewRound === '一面'
@@ -51,6 +53,37 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
     setCopied(false);
     setContactDraft(item.contact || '');
     setEditingContact(true);
+  };
+
+  const lookupRobinContact = async () => {
+    if (item.column !== 'a') {
+      startEditContact();
+      return;
+    }
+    setLookingUpContact(true);
+    setContactHint('');
+    try {
+      const params = new URLSearchParams({
+        name: item.candidateName || base.split('-')[0].trim(),
+        job: item.jdTitle || '',
+      });
+      const response = await fetch(`/api/tg/robin-contact?${params.toString()}`, { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || data.status !== 'found' || !data.contact) {
+        setContactHint(data.message || '未找到 Robin 私聊用户名，请手动填写');
+        startEditContact();
+        return;
+      }
+      const contact = String(data.contact).trim();
+      setContactDraft(contact);
+      onUpdateContact(item.id, contact);
+      setContactHint('');
+    } catch {
+      setContactHint('查询失败，请手动填写或稍后重试');
+      startEditContact();
+    } finally {
+      setLookingUpContact(false);
+    }
   };
 
   const cancelEditContact = () => {
@@ -97,7 +130,8 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
 
       {/* 联系方式：空值可直接补充，有值点击复制 */}
       {editingContact ? (
-        <div className="shrink-0 flex items-center gap-1 px-2 h-8 rounded-lg text-sm font-semibold text-indigo-600 bg-white border border-indigo-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+        <div className="shrink-0">
+          <div className="flex items-center gap-1 px-2 h-8 rounded-lg text-sm font-semibold text-indigo-600 bg-white border border-indigo-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
           <Phone className="w-4 h-4 text-indigo-400" />
           <input
             data-contact-editor={item.id}
@@ -114,6 +148,8 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
           <button onClick={cancelEditContact} className="p-0.5 rounded text-gray-400 hover:bg-gray-100" title="取消">
             <X className="w-3.5 h-3.5" />
           </button>
+          </div>
+          {contactHint && <p className="mt-1 max-w-[230px] text-[11px] leading-tight text-amber-600">{contactHint}</p>}
         </div>
       ) : item.contact ? (
         <div className="shrink-0 flex items-center gap-1">
@@ -137,11 +173,12 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
       ) : (
         <button
           data-contact-action="add"
-          onClick={startEditContact}
-          title="补充联系方式"
-          className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium text-indigo-500 bg-white border border-dashed border-indigo-200 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
+          onClick={lookupRobinContact}
+          disabled={lookingUpContact}
+          title={item.column === 'a' ? '从 Robin 私聊自动查找 Telegram 用户名' : '补充联系方式'}
+          className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium text-indigo-500 bg-white border border-dashed border-indigo-200 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-70 transition-colors"
         >
-          <Phone className="w-3.5 h-3.5" />
+          {lookingUpContact ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Phone className="w-3.5 h-3.5" />}
           补联系方式
         </button>
       )}
