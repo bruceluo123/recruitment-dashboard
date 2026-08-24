@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Users, CalendarCheck, FileUp, FileText, Loader2 } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -65,6 +65,7 @@ export function RecommendationCenter() {
   const [reporting, setReporting] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
+  const attemptedContactLookups = useRef(new Set<string>());
 
   const orgOptions = useMemo(() => {
     const set = new Set<string>();
@@ -78,6 +79,73 @@ export function RecommendationCenter() {
   }, [jds]);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    const targets = items.filter((item) => item.column === 'a' && !item.contact && (item.candidateName || displayName(item)));
+    const pending = targets.filter((item) => {
+      const lookupKey = `${item.candidateCode || item.candidateName || item.id}|${item.jdTitle || ''}`;
+      if (attemptedContactLookups.current.has(lookupKey)) return false;
+      attemptedContactLookups.current.add(lookupKey);
+      return true;
+    });
+    if (!pending.length) return;
+
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const response = await fetch('/api/tg/robin-contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            candidates: pending.map((item) => ({
+              key: item.id,
+              name: item.candidateName || displayName(item).split('-')[0].trim(),
+              job: item.jdTitle || '',
+            })),
+          }),
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.results)) return;
+
+        const targetById = new Map(pending.map((item) => [item.id, item]));
+        const bestByCandidate = new Map<string, { contact: string; score: number }>();
+        for (const result of data.results) {
+          if (result.status !== 'found' || !result.contact) continue;
+          const target = targetById.get(String(result.key));
+          if (!target) continue;
+          const candidateKey = target.candidateCode
+            ? `code:${target.candidateCode}`
+            : `name:${String(target.candidateName || displayName(target)).trim().toLowerCase()}`;
+          const score = Number(result.match?.score) || 0;
+          const current = bestByCandidate.get(candidateKey);
+          if (!current || score > current.score) bestByCandidate.set(candidateKey, { contact: String(result.contact).trim(), score });
+        }
+
+        for (const item of items) {
+          if (item.column !== 'a' || item.contact) continue;
+          const candidateKey = item.candidateCode
+            ? `code:${item.candidateCode}`
+            : `name:${String(item.candidateName || displayName(item)).trim().toLowerCase()}`;
+          const resolved = bestByCandidate.get(candidateKey);
+          if (resolved?.contact) updateItem(item.id, { contact: resolved.contact });
+        }
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          for (const item of pending) {
+            attemptedContactLookups.current.delete(`${item.candidateCode || item.candidateName || item.id}|${item.jdTitle || ''}`);
+          }
+        }
+      }
+    };
+
+    void run();
+    return () => controller.abort();
+  }, [items, mounted, updateItem]);
+
   if (!mounted) return null;
 
   const viewItems = items.filter((it) => it.column === view);

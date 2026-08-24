@@ -72,25 +72,7 @@ function scoreRecord(record: RobinContactRecord, candidateName: string, jobTitle
   return score;
 }
 
-export async function GET(request: NextRequest) {
-  const blocked = guardApi(request, 'tg-robin-contact', 30, 60_000);
-  if (blocked) return blocked;
-
-  const candidateName = request.nextUrl.searchParams.get('name')?.trim() || '';
-  const jobTitle = request.nextUrl.searchParams.get('job')?.trim() || '';
-  if (!candidateName) {
-    return NextResponse.json({ ok: false, status: 'missing_name', message: '缺少候选人姓名' }, { status: 400 });
-  }
-
-  const [indexValue, stateValue] = await Promise.all([
-    kvGet<RobinContactIndex | string>(CONTACT_INDEX_KEY),
-    kvGet<RobinContactIndex | string>(STATE_KEY),
-  ]);
-  const index = parseCache(indexValue);
-  const state = parseCache(stateValue);
-  const records = [...(index?.items || []), ...(state?.recentDetected || [])]
-    .filter((record) => record.username && record.candidate);
-
+function loadMatches(records: RobinContactRecord[], candidateName: string, jobTitle: string) {
   const byUsername = new Map<string, { record: RobinContactRecord; score: number }>();
   for (const record of records) {
     const username = String(record.username || '').replace(/^@/, '').toLowerCase();
@@ -103,7 +85,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const matches = Array.from(byUsername.entries())
+  return Array.from(byUsername.entries())
     .map(([username, match]) => ({
       username: `@${username}`,
       sender: match.record.sender || '',
@@ -113,13 +95,48 @@ export async function GET(request: NextRequest) {
       score: match.score,
     }))
     .sort((a, b) => b.score - a.score || b.templateDate.localeCompare(a.templateDate));
+}
+
+function resolveContact(records: RobinContactRecord[], candidateName: string, jobTitle: string) {
+  const matches = loadMatches(records, candidateName, jobTitle);
+  if (!matches.length) return { status: 'not_found' as const };
+  if (matches.length > 1 && matches[0].score - matches[1].score < 15) {
+    return { status: 'ambiguous' as const, matches: matches.slice(0, 5) };
+  }
+  return { status: 'found' as const, contact: matches[0].username, match: matches[0] };
+}
+
+async function loadContactRecords() {
+  const [indexValue, stateValue] = await Promise.all([
+    kvGet<RobinContactIndex | string>(CONTACT_INDEX_KEY),
+    kvGet<RobinContactIndex | string>(STATE_KEY),
+  ]);
+  const index = parseCache(indexValue);
+  const state = parseCache(stateValue);
+  const records = [...(index?.items || []), ...(state?.recentDetected || [])]
+    .filter((record) => record.username && record.candidate);
+  return { records, updatedAt: index?.updatedAt || state?.updatedAt || '' };
+}
+
+export async function GET(request: NextRequest) {
+  const blocked = guardApi(request, 'tg-robin-contact', 30, 60_000);
+  if (blocked) return blocked;
+
+  const candidateName = request.nextUrl.searchParams.get('name')?.trim() || '';
+  const jobTitle = request.nextUrl.searchParams.get('job')?.trim() || '';
+  if (!candidateName) {
+    return NextResponse.json({ ok: false, status: 'missing_name', message: '缺少候选人姓名' }, { status: 400 });
+  }
+
+  const { records, updatedAt } = await loadContactRecords();
+  const matches = loadMatches(records, candidateName, jobTitle);
 
   if (!matches.length) {
     return NextResponse.json({
       ok: true,
       status: 'not_found',
       message: 'Robin 私聊中暂未找到对应用户名',
-      updatedAt: index?.updatedAt || state?.updatedAt || '',
+      updatedAt,
     });
   }
 
@@ -133,4 +150,32 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, status: 'found', contact: matches[0].username, match: matches[0] });
+}
+
+export async function POST(request: NextRequest) {
+  const blocked = guardApi(request, 'tg-robin-contact-bulk', 12, 60_000);
+  if (blocked) return blocked;
+
+  let body: { candidates?: Array<{ key?: string; name?: string; job?: string }> };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, message: 'Invalid request body' }, { status: 400 });
+  }
+
+  const candidates = Array.isArray(body.candidates) ? body.candidates.slice(0, 300) : [];
+  if (!candidates.length) {
+    return NextResponse.json({ ok: false, message: 'Missing candidates' }, { status: 400 });
+  }
+
+  const { records, updatedAt } = await loadContactRecords();
+  const results = candidates.map((candidate) => {
+    const key = String(candidate.key || '');
+    const name = String(candidate.name || '').trim();
+    const job = String(candidate.job || '').trim();
+    if (!name) return { key, status: 'missing_name' as const };
+    return { key, ...resolveContact(records, name, job) };
+  });
+
+  return NextResponse.json({ ok: true, updatedAt, results });
 }
