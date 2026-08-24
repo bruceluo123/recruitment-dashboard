@@ -1,9 +1,10 @@
 'use client';
 import { memo, useState } from 'react';
 import { cn, formatSalary } from '@/lib/utils';
-import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, PRIORITY_COLORS, isUrgentPriority, type JD } from '@/types/jd';
+import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JD } from '@/types/jd';
 import { ChevronRight, Trash2, Copy, Check, Filter } from 'lucide-react';
 import { ColumnFilter } from '@/components/ui/ColumnFilter';
+import { groupPriorityLabel } from '@/lib/group-priority';
 
 interface JDTableProps {
   jds: JD[];
@@ -133,9 +134,7 @@ function JDTableImpl({
                   {newJdIds?.has(jd.id) && (
                     <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-red-500 text-white shrink-0 leading-none">新</span>
                   )}
-                  {isUrgentPriority(jd.priority) && (
-                    <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold shrink-0', PRIORITY_COLORS[jd.priority!])}>{jd.priority}</span>
-                  )}
+                  <GroupPriorityBadge jd={jd} />
                 </div>
               </td>
               <td className={cn('py-3 px-2', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
@@ -224,6 +223,19 @@ function JDTableImpl({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function GroupPriorityBadge({ jd }: { jd: JD }) {
+  const label = groupPriorityLabel(jd);
+  if (!label) return null;
+  return (
+    <span
+      title={`集团优先：${label}`}
+      className="shrink-0 rounded border border-amber-200 bg-amber-100 px-1 py-0.5 text-[10px] font-bold leading-none text-amber-700"
+    >
+      先
+    </span>
   );
 }
 
