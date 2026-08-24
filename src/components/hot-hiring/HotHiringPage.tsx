@@ -41,8 +41,8 @@ interface CategoryGroup {
 interface DepartmentGroup {
   key: string;
   name: string;
-  organization: string;
-  serviceUnit: string;
+  organizations: string[];
+  departments: string[];
   groups: CategoryGroup[];
   jds: JD[];
   priorityLabel: string;
@@ -83,24 +83,30 @@ function saveSmartRotationRecord(record: SmartRotationRecord): void {
   localStorage.setItem(SMART_ROTATION_STORAGE_KEY, JSON.stringify(next));
 }
 
+function normalizeServiceUnit(value: string): string {
+  const normalized = value.trim().replace(/公司$/, '').trim();
+  if (normalized.toLowerCase() === 'happy') return 'Happy';
+  return normalized;
+}
+
 function departmentIdentity(jd: JD) {
   const organization = (jd.organization || '').trim();
   const department = (jd.department || '').trim();
-  const serviceUnit = (jd.serviceUnit || '').trim();
-  const name = department || organization || serviceUnit || '未分部门';
+  const serviceUnit = normalizeServiceUnit(jd.serviceUnit || '');
+  const name = serviceUnit || department || organization || '未分服务单位';
   return {
-    key: JSON.stringify([organization, name]),
+    key: name.toLowerCase(),
     name,
-    organization: organization !== name ? organization : '',
-    serviceUnit: serviceUnit !== name && serviceUnit !== organization ? serviceUnit : '',
+    organization,
+    department,
   };
 }
 
 function buildDepartmentGroups(jds: JD[]): DepartmentGroup[] {
   const departments = new Map<string, {
     name: string;
-    organization: string;
-    serviceUnit: string;
+    organizations: Set<string>;
+    departments: Set<string>;
     jds: JD[];
     categories: Map<JDCategory, JD[]>;
   }>();
@@ -108,13 +114,21 @@ function buildDepartmentGroups(jds: JD[]): DepartmentGroup[] {
   for (const jd of jds) {
     const identity = departmentIdentity(jd);
     if (!departments.has(identity.key)) {
-      departments.set(identity.key, { ...identity, jds: [], categories: new Map() });
+      departments.set(identity.key, {
+        name: identity.name,
+        organizations: new Set(),
+        departments: new Set(),
+        jds: [],
+        categories: new Map(),
+      });
     }
-    const department = departments.get(identity.key)!;
-    department.jds.push(jd);
+    const departmentGroup = departments.get(identity.key)!;
+    if (identity.organization) departmentGroup.organizations.add(identity.organization);
+    if (identity.department) departmentGroup.departments.add(identity.department);
+    departmentGroup.jds.push(jd);
     const cat = getPrimaryCategory(jd);
-    if (!department.categories.has(cat)) department.categories.set(cat, []);
-    department.categories.get(cat)!.push(jd);
+    if (!departmentGroup.categories.has(cat)) departmentGroup.categories.set(cat, []);
+    departmentGroup.categories.get(cat)!.push(jd);
   }
 
   return Array.from(departments.entries())
@@ -125,8 +139,8 @@ function buildDepartmentGroups(jds: JD[]): DepartmentGroup[] {
       return {
         key,
         name: department.name,
-        organization: department.organization,
-        serviceUnit: department.serviceUnit,
+        organizations: Array.from(department.organizations).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+        departments: Array.from(department.departments).sort((a, b) => a.localeCompare(b, 'zh-CN')),
         jds: department.jds,
         priorityLabel: priorityJD && priorityJD.rank < Number.MAX_SAFE_INTEGER ? groupPriorityLabel(priorityJD.jd) : '',
         priorityRank: priorityJD?.rank ?? Number.MAX_SAFE_INTEGER,
@@ -280,7 +294,7 @@ export function HotHiringPage() {
       <div>
         <h2 className="page-title">热招看板</h2>
         <p className="page-subtitle">
-          {departmentGroups.length} 个部门 · {categoryGroups.length} 个岗位类别 · {availableJDs.length} 个在招岗位
+          {departmentGroups.length} 个服务单位 · {categoryGroups.length} 个岗位类别 · {availableJDs.length} 个在招岗位
         </p>
       </div>
 
@@ -295,7 +309,7 @@ export function HotHiringPage() {
           )}
           {selectedGroups.size > 0 && (
             <span className="text-xs text-indigo-500 ml-1">
-              已选 {selectedDepartmentCount} 个部门 · {selectedCategoryGroups.length} 个分类 · {selectedJDs.length} 个岗位
+              已选 {selectedDepartmentCount} 个服务单位 · {selectedCategoryGroups.length} 个分类 · {selectedJDs.length} 个岗位
             </span>
           )}
           <div className="flex-1" />
@@ -324,7 +338,7 @@ export function HotHiringPage() {
               </button>
             </>
           ) : (
-            <span className="text-xs text-gray-400">勾选部门或岗位类别后生成文案</span>
+            <span className="text-xs text-gray-400">勾选服务单位或岗位类别后生成文案</span>
           )}
         </div>
       </GlassPanel>
@@ -336,9 +350,9 @@ export function HotHiringPage() {
       <GlassPanel>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-base font-semibold text-gray-800">
-            <Building2 className="h-4 w-4 text-indigo-500" />按部门选择岗位
+            <Building2 className="h-4 w-4 text-indigo-500" />按服务单位选择岗位
           </h3>
-          <span className="text-xs text-gray-400">可跨部门勾选，展开后选择具体类别</span>
+          <span className="text-xs text-gray-400">可跨服务单位勾选，展开后选择具体类别</span>
         </div>
         {departmentGroups.length > 0 ? (
           <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
@@ -390,7 +404,12 @@ function DepartmentCard({ department, selectedGroups, onToggleDepartment, onTogg
   const selectedCount = department.groups.filter((group) => selectedGroups.has(group.key)).length;
   const allSelected = selectedCount === department.groups.length;
   const partiallySelected = selectedCount > 0 && !allSelected;
-  const meta = [department.organization, department.serviceUnit].filter(Boolean).join(' · ');
+  const organizationMeta = department.organizations.length === 1
+    ? department.organizations[0]
+    : `${department.organizations.length} 个编制组织`;
+  const meta = [organizationMeta, department.departments.length ? `${department.departments.length} 个内部部门` : '']
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <section className={cn(
