@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
     const score = scoreRecord(record, candidateName, jobTitle);
     if (score < 65) continue;
     const current = byUsername.get(username);
-    if (!current || score > current.score || String(record.templateDate || '') > String(current.record.templateDate || '')) {
+    if (!current || score > current.score || (score === current.score && String(record.templateDate || '') > String(current.record.templateDate || ''))) {
       byUsername.set(username, { record, score });
     }
   }
