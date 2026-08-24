@@ -221,13 +221,13 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['ai', /(^|[\s\-_/｜|（）()【】])ai(?=$|[\s\-_/｜|（）()【】])|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|gpt|prompt|aigc|\bagent\b|comfyui|效能官|智能体/i],
   ['algorithm', /算法|algorithm|推荐系统|nlp|机器学习|深度学习|计算机视觉/i],
   ['frontend', /前端|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端|web\s*sdk/i],
-  ['backend', /后端|java|\bgo\b|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师|架构设计|springcloud/i],
+  ['backend', /后端|java|\bgo\b|golang|php|ruby|服务端|python|c\+\+|c#|\.net|后端架构|系统架构|技术架构|springcloud/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
   ['testing', /测试|qa|质量|代码审计/i],
   // 培训/学习发展（经验萃取、SOP工程化、演武/认证体系等知识管理岗）
   ['training', /培训|讲师|课程开发|教研|学习发展|经验萃取|sop工程化|赋能|带教|培训师|教学设计|演武|认证体系/i],
   ['product', /产品经理|产品总监|产品负责人|产品助理|产品调优|产品定价|专案产品|平台产品/i],
-  ['design', /ui|ux|设计|视觉|动效/i],
+  ['design', /(?:^|\W)ui(?:\W|$)|(?:^|\W)ux(?:\W|$)|设计|视觉|动效/i],
   // 美术: 3D系列、spine、动作设计、角色设计、绑定
   ['art', /美术|原画|概念设计|插画师|3d角色|3d动画|3d战斗|3d建模|建模师|动画师|绑定师|绑定|技术美术|ta(?=\s|$|[_\-/（）【】])|rigging|spine|动作设计|角色设计/i],
   // 市场: 品牌、市场策划/推广/运营、新媒体孵化
@@ -264,47 +264,46 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
 function detectPrimaryTitleCategory(title: string): JDCategory | null {
   const t = (title || '').toLowerCase();
   if (!t.trim()) return null;
+  const role = t.split(/[（(]/)[0].trim() || t;
 
-  if (/广告优化|广告投放|信息流|海外投放|投放(?:增长|运营|经理|专员|bd)|\bsem\b|千川/i.test(t)) return 'advertising';
-  if (/\bseo\b|搜索引擎优化|百度优化/i.test(t)) return 'seo';
-  if (/客服|客户服务|售后|技术支持/i.test(t)) return 'customer-service';
-  if (/运营/i.test(t)) return 'operations';
+  if (/广告优化|广告投放|信息流|海外投放|投放(?:增长|运营|经理|专员|bd)|\bsem\b|千川/i.test(role)) return 'advertising';
+  if (/\bseo\b|搜索引擎优化|百度优化/i.test(role)) return 'seo';
+  if (/客服|客户服务|售后|技术支持/i.test(role)) return 'customer-service';
+  if (/品牌运营/i.test(role)) return 'marketing';
 
-  if (/\bhr(?:bp|d|m)?\b|人力|招聘|薪酬|员工关系|组织发展|人事|\bssc\b|绩效|社保|考勤|\bcoe\b/i.test(t)) return 'hr';
-  if (/法务|律师|法律|合规|审查|知识产权|版权|专利|政府关系/i.test(t)) return 'legal';
-  if (/财务|会计|出纳|审计|税务|财税/i.test(t)) return 'finance';
-  if (/行政|前台|秘书|档案|资料员|督导|签证|移民|数字游民|(?:项目|技术|hr)助理/i.test(t)) return 'administration';
-  if (/培训|讲师|课程|教研|学习发展|经验萃取|业务萃取|sop工程|赋能|带教|演武|认证体系/i.test(t)) return 'training';
+  if (/\bhr(?:bp|d|m)?\b|人力|招聘|薪酬|员工关系|组织发展|人事|\bssc\b|绩效|社保|考勤|\bcoe\b/i.test(role)) return 'hr';
+  if (/财务|会计|出纳|审计|税务|财税/i.test(role)) return 'finance';
+  if (/行政|前台|秘书|档案|资料员|督导|签证|移民|数字游民|(?:项目|技术|hr)助理/i.test(role)) return 'administration';
+  if (/培训|讲师|课程|教研|学习发展|经验萃取|业务萃取|sop工程|赋能|带教|演武|认证体系/i.test(role)) return 'training';
 
-  if (/测试|\bqa\b|质量工程|代码审计/i.test(t)) return 'testing';
-  if (/运维|devops|sre|k8s|kubernetes/i.test(t)) return 'devops';
-  if (/舆情收集|采集工程师|爬虫|数据|数仓|etl|商业分析/i.test(t)) return 'data';
-  if (/算法|algorithm|推荐系统|nlp|机器学习|深度学习|计算机视觉/i.test(t)) return 'algorithm';
-  if (/gpu|硬件|芯片|嵌入式|固件|pcb|cuda|微架构/i.test(t)) return 'hardware';
-  if (/前端|flutter|android|ios|web(?:高级|开发|工程)|客户端|小程序|h5/i.test(t)) return 'frontend';
-  if (/后端|\bjava\b|golang|(?:^|\W)go(?:\W|$)|php|c\+\+|c#|\.net|服务端|浏览器内核|后端架构/i.test(t)) return 'backend';
+  if (/测试|\bqa\b|质量工程|代码审计/i.test(role)) return 'testing';
+  if (/运维|devops|sre|k8s|kubernetes/i.test(role)) return 'devops';
+  if (/舆情收集|采集工程师|爬虫|数据(?:分析师|工程师|负责人|开发|架构师|专家)|数仓|etl|商业分析/i.test(role)) return 'data';
+  if (/算法|algorithm|推荐系统|nlp|机器学习|深度学习|计算机视觉/i.test(role)) return 'algorithm';
+  if (/gpu|硬件|芯片|嵌入式|固件|pcb|cuda|微架构/i.test(role)) return 'hardware';
+  if (/前端|flutter|android|ios|web(?:高级|开发|工程)|客户端|小程序|h5/i.test(role)) return 'frontend';
+  if (/后端|\bjava\b|golang|(?:^|\W)go(?:\W|$)|php|c\+\+|c#|\.net|服务端|浏览器内核|后端架构/i.test(role)) return 'backend';
 
-  if (/产品(?:经理|负责人|专员|助理|总监)|系统策划/i.test(t)) return 'product';
-  if (/ui|ux|视觉|设计师|平面|动效/i.test(t)) return 'design';
-  if (/美术|原画|插画|3d|spine|建模|绑定|角色设计/i.test(t)) return 'art';
-  if (/视频|剪辑|后期|短剧|影视|编导|导演|摄像/i.test(t)) return 'video';
-  if (/直播|主播|场控|中控|团播/i.test(t)) return 'live';
-  if (/内容(?:创作|编辑|生产|工程|策略)|编辑专员|主编|编剧|文案|脚本策划|角色ip策划/i.test(t)) return 'content';
-  if (/项目|专案|pmo|scrum|pjm/i.test(t)) return 'project';
-  if (/商务|\bbd\b|渠道(?:拓展|扩展|专员)|销售/i.test(t)) return 'bd';
-  if (/品牌|市场|kol|公关|新媒体孵化|growth/i.test(t)) return 'marketing';
-  if (/游戏|unity|unreal|ue[45]|cocos/i.test(t)) return 'gaming';
-  if (/(^|\W)ai(?:\W|$)|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|aigc|agent|comfyui|智能体/i.test(t)) return 'ai';
-  if (/总监|vp|副总裁|cto|ceo|负责人|组长|主管/i.test(t)) return 'director';
+  if (/运营/i.test(role)) return 'operations';
+  if (/法务|律师|法律|合规|审查|知识产权|版权|专利|政府关系/i.test(role)) return 'legal';
+  if (/产品(?:经理|负责人|专员|助理|总监|定价|专家)|系统策划/i.test(role)) return 'product';
+  if (/美术|原画|插画|3d|spine|建模|绑定|角色设计/i.test(role)) return 'art';
+  if (/(?:^|\W)ui(?:\W|$)|(?:^|\W)ux(?:\W|$)|视觉|设计师|平面|动效/i.test(role)) return 'design';
+  if (/商务|\bbd\b|渠道(?:拓展|扩展|专员)|销售/i.test(role)) return 'bd';
+  if (/内容(?:创作|编辑|生产|工程|策略|专家)|编辑专员|主编|编剧|剧本|文案|脚本策划|角色ip策划/i.test(role)) return 'content';
+  if (/视频|剪辑|后期|短剧|影视|编导|导演|摄像/i.test(role)) return 'video';
+  if (/直播|主播|场控|中控|团播/i.test(role)) return 'live';
+  if (/项目|专案|pmo|scrum|pjm/i.test(role)) return 'project';
+  if (/品牌|市场|kol|公关|新媒体孵化|growth/i.test(role)) return 'marketing';
+  if (/游戏|unity|unreal|ue[45]|cocos/i.test(role)) return 'gaming';
+  if (/(^|\W)ai(?:\W|$)|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|aigc|agent|comfyui|智能体/i.test(role)) return 'ai';
+  if (/总监|vp|副总裁|cto|ceo|负责人|组长|主管/i.test(role)) return 'director';
   return null;
 }
 
 export function detectCategories(text: string): JDCategory[] {
   const t = text.toLowerCase();
-  const result: JDCategory[] = [];
-  for (const [cat, re] of CATEGORY_KEYWORDS) {
-    if (re.test(t) && !result.includes(cat)) result.push(cat);
-  }
+  const result = detectExplicitCategories(t);
   if (result.length === 0) {
     // Broad fallbacks
     if (/开发|程序|码农|软件/i.test(t)) result.push('backend');
@@ -314,6 +313,14 @@ export function detectCategories(text: string): JDCategory[] {
     else result.push('operations');
   }
   return result.slice(0, 3);
+}
+
+function detectExplicitCategories(text: string): JDCategory[] {
+  const result: JDCategory[] = [];
+  for (const [cat, re] of CATEGORY_KEYWORDS) {
+    if (re.test(text) && !result.includes(cat)) result.push(cat);
+  }
+  return result;
 }
 
 /** 统计正文里每个分类的关键词命中次数，按命中数（再按关键词优先级）降序返回。 */
@@ -345,7 +352,7 @@ export function classifyJD(
 ): JDCategory[] {
   const primary = detectPrimaryTitleCategory(title);
   if (primary) {
-    const modifiers = detectCategories(title);
+    const modifiers = detectExplicitCategories(title.toLowerCase());
     return [primary, ...modifiers.filter((cat) => cat !== primary)].slice(0, 3);
   }
 
