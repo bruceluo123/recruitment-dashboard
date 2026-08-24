@@ -44,6 +44,20 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
+async function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function clean(value) {
   return String(value || '').replace(/\r/g, '').replace(/[ \t]+/g, ' ').trim();
 }
@@ -158,6 +172,20 @@ function resumePdfScore(message, candidateName) {
   return score;
 }
 
+function fileMatchesCandidate(message, candidateName) {
+  const normalizedName = clean(candidateName).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '');
+  const normalizedFile = fileNameOf(message).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '');
+  return normalizedName.length >= 2 && normalizedFile.includes(normalizedName);
+}
+
+function fileIsNearTemplate(message, template, maxHours = 48) {
+  const messageTime = Number(message.date || 0) * 1000;
+  const templateTime = Number(template.date || 0) * 1000;
+  return messageTime > 0
+    && templateTime > 0
+    && Math.abs(messageTime - templateTime) <= maxHours * 60 * 60 * 1000;
+}
+
 function entityName(entity) {
   return clean([
     entity.firstName,
@@ -206,17 +234,33 @@ function normalizeState(raw) {
 
 async function recordsForChat(client, entity, templates, { messageLimit, cutoff }) {
   if (!entity || entity.bot || entity.self) return { pairs: [], pending: [] };
-  const messages = (await client.getMessages(entity, { limit: messageLimit }))
+  let messages = (await client.getMessages(entity, { limit: messageLimit }))
     .filter((message) => Number(message.date || 0) * 1000 >= cutoff);
+  if (!messages.some(isPdf)) {
+    const documents = await client.getMessages(entity, {
+      limit: 30,
+      filter: new Api.InputMessagesFilterDocument(),
+    }).catch(() => []);
+    const byId = new Map(messages.map((message) => [String(message.id), message]));
+    for (const document of documents) byId.set(String(document.id), document);
+    messages = [...byId.values()];
+  }
   const pairs = [];
   const pending = [];
   for (const template of templates) {
     const candidate = parseCandidateTemplate(template.message || '');
     if (!candidate) continue;
-    const pdf = messages
+    const scoredPdfs = messages
       .map((message) => ({ message, score: resumePdfScore(message, candidate.name) }))
       .filter((item) => Number.isFinite(item.score))
-      .sort((a, b) => b.score - a.score)[0]?.message || null;
+      .sort((a, b) => b.score - a.score);
+    const namedPdfs = scoredPdfs.filter((item) => fileMatchesCandidate(item.message, candidate.name));
+    const safePdfs = namedPdfs.length > 0
+      ? namedPdfs
+      : (templates.length === 1
+        ? scoredPdfs.filter((item) => fileIsNearTemplate(item.message, template))
+        : []);
+    const pdf = safePdfs[0]?.message || null;
     const record = {
       key: `${String(template.chatId || entity.id)}:${template.id}`,
       chatId: String(template.chatId || entity.id),
@@ -491,8 +535,28 @@ async function main() {
   }, new NewMessage({ incoming: true }));
 
   console.log(`[watching] Robin private chat events -> ${targetName}`);
+  const catchUpScan = setInterval(() => {
+    eventQueue = eventQueue.then(async () => {
+      if (!client.connected) throw new Error('Telegram connection is not connected.');
+      const result = await withTimeout(
+        collectPrivatePairs(client, {
+          searchLimit: Math.min(searchLimit, 100),
+          messageLimit,
+          days,
+        }),
+        30_000,
+        'Robin catch-up scan',
+      );
+      await forwardPairs(result);
+      console.log(`[scan] ${new Date().toISOString()} ready=${result.pairs.length} pendingPdf=${result.pending.length}`);
+    }).catch((error) => {
+      console.error(`[watch scan failed] ${error?.message || error}`);
+      process.exit(1);
+    });
+  }, 60_000);
   const heartbeat = setInterval(() => console.log(`[heartbeat] ${new Date().toISOString()}`), 5 * 60 * 1000);
   const shutdown = async () => {
+    clearInterval(catchUpScan);
     clearInterval(heartbeat);
     await client.disconnect().catch(() => {});
     process.exit(0);
