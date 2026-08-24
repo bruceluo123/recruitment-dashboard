@@ -98,7 +98,9 @@ function loadMatches(records: RobinContactRecord[], candidateName: string, jobTi
 }
 
 function resolveContact(records: RobinContactRecord[], candidateName: string, jobTitle: string) {
-  const matches = loadMatches(records, candidateName, jobTitle);
+  // Automatic backfill must be conservative: a partial name without a strong
+  // job match can easily connect two different candidates (for example vic/Victor).
+  const matches = loadMatches(records, candidateName, jobTitle).filter((match) => match.score >= 87);
   if (!matches.length) return { status: 'not_found' as const };
   if (matches.length > 1 && matches[0].score - matches[1].score < 15) {
     return { status: 'ambiguous' as const, matches: matches.slice(0, 5) };
