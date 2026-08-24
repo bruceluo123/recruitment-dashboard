@@ -1,4 +1,4 @@
-import type { JD } from '@/types/jd';
+import { hasCategory, type JD } from '@/types/jd';
 import type { MatchingResult } from '@/types/matching';
 import { buildBatchMatchingPrompt, buildMatchingPrompt } from './matching-prompt';
 import { aiHttpError } from './ai-fetch';
@@ -16,7 +16,10 @@ function hasOpenGap(jd: JD): boolean {
 }
 // 非推理快速模型：实测 ~24s 完成；推理模型(deepseek-v4-pro)会思考耗光token预算、~84s且空输出
 const MATCH_MODEL = 'deepseek-v4-flash';
-const MATCH_BATCH_SIZE = 8;
+const MATCH_CACHE_VERSION = 'v1';
+const MATCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MATCH_CACHE_PREFIX = 'recruit:stable-match:';
+const MAX_MATCH_CACHE_ENTRIES = 12;
 
 async function callAI(
   messages: Array<{ role: string; content: string }>,
@@ -66,7 +69,7 @@ function buildResult(jd: JD, resumeId: string, parsed: Record<string, unknown>):
     ? [...rawConcerns, `匹配上限：${capReason}`]
     : rawConcerns;
   return {
-    id: `${jd.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: `${resumeId}-${jd.id}`,
     jdId: jd.id, jd, resumeId,
     score: Math.min(rawScore, cap),
     breakdown: {
@@ -81,6 +84,99 @@ function buildResult(jd: JD, resumeId: string, parsed: Record<string, unknown>):
     concerns,
     matchedAt: new Date().toISOString(),
   };
+}
+
+function hasPaidAdvertisingEvidence(resumeText: string): boolean {
+  const execution = /广告账户|媒体账户|广告投放|付费投放|信息流投放|搜索投放|投手|SEM\b/i.test(resumeText);
+  const optimization = /预算|出价|竞价|消耗|素材测试|成本优化|CPC\b|CPM\b/i.test(resumeText);
+  const outcome = /归因|ROI\b|ROAS\b|CPA\b|获客成本|转化成本/i.test(resumeText);
+  return (execution && (optimization || outcome)) || (optimization && outcome);
+}
+
+function applyEvidenceCaps(resumeText: string, result: MatchingResult): MatchingResult {
+  const targetsPaidAdvertising = hasCategory(result.jd, 'advertising')
+    && /投放|广告|买量|SEM/i.test([
+      result.jd.title,
+      ...result.jd.responsibilities,
+      ...result.jd.requirements,
+    ].join('\n'));
+
+  if (!targetsPaidAdvertising || hasPaidAdvertisingEvidence(resumeText) || result.score <= 69) {
+    return result;
+  }
+
+  return {
+    ...result,
+    score: 69,
+    breakdown: {
+      ...result.breakdown,
+      overallFit: Math.min(result.breakdown.overallFit, 69),
+    },
+    concerns: Array.from(new Set([
+      ...result.concerns,
+      '缺少广告账户、预算出价、归因或成本/ROI优化等实际投放闭环证据',
+    ])),
+  };
+}
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function matchCacheKey(resumeText: string, candidates: JD[]): string {
+  const jdFingerprint = candidates
+    .map((jd) => `${jd.id}:${jd.updatedAt}:${jd.gap}:${jd.status}`)
+    .join('|');
+  return `${MATCH_CACHE_PREFIX}${MATCH_CACHE_VERSION}:${resumeText.length}:${stableHash(resumeText)}:${stableHash(jdFingerprint)}`;
+}
+
+function readCachedResults(key: string, resumeId: string): MatchingResult[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as { expiresAt?: number; results?: MatchingResult[] };
+    if (!cached.expiresAt || cached.expiresAt <= Date.now() || !Array.isArray(cached.results)) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+    const matchedAt = new Date().toISOString();
+    return cached.results.map((result) => ({
+      ...result,
+      id: `${resumeId}-${result.jdId}`,
+      resumeId,
+      matchedAt,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedResults(key: string, results: MatchingResult[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const cacheKeys = Object.keys(window.localStorage)
+      .filter((item) => item.startsWith(MATCH_CACHE_PREFIX))
+      .sort((a, b) => {
+        const aExpiry = JSON.parse(window.localStorage.getItem(a) || '{}').expiresAt || 0;
+        const bExpiry = JSON.parse(window.localStorage.getItem(b) || '{}').expiresAt || 0;
+        return aExpiry - bExpiry;
+      });
+    while (cacheKeys.length >= MAX_MATCH_CACHE_ENTRIES) {
+      window.localStorage.removeItem(cacheKeys.shift()!);
+    }
+    window.localStorage.setItem(key, JSON.stringify({
+      expiresAt: Date.now() + MATCH_CACHE_TTL_MS,
+      results,
+    }));
+  } catch {
+    // Storage can be unavailable or full; matching still works without the cache.
+  }
 }
 
 function candidateLimit(total: number): number {
@@ -115,7 +211,7 @@ export async function matchResumeToJDs(
       const results = (parsed.results as Array<Record<string, unknown>>)
         .map((r) => {
           const idx = Number(r.jdIndex) - 1;
-          return candidates[idx] ? buildResult(candidates[idx], resumeId, r) : null;
+          return candidates[idx] ? applyEvidenceCaps(resumeText, buildResult(candidates[idx], resumeId, r)) : null;
         })
         .filter((r): r is MatchingResult => r !== null)
         .sort((a, b) => b.score - a.score);
@@ -155,34 +251,24 @@ export async function matchResumeToJDsStream(
   if (openJds.length === 0) return;
 
   const candidates = prefilterJDs(resumeText, openJds, candidateLimit(openJds.length), detectResumeCategories(resumeText));
-
-  const seen = new Set<string>();
-  const emit = (result: MatchingResult) => {
-    if (seen.has(result.jdId)) return;
-    seen.add(result.jdId);
-    onResult(result);
-  };
+  const cacheKey = matchCacheKey(resumeText, candidates);
+  const cachedResults = readCachedResults(cacheKey, resumeId);
+  if (cachedResults) {
+    cachedResults.forEach(onResult);
+    return;
+  }
 
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  const batches: JD[][] = [];
-  for (let index = 0; index < candidates.length; index += MATCH_BATCH_SIZE) {
-    batches.push(candidates.slice(index, index + MATCH_BATCH_SIZE));
+
+  // All candidates share one AI comparison context. Independent batches use different
+  // scoring baselines and can also disappear silently when one request fails.
+  const results = await matchResumeToJDs(resumeText, candidates, resumeId, signal);
+  if (results.length !== candidates.length) {
+    throw new Error(`匹配结果不完整（${results.length}/${candidates.length}），请重试`);
   }
 
-  const outcomes = await Promise.all(batches.map(async (batch) => {
-    try {
-      const results = await matchResumeToJDs(resumeText, batch, resumeId, signal);
-      results.forEach(emit);
-      return true;
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') throw err;
-      return false;
-    }
-  }));
-
-  if (seen.size === 0 && !outcomes.some(Boolean)) {
-    throw new Error('匹配服务暂不可用，请稍后重试');
-  }
+  writeCachedResults(cacheKey, results);
+  results.forEach(onResult);
 }
 
 async function matchPerJd(
@@ -197,7 +283,7 @@ async function matchPerJd(
         try {
           const prompt = buildMatchingPrompt(resumeText.slice(0, MAX_RESUME_CHARS), jd);
           const content = await callAI([{ role: 'user', content: prompt }], signal);
-          return buildResult(jd, resumeId, parseJson(content));
+          return applyEvidenceCaps(resumeText, buildResult(jd, resumeId, parseJson(content)));
         } catch { return null; }
       }),
     );
