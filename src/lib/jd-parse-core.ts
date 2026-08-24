@@ -219,7 +219,7 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['gaming', /游戏|unity|unreal|ue[45]|cocos|fps|mmo/i],
   // AI: 匹配独立AI词、AI+中文前缀(AI应用/AI效能/AI产品...)、AIGC、Agent、comfyui、效能官/智能体
   ['ai', /(^|[\s\-_/｜|（）()【】])ai(?=$|[\s\-_/｜|（）()【】])|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|gpt|prompt|aigc|\bagent\b|comfyui|效能官|智能体/i],
-  ['algorithm', /算法|推荐系统|nlp|机器学习|深度学习|计算机视觉/i],
+  ['algorithm', /算法|algorithm|推荐系统|nlp|机器学习|深度学习|计算机视觉/i],
   ['frontend', /前端|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端|web\s*sdk/i],
   ['backend', /后端|java|\bgo\b|golang|php|ruby|服务端|python|c\+\+|c#|\.net|架构师|架构设计|springcloud/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
@@ -236,26 +236,68 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['video', /视频|剪辑|后期|短视频|视频制作|导演|摄像|影视|编导|cinemat|videograph/i],
   // 直播: 加团播
   ['live', /直播(?!运营)|主播|场控|中控|带货主播|直播间|直播策划|直播主持|团播/i],
-  ['legal', /法务|法律顾问|律师|合规|知识产权|版权|专利/i],
+  ['legal', /法务|法律顾问|律师|合规|审查|知识产权|版权|专利|政府关系/i],
   ['finance', /财务|会计|出纳|审计|税务/i],
-  ['data', /数据|数据挖掘|爬虫|etl|数据仓库|数据分析|数据工程|大数据/i],
+  ['data', /数据|数据挖掘|爬虫|采集工程师|舆情收集|etl|数据仓库|数据分析|数据工程|大数据/i],
   // 硬件: 加 GPU 微架构/CUDA/Kernel/Tensor Core 等软硬结合性能岗信号
   ['hardware', /gpu|硬件|芯片|嵌入式|固件|pcb|电路|cpu|cuda|kernel|微架构|tensor\s*core/i],
   // HR: 加 人事/SSC(共享服务中心)/绩效/社保/考勤
-  ['hr', /hr|人力|招聘|薪酬|员工关系|组织发展|人事|ssc|绩效|社保|考勤/i],
+  ['hr', /\bhr(?:bp|d|m)?\b|人力|招聘|薪酬|员工关系|组织发展|人事|ssc|绩效|社保|考勤|coe/i],
   // BD: 加 商服(商务服务)
   ['bd', /商务|bd|拓展|渠道|合作|销售|新客户|商服/i],
   ['customer-service', /客服|客户服务|售后/i],
   // 内容创作/编辑（区别于"内容运营"——后者归运营）：加 内容策略
-  ['content', /内容创作|内容编辑|内容生产|内容工程|采编|文案|脚本策划|aigc|内容策略/i],
+  ['content', /内容创作|内容编辑|内容生产|内容工程|采编|编辑专员|主编|编剧|文案|脚本策划|角色ip策划|aigc|内容策略/i],
   ['operations', /运营|电商|直播运营|带货|主播|中控|场控|选品|新媒体运营/i],
   // project: 加 pjm(项目经理英文缩写)
-  ['project', /项目|pmo|scrum|pjm/i],
+  ['project', /项目|专案|pmo|scrum|pjm/i],
   // director: 加组长(Java后端组长、新媒体运营组长)
   ['director', /总监|vp|副总裁|cto|ceo|负责人|组长/i],
   // administration: 加督导、签证/移民/数字游民事务
-  ['administration', /行政|前台|助理|秘书|档案|车辆|办公室|督导|签证|移民|数字游民/i],
+  ['administration', /行政|前台|助理|秘书|档案|资料员|车辆|办公室|督导|签证|移民|数字游民/i],
 ];
+
+/**
+ * 标题里的“岗位角色”决定主分类；AI、游戏、视频等方向词只作为补充标签。
+ * 规则刻意把“运营/产品/设计/开发”等实际职能放在泛方向词之前，避免一处关键词抬高错误类别。
+ */
+function detectPrimaryTitleCategory(title: string): JDCategory | null {
+  const t = (title || '').toLowerCase();
+  if (!t.trim()) return null;
+
+  if (/广告优化|广告投放|信息流|海外投放|投放(?:增长|运营|经理|专员|bd)|\bsem\b|千川/i.test(t)) return 'advertising';
+  if (/\bseo\b|搜索引擎优化|百度优化/i.test(t)) return 'seo';
+  if (/客服|客户服务|售后|技术支持/i.test(t)) return 'customer-service';
+  if (/运营/i.test(t)) return 'operations';
+
+  if (/\bhr(?:bp|d|m)?\b|人力|招聘|薪酬|员工关系|组织发展|人事|\bssc\b|绩效|社保|考勤|\bcoe\b/i.test(t)) return 'hr';
+  if (/法务|律师|法律|合规|审查|知识产权|版权|专利|政府关系/i.test(t)) return 'legal';
+  if (/财务|会计|出纳|审计|税务|财税/i.test(t)) return 'finance';
+  if (/行政|前台|秘书|档案|资料员|督导|签证|移民|数字游民|(?:项目|技术|hr)助理/i.test(t)) return 'administration';
+  if (/培训|讲师|课程|教研|学习发展|经验萃取|业务萃取|sop工程|赋能|带教|演武|认证体系/i.test(t)) return 'training';
+
+  if (/测试|\bqa\b|质量工程|代码审计/i.test(t)) return 'testing';
+  if (/运维|devops|sre|k8s|kubernetes/i.test(t)) return 'devops';
+  if (/舆情收集|采集工程师|爬虫|数据|数仓|etl|商业分析/i.test(t)) return 'data';
+  if (/算法|algorithm|推荐系统|nlp|机器学习|深度学习|计算机视觉/i.test(t)) return 'algorithm';
+  if (/gpu|硬件|芯片|嵌入式|固件|pcb|cuda|微架构/i.test(t)) return 'hardware';
+  if (/前端|flutter|android|ios|web(?:高级|开发|工程)|客户端|小程序|h5/i.test(t)) return 'frontend';
+  if (/后端|\bjava\b|golang|(?:^|\W)go(?:\W|$)|php|c\+\+|c#|\.net|服务端|浏览器内核|后端架构/i.test(t)) return 'backend';
+
+  if (/产品(?:经理|负责人|专员|助理|总监)|系统策划/i.test(t)) return 'product';
+  if (/ui|ux|视觉|设计师|平面|动效/i.test(t)) return 'design';
+  if (/美术|原画|插画|3d|spine|建模|绑定|角色设计/i.test(t)) return 'art';
+  if (/视频|剪辑|后期|短剧|影视|编导|导演|摄像/i.test(t)) return 'video';
+  if (/直播|主播|场控|中控|团播/i.test(t)) return 'live';
+  if (/内容(?:创作|编辑|生产|工程|策略)|编辑专员|主编|编剧|文案|脚本策划|角色ip策划/i.test(t)) return 'content';
+  if (/项目|专案|pmo|scrum|pjm/i.test(t)) return 'project';
+  if (/商务|\bbd\b|渠道(?:拓展|扩展|专员)|销售/i.test(t)) return 'bd';
+  if (/品牌|市场|kol|公关|新媒体孵化|growth/i.test(t)) return 'marketing';
+  if (/游戏|unity|unreal|ue[45]|cocos/i.test(t)) return 'gaming';
+  if (/(^|\W)ai(?:\W|$)|ai(?=[^\x00-\x7f])|人工智能|大模型|llm|aigc|agent|comfyui|智能体/i.test(t)) return 'ai';
+  if (/总监|vp|副总裁|cto|ceo|负责人|组长|主管/i.test(t)) return 'director';
+  return null;
+}
 
 export function detectCategories(text: string): JDCategory[] {
   const t = text.toLowerCase();
@@ -301,12 +343,11 @@ export function classifyJD(
   responsibilities: string[] = [],
   requirements: string[] = [],
 ): JDCategory[] {
-  const t = (title || '').toLowerCase();
-  const titleCats: JDCategory[] = [];
-  for (const [cat, re] of CATEGORY_KEYWORDS) {
-    if (re.test(t) && !titleCats.includes(cat)) titleCats.push(cat);
+  const primary = detectPrimaryTitleCategory(title);
+  if (primary) {
+    const modifiers = detectCategories(title);
+    return [primary, ...modifiers.filter((cat) => cat !== primary)].slice(0, 3);
   }
-  if (titleCats.length) return titleCats.slice(0, 3);
 
   // 标题无信号：用正文打分，取最强信号
   const body = [...responsibilities, ...requirements].join('\n');
