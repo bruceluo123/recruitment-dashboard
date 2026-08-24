@@ -24,6 +24,7 @@ import {
 } from '@/lib/ad-copy';
 import { cn } from '@/lib/utils';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
+import { groupPriorityLabel, groupPriorityRank } from '@/lib/group-priority';
 
 function parseGap(gap?: string): number {
   if (!gap) return 0;
@@ -44,6 +45,8 @@ interface DepartmentGroup {
   serviceUnit: string;
   groups: CategoryGroup[];
   jds: JD[];
+  priorityLabel: string;
+  priorityRank: number;
 }
 
 const SMART_ROTATION_STORAGE_KEY = 'recruit:hot-hiring-smart-rotation-v1';
@@ -115,25 +118,32 @@ function buildDepartmentGroups(jds: JD[]): DepartmentGroup[] {
   }
 
   return Array.from(departments.entries())
-    .map(([key, department]) => ({
-      key,
-      name: department.name,
-      organization: department.organization,
-      serviceUnit: department.serviceUnit,
-      jds: department.jds,
-      groups: Array.from(department.categories.entries())
-        .sort((a, b) => {
-          if (a[0] === 'ai') return -1;
-          if (b[0] === 'ai') return 1;
-          return b[1].length - a[1].length || (JD_CATEGORY_LABELS[a[0]] || a[0]).localeCompare(JD_CATEGORY_LABELS[b[0]] || b[0], 'zh-CN');
-        })
-        .map(([cat, categoryJds]) => ({
-          cat,
-          key: JSON.stringify([key, cat]),
-          jds: categoryJds.sort((a, b) => parseGap(b.gap) - parseGap(a.gap) || (b.updatedAt || '').localeCompare(a.updatedAt || '')),
-        })),
-    }))
-    .sort((a, b) => b.jds.length - a.jds.length || a.name.localeCompare(b.name, 'zh-CN'));
+    .map(([key, department]) => {
+      const priorityJD = department.jds
+        .map((jd) => ({ jd, rank: groupPriorityRank(jd) }))
+        .sort((a, b) => a.rank - b.rank)[0];
+      return {
+        key,
+        name: department.name,
+        organization: department.organization,
+        serviceUnit: department.serviceUnit,
+        jds: department.jds,
+        priorityLabel: priorityJD && priorityJD.rank < Number.MAX_SAFE_INTEGER ? groupPriorityLabel(priorityJD.jd) : '',
+        priorityRank: priorityJD?.rank ?? Number.MAX_SAFE_INTEGER,
+        groups: Array.from(department.categories.entries())
+          .sort((a, b) => {
+            if (a[0] === 'ai') return -1;
+            if (b[0] === 'ai') return 1;
+            return b[1].length - a[1].length || (JD_CATEGORY_LABELS[a[0]] || a[0]).localeCompare(JD_CATEGORY_LABELS[b[0]] || b[0], 'zh-CN');
+          })
+          .map(([cat, categoryJds]) => ({
+            cat,
+            key: JSON.stringify([key, cat]),
+            jds: categoryJds.sort((a, b) => parseGap(b.gap) - parseGap(a.gap) || (b.updatedAt || '').localeCompare(a.updatedAt || '')),
+          })),
+      };
+    })
+    .sort((a, b) => a.priorityRank - b.priorityRank || b.jds.length - a.jds.length || a.name.localeCompare(b.name, 'zh-CN'));
 }
 
 export function HotHiringPage() {
@@ -397,7 +407,14 @@ function DepartmentCard({ department, selectedGroups, onToggleDepartment, onTogg
           aria-label={`选择${department.name}全部岗位类别`}
         />
         <button type="button" onClick={() => setExpanded((value) => !value)} className="min-w-0 flex-1 text-left">
-          <span className="block truncate text-sm font-semibold text-gray-800">{department.name}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-semibold text-gray-800">{department.name}</span>
+            {department.priorityLabel && (
+              <span className="shrink-0 rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                集团优先
+              </span>
+            )}
+          </span>
           {meta && <span className="mt-0.5 block truncate text-xs text-gray-400">{meta}</span>}
         </button>
         {selectedCount > 0 && (

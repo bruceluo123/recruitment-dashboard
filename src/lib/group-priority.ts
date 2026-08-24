@@ -26,3 +26,13 @@ export function groupPriorityLabel(job: GroupPriorityJob): string {
     .replace(/\s+/g, '');
   return GROUP_PRIORITY_RULES.find((rule) => rule.terms.every((term) => haystack.includes(term)))?.label || '';
 }
+
+export function groupPriorityRank(job: GroupPriorityJob): number {
+  const haystack = [job.title, job.department, job.organization, job.serviceUnit, job.requester]
+    .filter(Boolean)
+    .join('|')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  const index = GROUP_PRIORITY_RULES.findIndex((rule) => rule.terms.every((term) => haystack.includes(term)));
+  return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+}
