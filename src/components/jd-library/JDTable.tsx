@@ -234,7 +234,7 @@ function GroupPriorityBadge({ jd }: { jd: JD }) {
       title={`集团优先：${label}`}
       className="shrink-0 rounded border border-amber-200 bg-amber-100 px-1 py-0.5 text-[10px] font-bold leading-none text-amber-700"
     >
-      先
+      优先
     </span>
   );
 }
