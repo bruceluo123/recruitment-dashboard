@@ -19,7 +19,7 @@ import {
 
 import type { JD } from '@/types/jd';
 import {
-  buildAdCopy, buildDesensitizedCopy, renumberDesensitizedText, adVariantLabel, getCategoryEmoji,
+  buildAdCopy, buildBoboHotHiringCopy, buildDesensitizedCopy, renumberDesensitizedText, adVariantLabel, getCategoryEmoji,
   type AdSegment, type AdVariant,
 } from '@/lib/ad-copy';
 import { cn } from '@/lib/utils';
@@ -544,7 +544,9 @@ function SmartAdDialog({ maimanfen, bobo, reasons, regenerating, onRegenerate, o
   const [segments, setSegments] = useState<AdSegment[]>(() => [buildDesensitizedCopy(maimanfen)]);
   useEffect(() => {
     setSegments(
-      hideSalary
+      variant === 'bobo'
+        ? [buildBoboHotHiringCopy()]
+        : hideSalary
         ? [buildDesensitizedCopy(currentJds)]
         : buildAdCopy(currentJds, '今日智能推荐', variant, 9999),
     );
@@ -665,6 +667,7 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
 
   const buildSegments = (): AdSegment[] => {
     if (!selectedJds.length) return [];
+    if (variant === 'bobo') return [buildBoboHotHiringCopy()];
     // 脱敏：编号列表模板（无分类/薪资）；常规：按风格生成
     return hideSalary ? [buildDesensitizedCopy(selectedJds)] : buildAdCopy(selectedJds, label, variant, 9999);
   };
@@ -677,7 +680,11 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
   // 打开弹窗时先按全部岗位生成一版，用户删减后再点「重新生成」
   useEffect(() => {
     const segs = sortedAll.length
-      ? (hideSalary ? [buildDesensitizedCopy(sortedAll)] : buildAdCopy(sortedAll, label, variant, 9999))
+      ? (variant === 'bobo'
+        ? [buildBoboHotHiringCopy()]
+        : hideSalary
+          ? [buildDesensitizedCopy(sortedAll)]
+          : buildAdCopy(sortedAll, label, variant, 9999))
       : [];
     setGeneratedSegments(segs);
     setGeneratedSig(`${hideSalary ? 'd' : 'n'}|${variant}|${sortedAll.map((j) => j.id).join(',')}`);

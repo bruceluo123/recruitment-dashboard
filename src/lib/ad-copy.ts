@@ -170,6 +170,44 @@ export interface AdSegment {
   count: number;
 }
 
+const BOBO_HOT_HIRING_JOBS = [
+  '高级/专家 AI 应用工程师（Agent Ops）',
+  '初/中高级运营专员',
+  'ToC网站综合运营',
+  '运营组长（网站运营）25k-45k/月',
+  '社媒 / 社群运营专员（中级）',
+  '中高级内容运营专员',
+  '运营组长/副主管/主管',
+  '中级社媒运营（KOL & 内容方向）',
+  '中高级产品运营',
+  'APP中级运营',
+  '产品专员',
+  '产品经理',
+  '督导专员',
+  '项目助理',
+  'AI短剧制作',
+  'AI内容创作 / AI漫剧制作',
+  'AI内容编辑（加急）',
+  '视觉交互设计师（AI营销方向）',
+  'UI设计',
+  '数据增长工程师（技术运营方向）',
+  '项目经理',
+  '投融资 · 财税法务',
+  'HRBP/SSC专员',
+];
+
+/** 啵啵热招看板使用的固定对外文案。 */
+export function buildBoboHotHiringCopy(): AdSegment {
+  const text = [
+    '远程岗急招：',
+    ...BOBO_HOT_HIRING_JOBS,
+    '',
+    '更多前后端/测试/AI等技术岗位/远程岗位欢迎投递：@heye66888',
+  ].join('\n');
+
+  return { title: '啵啵热招文案', text, count: BOBO_HOT_HIRING_JOBS.length };
+}
+
 interface CategoryGroup {
   cat: JDCategory;
   jds: JD[];
@@ -201,6 +239,7 @@ function groupByCategory(jds: JD[]): CategoryGroup[] {
  * @param perSegment 每段岗位数上限（参考模板约 20~25）
  */
 export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22): AdSegment[] {
+  if (variant === 'bobo') return [buildBoboHotHiringCopy()];
   const cfg = VARIANTS[variant];
   if (jds.length === 0) return [];
   const groups = groupByCategory(jds);
