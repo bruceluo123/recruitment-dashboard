@@ -74,7 +74,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       // 大文件（>4MB）经 Vercel Blob 客户端直传后再让服务端拉取解析，
       // 绕过 Serverless 4.5MB 请求体上限；小文件走更快的 FormData 直传路径。
       const LARGE_FILE_BYTES = 4 * 1024 * 1024;
-      let res: Response;
+      let parseRequest: () => Promise<Response>;
       if (file.size > LARGE_FILE_BYTES) {
         const { upload } = await import('@vercel/blob/client');
         const blob = await upload(file.name, file, {
@@ -84,7 +84,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
         });
         // 大文件已入 Blob：记下链接，「存入人才库/录入推荐」直接复用无需再传
         set((s) => ({ resumes: s.resumes.map((r) => r.id === id ? { ...r, blobUrl: blob.url } : r) }));
-        res = await fetch('/api/resume/parse', {
+        parseRequest = () => fetch('/api/resume/parse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: blob.url, fileName: file.name }),
@@ -92,7 +92,12 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       } else {
         const formData = new FormData();
         formData.append('file', file);
-        res = await fetch('/api/resume/parse', { method: 'POST', body: formData });
+        parseRequest = () => fetch('/api/resume/parse', { method: 'POST', body: formData });
+      }
+      let res = await parseRequest();
+      if ([502, 503, 504].includes(res.status)) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        res = await parseRequest();
       }
       // 先按状态处理（413 等非 JSON 错误在此转成可读文案，避免 res.json() 抛 Unexpected token）
       if (!res.ok) {

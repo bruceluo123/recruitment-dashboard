@@ -1,5 +1,5 @@
 'use client';
-import { Upload, FileText, Image as ImageIcon, Loader2, Check, AlertCircle, Trash2, UserPlus } from 'lucide-react';
+import { Upload, FileText, Image as ImageIcon, Loader2, Check, AlertCircle, RotateCcw, Trash2, UserPlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Resume } from '@/types/resume';
@@ -120,6 +120,20 @@ export function ResumeUploader({ onFileSelected, isUploading, resumes, activeRes
                 </button>
               )}
               {r.parsingStatus === 'failed' && <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />}
+              {r.parsingStatus === 'failed' && r.file && onRemoveResume && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveResume(r.id);
+                    onFileSelected(r.file!);
+                  }}
+                  disabled={isUploading}
+                  className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-red-50 px-2 text-[11px] font-medium text-red-600 transition-colors hover:bg-red-100 disabled:cursor-wait disabled:opacity-50"
+                  title="重新解析这份简历"
+                >
+                  <RotateCcw className="h-3 w-3" />重试
+                </button>
+              )}
               {onRemoveResume && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemoveResume(r.id); }}
