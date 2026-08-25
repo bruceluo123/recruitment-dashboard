@@ -95,7 +95,7 @@ function buildRecommendationCopy(
   const expectedSalary = readCandidateValue(candidateText, resumeText, ['期望薪资', '薪资期望', '期望月薪']);
   const location = readCandidateValue(candidateText, resumeText, ['目前所在地', '当前所在地', '现居地', '所在地', '现居']);
   const arrivalTime = readCandidateValue(candidateText, resumeText, ['预计可到岗时间', '可到岗时间', '到岗时间', '最快到岗时间']);
-  const organizationParts = [jd.organization, jd.department, jd.serviceUnit]
+  const organizationParts = [jd.organization, jd.serviceUnit]
     .map((value) => value?.trim())
     .filter((value): value is string => !!value);
   const organization = Array.from(new Set(organizationParts)).join('/');
