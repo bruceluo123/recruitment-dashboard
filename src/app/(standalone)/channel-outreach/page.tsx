@@ -769,7 +769,7 @@ export default function ChannelOutreachPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
+    <div className="fixed inset-0 z-[100] min-h-screen bg-[#F8FAFC] flex flex-col">
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
       <main className="flex-1 overflow-y-auto">

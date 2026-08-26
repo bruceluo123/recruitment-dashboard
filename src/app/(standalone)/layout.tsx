@@ -5,9 +5,5 @@ export const metadata: Metadata = {
 }
 
 export default function StandaloneLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="zh-CN">
-      <body style={{ margin: 0 }}>{children}</body>
-    </html>
-  )
+  return children
 }
