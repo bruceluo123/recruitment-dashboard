@@ -39,5 +39,15 @@ while ($true) {
     "$(Get-Date -Format o) active proxy $($proxy.Endpoint)" | Add-Content -LiteralPath $logPath
     $lastSignature = $proxy.Signature
   }
+
+  if ($proxy) {
+    foreach ($taskName in $dependentTasks) {
+      $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+      if ($task -and $task.State -ne 'Running') {
+        Start-ScheduledTask -TaskName $taskName
+        "$(Get-Date -Format o) restarted stopped task $taskName" | Add-Content -LiteralPath $logPath
+      }
+    }
+  }
   Start-Sleep -Seconds 2
 }
