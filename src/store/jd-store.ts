@@ -18,6 +18,7 @@ import {
   getJDKey,
   isAllowedTitleHeader,
   mergeUniqueJDs,
+  normalizeJDSections,
   normalizeExcelRows,
   parseSalary,
   rowToColumnJD,
@@ -459,7 +460,7 @@ export const useJDStore = create<JDStore>()(
         }
       },
     }),
-    { name: 'recruitai-jd-store', version: 4,
+    { name: 'recruitai-jd-store', version: 5,
       partialize: (state) => {
         // Exclude transient import state — always reset on page reload
         const { isImporting, importCancelled, importProgress, cancelImport, ...rest } = state;
@@ -508,7 +509,7 @@ export const useJDStore = create<JDStore>()(
             if (Array.isArray(fixed.requirements)) {
               fixed.requirements = stripContactMeta((fixed.requirements as unknown[]).map(String));
             }
-            return fixed;
+            return normalizeJDSections(fixed as unknown as JD);
           }),
         } as unknown as JDStore;
       },

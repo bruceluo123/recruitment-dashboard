@@ -319,15 +319,45 @@ ${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 
               <textarea value={form.responsibilities} onChange={(e) => setForm({ ...form, responsibilities: e.target.value })}
                 rows={5} placeholder="用分号；分隔多条职责" className="w-full px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 resize-none" />
             ) : (
-              <ul className="space-y-2">
-                {jd.responsibilities.map((r, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                    <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>{r}
-                  </li>
-                ))}
-              </ul>
+              jd.responsibilities.length ? (
+                <ul className="space-y-2">
+                  {jd.responsibilities.map((r, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                      <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>{r}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className={cn(
+                  'flex items-center gap-2 rounded-lg px-3 py-2 text-sm',
+                  jd.requirements.length ? 'bg-gray-50 text-gray-500' : 'bg-amber-50 text-amber-700',
+                )}>
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {jd.requirements.length ? '该岗位未单列职责，请查看下方任职要求。' : '该岗位源数据暂未提供 JD，请点击右上角编辑补充。'}
+                </div>
+              )
             )}
           </GlassPanel>
+
+          {(editing || jd.requirements.length > 0) && (
+            <GlassPanel padding="md">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-3">
+                <AlertCircle className="w-4 h-4 text-indigo-500" />任职要求
+              </h3>
+              {editing ? (
+                <textarea value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })}
+                  rows={5} placeholder="用分号；分隔多条要求" className="w-full px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300 resize-none" />
+              ) : (
+                <ul className="space-y-2">
+                  {jd.requirements.map((r, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                      <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>{r}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </GlassPanel>
+          )}
 
           {/* 关联公司研究 */}
           {!editing && orgName && (

@@ -112,24 +112,26 @@ function normalizeHeader(value: string): string {
 // ─── Section split ───
 
 export function splitJDBySection(text: string): { responsibilities: string[]; requirements: string[] } {
-  const RESP_HEADER = /^(【工作内容】|【岗位职责】|【工作职责】|【工作描述】|工作内容[：:。]?|岗位职责[：:。]?|工作职责[：:。]?)/;
-  const REQ_HEADER = /^(【任职要求】|【岗位要求】|【岗位需求】|【条件】|【任职条件】|【资质要求】|任职要求[：:。]?|岗位需求[：:。]?|任职条件[：:。]?)/;
-  const rawLines = text.split(/[\n\r]+/).map((s) => s.trim()).filter(Boolean);
+  const RESP_TOKEN = '__JD_RESP_SECTION__';
+  const REQ_TOKEN = '__JD_REQ_SECTION__';
+  const SECTION_HEADER = /(【\s*(?:工作内容|岗位职责|工作职责|工作描述|任职要求|岗位要求|岗位需求|条件|任职条件|资质要求)\s*】|(?:工作内容|岗位职责|工作职责|工作描述|任职要求|岗位要求|岗位需求|任职条件|资质要求)(?=$|[\s：:。；;])[：:。]?)/g;
+  const reqHeader = /任职要求|岗位要求|岗位需求|任职条件|资质要求|【\s*条件\s*】/;
+  // 源表经常把“任职要求”和“岗位职责”放在同一个单元格，甚至要求在前、职责在后。
+  // 先把全文中的章节标题标记出来，再按出现顺序切换分桶，不能只识别每行开头。
+  const taggedText = text.replace(SECTION_HEADER, (header) =>
+    `\n${reqHeader.test(header) ? REQ_TOKEN : RESP_TOKEN}\n`);
+  const rawLines = taggedText.split(/[\n\r]+/).map((s) => s.trim()).filter(Boolean);
   let currentBucket: 'resp' | 'req' = 'resp';
   const responsibilities: string[] = [];
   const requirements: string[] = [];
   let hasMarkers = false;
   for (const line of rawLines) {
-    if (RESP_HEADER.test(line)) {
+    if (line === RESP_TOKEN) {
       hasMarkers = true;
       currentBucket = 'resp';
-      const content = line.replace(RESP_HEADER, '').trim();
-      if (content) responsibilities.push(...splitOnPunct(content));
-    } else if (REQ_HEADER.test(line)) {
+    } else if (line === REQ_TOKEN) {
       hasMarkers = true;
       currentBucket = 'req';
-      const content = line.replace(REQ_HEADER, '').trim();
-      if (content) requirements.push(...splitOnPunct(content));
     } else {
       const parts = splitOnPunct(line);
       if (currentBucket === 'req') requirements.push(...parts);
@@ -168,6 +170,35 @@ export function cleanJDNumbering(jd: JD): JD {
     ...jd,
     responsibilities: jd.responsibilities.map(stripLeadingNumber).filter(Boolean),
     requirements: jd.requirements.map(stripLeadingNumber).filter(Boolean),
+  };
+}
+
+/**
+ * 修复历史 JD 中职责/要求错栏：旧解析器只识别行首标题，导致“要求在前、职责在后”
+ * 的整段内容落进 requirements。无章节标题的数据保持原分栏，不做猜测。
+ */
+export function normalizeJDSections(jd: JD): JD {
+  const responsibilities = jd.responsibilities || [];
+  const requirements = jd.requirements || [];
+  if (!responsibilities.length && !requirements.length) return jd;
+
+  const source = [
+    responsibilities.length ? `岗位职责：\n${responsibilities.join('\n')}` : '',
+    requirements.length ? `任职要求：\n${requirements.join('\n')}` : '',
+  ].filter(Boolean).join('\n');
+  const split = splitJDBySection(source);
+  const nextResponsibilities = stripContactMeta(split.responsibilities.map(stripLeadingNumber).filter(Boolean));
+  const nextRequirements = stripContactMeta(split.requirements.map(stripLeadingNumber).filter(Boolean));
+
+  if (
+    nextResponsibilities.join('\n') === responsibilities.join('\n')
+    && nextRequirements.join('\n') === requirements.join('\n')
+  ) return jd;
+
+  return {
+    ...jd,
+    responsibilities: nextResponsibilities,
+    requirements: nextRequirements,
   };
 }
 

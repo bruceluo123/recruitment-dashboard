@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded, pushWeeklyAdded, isTombstoned } from '@/lib/sync';
 import { reconcileScheduledRecommendations } from '@/lib/schedule';
-import { stripContactMeta } from '@/lib/jd-parse-core';
+import { normalizeJDSections, stripContactMeta } from '@/lib/jd-parse-core';
 import { isMockJds } from '@/lib/mock-guard';
 import { mondayKey } from '@/lib/utils';
 import { useJDStore } from '@/store/jd-store';
@@ -74,6 +74,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     startSync((type, data) => {
       skipPush.current = true;
       if (type === 'jds') {
+        let repairedSections = false;
         const normalized = (data as Array<Record<string, unknown>>).map((jd: Record<string, unknown>) => {
           const f = { ...jd } as Record<string, unknown>;
           if (f.category && !f.categories) {
@@ -86,12 +87,17 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           // 清理混入职责/要求尾部的联系人/来源/部门元数据（KV 数据不经过 persist 迁移）
           if (Array.isArray(f.responsibilities)) f.responsibilities = stripContactMeta((f.responsibilities as unknown[]).map(String));
           if (Array.isArray(f.requirements)) f.requirements = stripContactMeta((f.requirements as unknown[]).map(String));
-          return f;
+          const normalizedJD = f as unknown as JD;
+          const repaired = normalizeJDSections(normalizedJD);
+          if (repaired !== normalizedJD) repairedSections = true;
+          return repaired;
         });
         // Only apply remote if it's not empty mock，且不会用空覆盖本地非空
         const typedJds = normalized as unknown as JD[];
         if (!isMockJds(typedJds) && shouldApply(typedJds, useJDStore.getState().jds.length)) {
           useJDStore.setState({ jds: typedJds });
+          // 历史错栏只需修复一次并写回；后续拉取数组一致，不会重复写入。
+          if (repairedSections) syncPush('jds', typedJds);
         }
       }
       if (type === 'candidates') {

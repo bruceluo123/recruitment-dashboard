@@ -134,6 +134,9 @@ function JDTableImpl({
                   {newJdIds?.has(jd.id) && (
                     <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-red-500 text-white shrink-0 leading-none">新</span>
                   )}
+                  {!jd.responsibilities.length && !jd.requirements.length && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 shrink-0 leading-none">JD待补</span>
+                  )}
                   <GroupPriorityBadge jd={jd} />
                 </div>
               </td>
