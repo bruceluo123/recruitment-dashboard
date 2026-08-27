@@ -22,13 +22,40 @@ $deliveryTask = if ($Account -eq 'b') { 'PenguinIslandTgDeliveryWorkerBobo' } el
 $restartDelivery = $false
 $exitCode = 1
 
+function Stop-DeliveryWorkerProcess {
+  param([string]$TargetAccount)
+
+  Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -eq 'node.exe' -and
+    $_.CommandLine -like '*tg-delivery-worker.mjs*' -and
+    $_.CommandLine -like "*--account $TargetAccount*"
+  } | ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+
+  for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+    $remaining = Get-CimInstance Win32_Process | Where-Object {
+      $_.Name -eq 'node.exe' -and
+      $_.CommandLine -like '*tg-delivery-worker.mjs*' -and
+      $_.CommandLine -like "*--account $TargetAccount*"
+    }
+    if (-not $remaining) { return }
+    Start-Sleep -Milliseconds 500
+  }
+
+  throw "Telegram delivery worker for account $TargetAccount did not stop cleanly"
+}
+
 try {
   $task = Get-ScheduledTask -TaskName $deliveryTask -ErrorAction SilentlyContinue
   if ($task -and $task.State -eq 'Running') {
     Stop-ScheduledTask -TaskName $deliveryTask
     $restartDelivery = $true
-    Start-Sleep -Seconds 2
   }
+
+  # Stopping a scheduled PowerShell wrapper does not always terminate the child
+  # Node process. Never open the same Telegram session until that child is gone.
+  Stop-DeliveryWorkerProcess -TargetAccount $Account
 
   & node scripts/tg-sync-resumes.mjs --write --limit 180 --account $Account >> $logPath 2>&1
   $exitCode = $LASTEXITCODE
