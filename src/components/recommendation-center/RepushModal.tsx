@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Check, Copy, FileText, Repeat, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Copy, FileText, Loader2, Repeat, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JD } from '@/types/jd';
 import type { RepushItem } from '@/store/repush-store';
@@ -15,6 +15,14 @@ export interface RepushArgs {
   department: string;
   contactPerson: string;
   recommendationText: string;
+}
+
+interface TgDialogOption {
+  id: string;
+  target: string;
+  title: string;
+  username: string;
+  type: string;
 }
 
 interface RepushModalProps {
@@ -47,16 +55,26 @@ function targetKey(title?: string, organization?: string, department?: string): 
 
 function isSameCandidate(a: RepushItem, b: RepushItem): boolean {
   if (a.column !== b.column) return false;
-  if (a.candidateCode && b.candidateCode) return clean(a.candidateCode).toLowerCase() === clean(b.candidateCode).toLowerCase();
-  return clean(a.candidateName || displayName(a)).toLowerCase() === clean(b.candidateName || displayName(b)).toLowerCase();
+  if (a.candidateCode && b.candidateCode) {
+    return clean(a.candidateCode).toLowerCase() === clean(b.candidateCode).toLowerCase();
+  }
+  return clean(a.candidateName || displayName(a)).toLowerCase()
+    === clean(b.candidateName || displayName(b)).toLowerCase();
+}
+
+function candidateName(item: RepushItem): string {
+  return clean(
+    item.candidateName
+    || readLabeledValue(item.rawText || '', ['候选人姓名（英文名）', '候选人姓名', '姓名'])
+    || displayName(item).split('-')[0],
+  );
 }
 
 function buildRepushCopy(item: RepushItem, jd: JD): string {
   const rawText = item.rawText || '';
-  const candidateName = clean(item.candidateName || readLabeledValue(rawText, ['候选人姓名', '候选姓名', '姓名']) || displayName(item).split('-')[0]);
   return buildRecommendationText(item.column, jd, {
     candidateCode: clean(item.candidateCode),
-    candidateName,
+    candidateName: candidateName(item),
     workYears: readLabeledValue(rawText, ['工作年限', '工作经验年限', '工作经验']),
     currentSalary: readLabeledValue(rawText, ['当前薪资', '目前薪资', '现薪资', '现薪']),
     expectedSalary: readLabeledValue(rawText, ['期望薪资', '薪资期望', '期望月薪']),
@@ -67,12 +85,44 @@ function buildRepushCopy(item: RepushItem, jd: JD): string {
   });
 }
 
-/** 在推荐中心直接选择一个具体 JD、生成文案并建立复推记录。 */
+function safeFilePart(value: string): string {
+  return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim();
+}
+
+function buildDeliveryFileName(item: RepushItem, jd: JD): string {
+  const sourceName = item.resumeFileName || item.fileName;
+  const extension = sourceName.match(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i)?.[0].toLowerCase() || '.pdf';
+  return `${[candidateName(item), jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** 在推荐中心选择具体 JD，生成文案，并可直接把文案与原简历发送到 TG。 */
 export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: RepushModalProps) {
   const [query, setQuery] = useState('');
   const [selectedJdId, setSelectedJdId] = useState('');
   const [copied, setCopied] = useState(false);
+  const [recipient, setRecipient] = useState('@ojisamer');
+  const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
   useEscapeClose(onClose);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tg/dialogs?sender=${item.column}`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || '读取 TG 会话失败');
+        if (!cancelled) setTgDialogs(Array.isArray(data.items) ? data.items : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTgDialogs([]);
+      });
+    return () => { cancelled = true; };
+  }, [item.column]);
 
   const recommendedTargets = useMemo(() => {
     const targets = new Set<string>();
@@ -104,6 +154,7 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
 
   const selectedJd = jds.find((jd) => jd.id === selectedJdId) || null;
   const recommendationText = selectedJd ? buildRepushCopy(item, selectedJd) : '';
+  const hasResume = Boolean(item.resumeUrl);
 
   const handleCopy = async () => {
     if (!recommendationText) return;
@@ -112,7 +163,7 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
     window.setTimeout(() => setCopied(false), 1600);
   };
 
-  const handleConfirm = () => {
+  const confirmRepush = () => {
     if (!selectedJd) return;
     onConfirm({
       jdTitle: selectedJd.title,
@@ -124,9 +175,62 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
     onClose();
   };
 
+  const enqueueDelivery = async (body: object) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 20_000);
+      try {
+        const response = await fetch('/api/tg/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
+        return data;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await wait(800);
+      } finally {
+        window.clearTimeout(timer);
+      }
+    }
+    throw new Error(lastError instanceof Error && lastError.name !== 'AbortError'
+      ? lastError.message
+      : '加入发送队列超时，请稍后重试');
+  };
+
+  const handleSendAndRepush = async () => {
+    if (!selectedJd || !item.resumeUrl || !recipient.trim() || sending) return;
+    setSending(true);
+    setSendError('');
+    try {
+      const requestId = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      await enqueueDelivery({
+        requestId,
+        sender: item.column,
+        target: recipient.trim(),
+        fileUrl: item.resumeUrl,
+        deliveries: [{
+          text: recommendationText,
+          fileName: buildDeliveryFileName(item, selectedJd),
+        }],
+      });
+      confirmRepush();
+    } catch (error) {
+      setSendError((error as Error).message || 'TG 发送失败');
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4" role="dialog" aria-modal="true" aria-label="指定岗位复推">
-      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
@@ -134,10 +238,10 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
               指定岗位复推
             </h3>
             <p className="mt-1 pl-10 text-xs text-slate-400">
-              {displayName(item)} · 选择具体岗位后自动生成对应推荐文案
+              {displayName(item)} · 选择具体岗位后生成推荐文案，可连同原简历直接发送
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600" title="关闭"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} disabled={sending} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed" title="关闭"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[360px_minmax(0,1fr)]">
@@ -162,7 +266,7 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
                   <button
                     type="button"
                     key={jd.id}
-                    onClick={() => { setSelectedJdId(jd.id); setCopied(false); }}
+                    onClick={() => { setSelectedJdId(jd.id); setCopied(false); setSendError(''); }}
                     className={cn(
                       'w-full rounded-lg border px-3 py-2.5 text-left transition-colors',
                       active ? 'border-violet-300 bg-white shadow-sm ring-2 ring-violet-100' : 'border-transparent bg-white/70 hover:border-slate-200 hover:bg-white',
@@ -194,7 +298,7 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? '已复制' : '复制文案'}
                   </button>
                 </div>
-                <textarea readOnly value={recommendationText} onFocus={(event) => event.currentTarget.select()} className="min-h-[300px] flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100" />
+                <textarea readOnly value={recommendationText} onFocus={(event) => event.currentTarget.select()} className="min-h-[280px] flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100" />
               </>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center text-center text-slate-400">
@@ -206,13 +310,42 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
-          <p className="text-xs text-slate-400">确认后会新增一条复推记录，原推荐记录保持不变。</p>
-          <div className="flex shrink-0 gap-2">
-            <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-medium text-slate-500 hover:bg-slate-100">取消</button>
-            <button type="button" onClick={handleConfirm} disabled={!selectedJd} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
-              <Repeat className="h-4 w-4" />确认复推
-            </button>
+        <div className="border-t border-slate-100 px-5 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="min-w-0 flex-1">
+              <label htmlFor="repush-tg-recipient" className="mb-1.5 block text-xs font-medium text-slate-500">发送给</label>
+              <div className="relative">
+                <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="repush-tg-recipient"
+                  list="repush-tg-dialogs"
+                  value={recipient}
+                  onChange={(event) => { setRecipient(event.target.value); setSendError(''); }}
+                  placeholder="@ojisamer"
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                />
+                <datalist id="repush-tg-dialogs">
+                  {tgDialogs.map((dialog) => <option key={dialog.id} value={dialog.target}>{dialog.title || dialog.username}</option>)}
+                </datalist>
+              </div>
+              {sendError ? (
+                <p className="mt-1.5 text-xs text-red-500">{sendError}</p>
+              ) : !hasResume ? (
+                <p className="mt-1.5 text-xs text-amber-600">这条历史记录没有可发送的原简历文件，可复制文案或仅确认复推。</p>
+              ) : (
+                <p className="mt-1.5 text-xs text-slate-400">将发送文案和重命名后的原简历；默认收件人是 @ojisamer。</p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center justify-end gap-2 self-end">
+              <button type="button" onClick={onClose} disabled={sending} className="h-10 rounded-lg px-3 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed">取消</button>
+              <button type="button" onClick={confirmRepush} disabled={!selectedJd || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
+                <Repeat className="h-4 w-4" />仅确认复推
+              </button>
+              <button type="button" onClick={handleSendAndRepush} disabled={!selectedJd || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {sending ? '正在发送' : '发送并复推'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
