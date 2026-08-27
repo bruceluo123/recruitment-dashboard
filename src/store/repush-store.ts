@@ -83,6 +83,13 @@ interface RepushStore {
 
 const DEFAULT_NAMES: Record<RepushColumnId, string> = { a: '麦满分', b: '啵啵' };
 
+/** 云端保留完整推荐记录；浏览器缓存不再重复保存旧版 base64 简历文件。 */
+function compactLocalItem(item: RepushItem): RepushItem {
+  const { dataUrl, ...rest } = item;
+  void dataUrl;
+  return rest;
+}
+
 export const useRepushStore = create<RepushStore>()(
   persist(
     (set) => ({
@@ -166,11 +173,20 @@ export const useRepushStore = create<RepushStore>()(
     }),
     {
       name: 'recruitai-repush-store',
-      version: 1,
-      // v1：把推荐人列名统一为 麦满分 / 啵啵（覆盖历史自定义名）
+      version: 2,
+      partialize: (state) => ({
+        items: state.items.map(compactLocalItem),
+        columnNames: state.columnNames,
+        unfeedbackSnapshots: state.unfeedbackSnapshots,
+      }),
+      // v2：浏览器本地缓存移除旧版 base64 简历；云端完整数据不变。
       migrate: (persisted) => {
         const s = persisted as Partial<RepushStore> | undefined;
-        return { ...(s as object), columnNames: DEFAULT_NAMES } as RepushStore;
+        return {
+          ...(s as object),
+          items: (s?.items || []).map(compactLocalItem),
+          columnNames: DEFAULT_NAMES,
+        } as RepushStore;
       },
     },
   ),
