@@ -182,8 +182,8 @@ export function RecommendationCenter() {
       candidateName: repushing.candidateName || displayName(repushing),
       jdTitle: args.jdTitle || undefined,
       contact: repushing.contact,
-      contactPerson: repushing.contactPerson,
-      rawText: repushing.rawText,
+      contactPerson: args.contactPerson || undefined,
+      rawText: args.recommendationText,
       organization: args.organization || undefined,
       department: args.department || undefined,
       highlights: repushing.highlights,
@@ -365,8 +365,7 @@ export function RecommendationCenter() {
       {repushing && (
         <RepushModal
           item={repushing}
-          orgOptions={orgOptions}
-          deptOptions={deptOptions}
+          existingItems={items}
           jds={jds}
           onClose={() => setRepushing(null)}
           onConfirm={confirmRepush}

@@ -15,6 +15,7 @@ import type { Resume } from '@/types/resume';
 import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { extractRecommendationInfo, type ExtractedRecommendation } from '@/lib/recommendation';
+import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
 
 const OWNER_CONFIG: Record<RepushColumnId, { name: string; codePrefix: string; storageKey: string; recommender: string }> = {
   a: {
@@ -95,33 +96,23 @@ function buildRecommendationCopy(
   const expectedSalary = readCandidateValue(candidateText, resumeText, ['期望薪资', '薪资期望', '期望月薪']);
   const location = readCandidateValue(candidateText, resumeText, ['目前所在地', '当前所在地', '现居地', '所在地', '现居']);
   const arrivalTime = readCandidateValue(candidateText, resumeText, ['预计可到岗时间', '可到岗时间', '到岗时间', '最快到岗时间']);
-  const organizationParts = [jd.organization, jd.serviceUnit]
-    .map((value) => value?.trim())
-    .filter((value): value is string => !!value);
-  const organization = Array.from(new Set(organizationParts)).join('/');
+  const organization = recommendationOrganization(jd);
   const candidateName = info.name || resume.parsedData.name || resume.fileName.replace(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i, '');
   const candidateCode = buildCandidateCode(owner, codeSuffix, info.candidateCode);
   const extension = resumeFileName.match(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i)?.[0].toLowerCase() || '.pdf';
   const renamedResume = `${[candidateName, jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
 
-  const recommendationText = [
-    `候选人编码：${candidateCode}`,
-    `${owner === 'b' ? '候选人姓名' : '候选人姓名（英文名）'}：${candidateName}`,
-    `应聘岗位：${jd.title}`,
-    `工作年限：${workYears}`,
-    `当前薪资：${currentSalary}`,
-    `期望薪资：${expectedSalary}`,
-    `目前所在地：${location}`,
-    `预计可到岗时间：${arrivalTime}`,
-    '是否已沟通工作地点：是',
-    '是否已沟通行业背景要求：是',
-    `推荐编制组织/序列/服务单位：${organization}`,
-    '招聘渠道：寻英',
-    `简历推荐人：${OWNER_CONFIG[owner].recommender}`,
-    `简历来源：${resumeSource || 'boss'}`,
-    ...(owner === 'b' ? [] : [`候选人联系方式：${info.contact || '/'}`]),
-    `简历对接BP：${jd.odc?.trim() || ''}`,
-  ].join('\n');
+  const recommendationText = buildRecommendationText(owner, jd, {
+    candidateCode,
+    candidateName,
+    workYears,
+    currentSalary,
+    expectedSalary,
+    location,
+    arrivalTime,
+    contact: info.contact,
+    resumeSource,
+  });
 
   return {
     jdId: jd.id,
