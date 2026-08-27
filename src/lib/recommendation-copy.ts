@@ -25,6 +25,12 @@ export function recommendationOrganization(jd: JD): string {
   return Array.from(new Set(parts)).join('/');
 }
 
+function formatContactPerson(value?: string): string {
+  return String(value || '')
+    .trim()
+    .replace(/([^\s])\s*(@[A-Za-z0-9_]{2,})/g, '$1 $2');
+}
+
 /** 首次推荐和复推共用的唯一推荐文案模板。 */
 export function buildRecommendationText(
   owner: RepushColumnId,
@@ -47,6 +53,6 @@ export function buildRecommendationText(
     `简历推荐人：${OWNER_RECOMMENDER[owner]}`,
     `简历来源：${candidate.resumeSource || 'boss'}`,
     ...(owner === 'b' ? [] : [`候选人联系方式：${candidate.contact || '/'}`]),
-    `简历对接BP：${jd.odc?.trim() || ''}`,
+    `简历对接BP：${formatContactPerson(jd.odc)}`,
   ].join('\n');
 }
