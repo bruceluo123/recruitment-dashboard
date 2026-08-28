@@ -17,17 +17,6 @@ export const PANEL_HEADERS = [
   '简历对接人 (花名 & @TG)', '需求发起人', '薪资范围', 'JD 岗位职责与任职要求', '备注说明', '加急',
 ];
 
-/** 记录是否「加急」：源面板在该需求的 REQ- 行前单独放一行 ❗ 标记。
- * 从 REQ- 行往上找最近的非空行，是 ❗ 则该记录加急（非加急行此处为「最近更新」）。 */
-function isExpeditedBefore(lines: string[], reqLineIdx: number): boolean {
-  for (let k = reqLineIdx - 1; k >= 0; k--) {
-    const t = lines[k].trim();
-    if (t === '') continue;
-    return t.startsWith('❗');
-  }
-  return false;
-}
-
 function reconstructCells(seg: string[]): string[] {
   const cells = [seg[0].trim()];
   let i = 1;
@@ -47,22 +36,36 @@ function reconstructCells(seg: string[]): string[] {
 }
 
 function reconstructPanelVertical(text: string): string[][] | null {
-  // 竖排面板格式特征：存在以 REQ- 开头的行（记录起点）和 “最近更新” 行（记录终点）。
-  // 注意：序号分隔行可能含制表符，但都落在记录块之外，不影响还原。
+  // 竖排面板格式以“最近更新”作为每条记录的稳定终点。部分面板没有需求Key，
+  // 因此不能只用 REQ- 作为记录起点，否则混合粘贴时会漏掉整段无编号岗位。
   const lines = text.split(/\r?\n/);
-  const reqIdx: number[] = [];
-  let hasEnd = false;
+  const endIdx: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim().startsWith('REQ-')) reqIdx.push(i);
-    if (lines[i].trim() === '最近更新') hasEnd = true;
+    if (lines[i].trim() === '最近更新') endIdx.push(i);
   }
-  if (!reqIdx.length || !hasEnd) return null;
+  if (!endIdx.length) return null;
 
   const rows: string[][] = [PANEL_HEADERS];
-  for (const ri of reqIdx) {
-    let j = ri + 1;
-    while (j < lines.length && lines[j].trim() !== '最近更新') j++;
-    const cells = reconstructCells(lines.slice(ri, j));
+  let previousEnd = -1;
+  for (const end of endIdx) {
+    const block = lines.slice(previousEnd + 1, end);
+    previousEnd = end;
+
+    const values = block.map((line) => line.trim());
+    // 每个分页/表格的表头自身也以“最近更新”结尾，不应当作岗位。
+    if (values.includes('岗位名称') && values.includes('编制组织')) continue;
+
+    const reqOffset = values.findIndex((value) => value.startsWith('REQ-'));
+    const startOffset = reqOffset >= 0
+      ? reqOffset
+      : values.findIndex((value) =>
+        value !== '' && value !== '#' && value !== '▲' && value !== '▼'
+        && !value.startsWith('❗') && !/^\d+$/.test(value));
+    if (startOffset < 0) continue;
+
+    const expedited = values.slice(0, startOffset).some((value) => value.startsWith('❗'));
+    const cells = reconstructCells(block.slice(startOffset));
+    if (!cells[0]?.startsWith('REQ-')) cells.unshift('');
     if (cells.length < 20) continue; // 异常记录，跳过
 
     // 自动检测格式：新格式 cells[3] 为「直属/派驻/外派」
@@ -84,7 +87,7 @@ function reconstructPanelVertical(text: string): string[][] | null {
         full[1], full[2], full[4], full[5], full[6], // 岗位名称/编制组织/服务单位/部门/HC
         full[8], full[12], full[14], full[13], full[16], full[15], // 缺口/优先级/简历对接人/需求发起人/薪资范围/JD
         full[17] || '', // 备注说明
-        isExpeditedBefore(lines, ri) ? '1' : '',
+        expedited ? '1' : '',
       ];
     } else {
       // 旧格式（21 字段）：cells[3]=服务单位, cells[4]=部门, cells[5]=HC
@@ -100,7 +103,7 @@ function reconstructPanelVertical(text: string): string[][] | null {
         full[1], full[2], full[3], full[4], full[5], // 岗位名称/编制组织/服务单位/部门/HC
         full[7], full[11], full[13], full[12], full[15], full[14], // 缺口/优先级/简历对接人/需求发起人/薪资范围/JD
         full[16] || '', // 备注说明
-        isExpeditedBefore(lines, ri) ? '1' : '',
+        expedited ? '1' : '',
       ];
     }
     rows.push(row);

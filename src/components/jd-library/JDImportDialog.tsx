@@ -18,6 +18,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
   const [result, setResult] = useState<JDImportResult | null>(null);
   const isImporting = useJDStore((s) => s.isImporting);
   const progress = useJDStore((s) => s.importProgress);
+  const currentJDCount = useJDStore((s) => s.jds.length);
   const importFromExcel = useJDStore((s) => s.importFromExcel);
   const cancelImport = useJDStore((s) => s.cancelImport);
   useEscapeClose(onClose, isOpen && !isImporting);
@@ -69,6 +70,13 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
       setResult({ success: 0, failed: 1, errors: ['没有可识别的表格数据，请先选中表格再复制粘贴（需包含表头行）'] });
       return;
     }
+    const parsedCount = rows.length - 1;
+    if (
+      replaceMode
+      && currentJDCount >= 20
+      && parsedCount < currentJDCount * 0.6
+      && !window.confirm(`本次只识别到 ${parsedCount} 个岗位，现有岗位库有 ${currentJDCount} 个。\n\n继续覆盖会移除大量岗位，确定仍要覆盖吗？`)
+    ) return;
     try {
       setResult(await importFromExcel(await pastedRowsToFile(rows), mode));
     } catch (err) {
