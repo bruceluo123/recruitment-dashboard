@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sameOriginGuard, rateLimit, clientIp } from '@/lib/api-guard';
+import { getJDKey } from '@/lib/jd-parse-core';
+import type { JD } from '@/types/jd';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,17 +77,51 @@ export async function POST(req: NextRequest) {
     if (!key) return NextResponse.json({ error: `未知数据类型: ${type}` }, { status: 400 });
     if (!Array.isArray(data)) return NextResponse.json({ error: 'data 必须是数组' }, { status: 400 });
 
-    const ok = await upstash('set', key, JSON.stringify(data));
+    const normalizedData = type === 'jds' ? dedupeJDs(data as JD[]) : data;
+    const ok = await upstash('set', key, JSON.stringify(normalizedData));
     if (!ok) return NextResponse.json({ error: 'Write failed' }, { status: 500 });
 
     const rawV = await upstash('get', 'recruit:version');
     const v = (parseInt(rawV || '0') || 0) + 1;
     await upstash('set', 'recruit:version', String(v));
 
-    return NextResponse.json({ ok: true, version: v });
+    return NextResponse.json({
+      ok: true,
+      version: v,
+      deduplicated: data.length - normalizedData.length,
+    });
   } catch {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
+}
+
+function dedupeJDs(jds: JD[]): JD[] {
+  const result: JD[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const jd of jds) {
+    const key = getJDKey(jd);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, result.length);
+      result.push(jd);
+      continue;
+    }
+
+    const existing = result[existingIndex];
+    result[existingIndex] = {
+      ...existing,
+      ...jd,
+      createdAt: existing.createdAt || jd.createdAt,
+      responsibilities: jd.responsibilities?.length ? jd.responsibilities : existing.responsibilities,
+      requirements: jd.requirements?.length ? jd.requirements : existing.requirements,
+      preferredQualifications: jd.preferredQualifications?.length
+        ? jd.preferredQualifications
+        : existing.preferredQualifications,
+    };
+  }
+
+  return result;
 }
 
 function safeParse(raw: string | null): unknown {

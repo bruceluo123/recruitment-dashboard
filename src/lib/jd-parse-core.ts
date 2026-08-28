@@ -433,7 +433,11 @@ export function parseSalary(s: string): { min: number; max: number; currency: st
  * 同名同服务单位但不同部门/HC 的独立岗位；无需求Key 时回退 title|department|location。
  * Used for import dedup AND for add/delete diffing during Google Sheet sync. */
 export function getJDKey(jd: Pick<JD, 'title' | 'department' | 'location' | 'reqKey'>): string {
-  if (jd.reqKey && jd.reqKey.trim()) return `req:${normalizeJDKey(jd.reqKey)}`;
+  // The source sheet occasionally reuses a REQ key for a completely different role.
+  // Pair it with the title so those roles stay separate while repeated imports still dedupe.
+  if (jd.reqKey && jd.reqKey.trim()) {
+    return `req:${normalizeJDKey(jd.reqKey)}|title:${normalizeJDKey(jd.title)}`;
+  }
   return [jd.title, jd.department || '', jd.location || '']
     .map((value) => normalizeJDKey(value))
     .join('|');
