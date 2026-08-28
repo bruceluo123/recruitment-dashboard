@@ -8,6 +8,7 @@ async function kvFetch<T>(command: string, ...args: (string | number)[]): Promis
     const url = `${KV_URL}/${command}/${args.map(encodeURIComponent).join('/')}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${KV_TOKEN}` },
+      cache: 'no-store',
     });
     if (!res.ok) return null;
     const data = await res.json();

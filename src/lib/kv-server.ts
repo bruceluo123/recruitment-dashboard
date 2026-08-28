@@ -11,6 +11,7 @@ export async function kvGetRaw(key: string): Promise<string | null> {
   try {
     const res = await fetch(`${KV}/get/${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${TOK}` },
+      cache: 'no-store',
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -27,6 +28,18 @@ export async function kvSetRaw(key: string, value: string): Promise<boolean> {
       method: 'POST',
       headers: { Authorization: `Bearer ${TOK}`, 'Content-Type': 'text/plain' },
       body: value,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function kvDelRaw(key: string): Promise<boolean> {
+  if (!KV || !TOK) return false;
+  try {
+    const res = await fetch(`${KV}/del/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${TOK}` },
     });
     return res.ok;
   } catch {

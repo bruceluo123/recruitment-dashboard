@@ -1,6 +1,6 @@
 // 服务端数据防丢：每日把 KV 里的同步数据快照到带日期的备份键。
 // 关键保护：若某类型当前为空、但已有非空 latest 备份，则跳过（绝不让"清空"传播进备份）。
-import { kvConfigured, kvGetRaw, kvSetRaw } from '@/lib/kv-server';
+import { kvConfigured, kvDelRaw, kvGetRaw, kvSetRaw } from '@/lib/kv-server';
 
 type BackupType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
 
@@ -14,7 +14,7 @@ const LIVE_KEYS: Record<BackupType, string> = {
 };
 
 const ALL_TYPES: BackupType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies'];
-const KEEP_DAYS = 30; // 保留最近 30 天的每日快照
+const KEEP_DAYS = 7; // 云端只保留近期快照，长期完整备份落到工作站。
 const INDEX_KEY = 'recruit:backup:index';
 
 const dayKey = (type: BackupType, date: string): string => `recruit:backup:${type}:${date}`;
@@ -70,7 +70,7 @@ async function pruneOld(date: string): Promise<number> {
   while (dates.length > KEEP_DAYS) {
     const old = dates.shift();
     if (!old) break;
-    for (const type of ALL_TYPES) await kvSetRaw(dayKey(type, old), '');
+    for (const type of ALL_TYPES) await kvDelRaw(dayKey(type, old));
     pruned++;
   }
   await kvSetRaw(INDEX_KEY, JSON.stringify(dates));
