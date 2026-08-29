@@ -11,6 +11,7 @@ const STATE_KEY = 'recruit:tg-robin-intake-state';
 interface RobinContactRecord {
   candidate?: string;
   jobTitle?: string;
+  contact?: string;
   username?: string;
   sender?: string;
   templateDate?: string;
@@ -73,21 +74,22 @@ function scoreRecord(record: RobinContactRecord, candidateName: string, jobTitle
 }
 
 function loadMatches(records: RobinContactRecord[], candidateName: string, jobTitle: string) {
-  const byUsername = new Map<string, { record: RobinContactRecord; score: number }>();
+  const byContact = new Map<string, { record: RobinContactRecord; score: number }>();
   for (const record of records) {
-    const username = String(record.username || '').replace(/^@/, '').toLowerCase();
-    if (!username) continue;
+    const contact = String(record.contact || record.username || '').trim();
+    if (!contact) continue;
+    const contactKey = contact.toLowerCase();
     const score = scoreRecord(record, candidateName, jobTitle);
     if (score < 65) continue;
-    const current = byUsername.get(username);
+    const current = byContact.get(contactKey);
     if (!current || score > current.score || (score === current.score && String(record.templateDate || '') > String(current.record.templateDate || ''))) {
-      byUsername.set(username, { record, score });
+      byContact.set(contactKey, { record, score });
     }
   }
 
-  return Array.from(byUsername.entries())
-    .map(([username, match]) => ({
-      username: `@${username}`,
+  return Array.from(byContact.entries())
+    .map(([, match]) => ({
+      contact: String(match.record.contact || match.record.username || '').trim(),
       sender: match.record.sender || '',
       candidate: match.record.candidate || '',
       jobTitle: match.record.jobTitle || '',
@@ -105,7 +107,7 @@ function resolveContact(records: RobinContactRecord[], candidateName: string, jo
   if (matches.length > 1 && matches[0].score - matches[1].score < 15) {
     return { status: 'ambiguous' as const, matches: matches.slice(0, 5) };
   }
-  return { status: 'found' as const, contact: matches[0].username, match: matches[0] };
+  return { status: 'found' as const, contact: matches[0].contact, match: matches[0] };
 }
 
 async function loadContactRecords() {
@@ -116,7 +118,7 @@ async function loadContactRecords() {
   const index = parseCache(indexValue);
   const state = parseCache(stateValue);
   const records = [...(index?.items || []), ...(state?.recentDetected || [])]
-    .filter((record) => record.username && record.candidate);
+    .filter((record) => (record.contact || record.username) && record.candidate);
   return { records, updatedAt: index?.updatedAt || state?.updatedAt || '' };
 }
 
@@ -137,7 +139,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       status: 'not_found',
-      message: 'Robin 私聊中暂未找到对应用户名',
+      message: 'Robin 私聊中暂未找到可用联系方式',
       updatedAt,
     });
   }
@@ -151,7 +153,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ ok: true, status: 'found', contact: matches[0].username, match: matches[0] });
+  return NextResponse.json({ ok: true, status: 'found', contact: matches[0].contact, match: matches[0] });
 }
 
 export async function POST(request: NextRequest) {

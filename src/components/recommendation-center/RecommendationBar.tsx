@@ -70,7 +70,7 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
       const response = await fetch(`/api/tg/robin-contact?${params.toString()}`, { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok || data.status !== 'found' || !data.contact) {
-        setContactHint(data.message || '未找到 Robin 私聊用户名，请手动填写');
+        setContactHint(data.message || '未找到 Robin 私聊联系方式，请手动填写');
         startEditContact();
         return;
       }
@@ -175,7 +175,7 @@ export function RecommendationBar({ item, onSchedule, onEdit, onRepush, onOffer,
           data-contact-action="add"
           onClick={lookupRobinContact}
           disabled={lookingUpContact}
-          title={item.column === 'a' ? '从 Robin 私聊自动查找 Telegram 用户名' : '补充联系方式'}
+          title={item.column === 'a' ? '从 Robin 私聊自动查找 Telegram 联系方式' : '补充联系方式'}
           className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium text-indigo-500 bg-white border border-dashed border-indigo-200 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-70 transition-colors"
         >
           {lookingUpContact ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Phone className="w-3.5 h-3.5" />}

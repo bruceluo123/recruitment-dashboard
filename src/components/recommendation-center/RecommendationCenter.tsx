@@ -65,7 +65,9 @@ export function RecommendationCenter() {
   const [reporting, setReporting] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
+  const [contactRefreshTick, setContactRefreshTick] = useState(0);
   const attemptedContactLookups = useRef(new Set<string>());
+  const contactRefreshGeneration = useRef(-1);
 
   const orgOptions = useMemo(() => {
     const set = new Set<string>();
@@ -81,7 +83,16 @@ export function RecommendationCenter() {
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setContactRefreshTick((value) => value + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!mounted) return;
+    if (contactRefreshGeneration.current !== contactRefreshTick) {
+      attemptedContactLookups.current.clear();
+      contactRefreshGeneration.current = contactRefreshTick;
+    }
 
     const targets = items.filter((item) => item.column === 'a' && !item.contact && (item.candidateName || displayName(item)));
     const pending = targets.filter((item) => {
@@ -95,34 +106,37 @@ export function RecommendationCenter() {
     const controller = new AbortController();
     const run = async () => {
       try {
-        const response = await fetch('/api/tg/robin-contact', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            candidates: pending.map((item) => ({
-              key: item.id,
-              name: item.candidateName || displayName(item).split('-')[0].trim(),
-              job: item.jdTitle || '',
-            })),
-          }),
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        const data = await response.json();
-        if (!response.ok || !Array.isArray(data.results)) return;
-
         const targetById = new Map(pending.map((item) => [item.id, item]));
         const bestByCandidate = new Map<string, { contact: string; score: number }>();
-        for (const result of data.results) {
-          if (result.status !== 'found' || !result.contact) continue;
-          const target = targetById.get(String(result.key));
-          if (!target) continue;
-          const candidateKey = target.candidateCode
-            ? `code:${target.candidateCode}`
-            : `name:${String(target.candidateName || displayName(target)).trim().toLowerCase()}`;
-          const score = Number(result.match?.score) || 0;
-          const current = bestByCandidate.get(candidateKey);
-          if (!current || score > current.score) bestByCandidate.set(candidateKey, { contact: String(result.contact).trim(), score });
+        for (let index = 0; index < pending.length; index += 250) {
+          const batch = pending.slice(index, index + 250);
+          const response = await fetch('/api/tg/robin-contact', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              candidates: batch.map((item) => ({
+                key: item.id,
+                name: item.candidateName || displayName(item).split('-')[0].trim(),
+                job: item.jdTitle || '',
+              })),
+            }),
+            cache: 'no-store',
+            signal: controller.signal,
+          });
+          const data = await response.json();
+          if (!response.ok || !Array.isArray(data.results)) continue;
+
+          for (const result of data.results) {
+            if (result.status !== 'found' || !result.contact) continue;
+            const target = targetById.get(String(result.key));
+            if (!target) continue;
+            const candidateKey = target.candidateCode
+              ? `code:${target.candidateCode}`
+              : `name:${String(target.candidateName || displayName(target)).trim().toLowerCase()}`;
+            const score = Number(result.match?.score) || 0;
+            const current = bestByCandidate.get(candidateKey);
+            if (!current || score > current.score) bestByCandidate.set(candidateKey, { contact: String(result.contact).trim(), score });
+          }
         }
 
         for (const item of items) {
@@ -144,7 +158,7 @@ export function RecommendationCenter() {
 
     void run();
     return () => controller.abort();
-  }, [items, mounted, updateItem]);
+  }, [contactRefreshTick, items, mounted, updateItem]);
 
   if (!mounted) return null;
 

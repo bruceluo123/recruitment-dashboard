@@ -198,6 +198,14 @@ function entityUsername(entity) {
   return clean(entity?.username).replace(/^@/, '');
 }
 
+function entityContact(entity) {
+  const username = entityUsername(entity);
+  if (username) return `@${username}`;
+  const phone = clean(entity?.phone).replace(/[^\d+]/g, '');
+  if (!phone) return '';
+  return phone.startsWith('+') ? phone : `+${phone}`;
+}
+
 function isPrivateIncoming(message) {
   return Boolean(message?.isPrivate) && !message?.out;
 }
@@ -267,6 +275,7 @@ async function recordsForChat(client, entity, templates, { messageLimit, cutoff 
       chatId: String(template.chatId || entity.id),
       chatName: entityName(entity),
       username: entityUsername(entity),
+      contact: entityContact(entity),
       templateMessageId: template.id,
       templateDate: new Date(Number(template.date) * 1000).toISOString(),
       candidate,
@@ -405,6 +414,7 @@ async function persistContactIndex(result) {
     chatId: item.chatId,
     sender: item.chatName,
     username: item.username ? `@${item.username}` : '',
+    contact: item.contact || (item.username ? `@${item.username}` : ''),
     candidate: item.candidate.name,
     jobTitle: item.candidate.jobTitle,
     templateDate: item.templateDate,
@@ -423,6 +433,7 @@ function scanSummary(result, processedSet) {
     .map((item) => ({
       sender: item.chatName,
       username: item.username ? `@${item.username}` : '',
+      contact: item.contact || (item.username ? `@${item.username}` : ''),
       candidate: item.candidate.name,
       jobTitle: item.candidate.jobTitle,
       templateDate: item.templateDate,
@@ -484,6 +495,7 @@ async function main() {
       state.recentDetected.push({
         sender: pair.chatName,
         username: pair.username ? `@${pair.username}` : '',
+        contact: pair.contact || (pair.username ? `@${pair.username}` : ''),
         candidate: pair.candidate.name,
         jobTitle: pair.candidate.jobTitle,
         templateDate: pair.templateDate,
@@ -520,6 +532,7 @@ async function main() {
       state.recentDetected.push({
         sender: pair.chatName,
         username: pair.username ? `@${pair.username}` : '',
+        contact: pair.contact || (pair.username ? `@${pair.username}` : ''),
         candidate: pair.candidate.name,
         jobTitle: pair.candidate.jobTitle,
         templateDate: pair.templateDate,
