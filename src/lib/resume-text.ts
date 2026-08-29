@@ -28,6 +28,50 @@ function isTextLayerSparse(text: string, numPages: number): boolean {
   return meaningfulLength(text) < pages * 350;
 }
 
+function decodeHtmlEntities(text: string): string {
+  const named: Record<string, string> = {
+    amp: '&', apos: "'", gt: '>', lt: '<', nbsp: ' ', quot: '"',
+  };
+  return text.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, code: string) => {
+    if (code[0] !== '#') return named[code.toLowerCase()] ?? entity;
+    const value = code[1]?.toLowerCase() === 'x'
+      ? Number.parseInt(code.slice(2), 16)
+      : Number.parseInt(code.slice(1), 10);
+    return Number.isFinite(value) ? String.fromCodePoint(value) : entity;
+  });
+}
+
+function extractWordHtml(buffer: Buffer): string {
+  const header = buffer.subarray(0, Math.min(buffer.length, 4096)).toString('ascii');
+  const charset = header.match(/charset\s*=\s*["']?([\w-]+)/i)?.[1]?.toLowerCase() || 'utf-8';
+  const encoding = charset === 'gb2312' || charset === 'gbk' ? 'gb18030' : charset;
+  let html: string;
+  try {
+    html = new TextDecoder(encoding).decode(buffer);
+  } catch {
+    html = new TextDecoder('utf-8').decode(buffer);
+  }
+
+  const bodyStart = html.search(/<body\b/i);
+  if (bodyStart >= 0) {
+    const contentStart = html.indexOf('>', bodyStart);
+    const bodyEnd = html.search(/<\/body\s*>/i);
+    html = html.slice(contentStart + 1, bodyEnd > contentStart ? bodyEnd : undefined);
+  }
+
+  return decodeHtmlEntities(html)
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(?:br|hr)\b[^>]*>/gi, '\n')
+    .replace(/<\/(?:div|h[1-6]|li|p|table|tr)>/gi, '\n')
+    .replace(/<\/(?:td|th)>/gi, '\t')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[\t ]+\n/g, '\n')
+    .replace(/\n[\t ]+/g, '\n')
+    .replace(/[\t ]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
   let pdfText = '';
   let numPages = 1;
@@ -102,6 +146,18 @@ export async function extractResumeText(buffer: Buffer, fileName: string): Promi
   }
   if (lower.endsWith('.doc')) {
     try {
+      const signature = buffer.subarray(0, 16).toString('ascii').trimStart().toLowerCase();
+      if (signature.startsWith('<html') || signature.startsWith('<!doctype')) {
+        const text = extractWordHtml(buffer);
+        if (meaningfulLength(text) > 0) return { text: clipForStorage(text), source: 'word-html' };
+      }
+      if (buffer.subarray(0, 2).toString('ascii') === 'PK') {
+        const mammoth = await import('mammoth');
+        const result = await mammoth.extractRawText({ buffer });
+        if (meaningfulLength(result.value) > 0) {
+          return { text: clipForStorage(result.value), source: 'docx' };
+        }
+      }
       const WordExtractor = (await import('word-extractor')).default;
       const extractor = new WordExtractor();
       const doc = await extractor.extract(buffer);
@@ -109,7 +165,7 @@ export async function extractResumeText(buffer: Buffer, fileName: string): Promi
       if (meaningfulLength(text) > 0) return { text: clipForStorage(text), source: 'doc' };
       return { error: '.doc 解析为空，请尝试转为 PDF / DOCX 或复制粘贴简历文本' };
     } catch {
-      return { error: '.doc 解析失败，请尝试转为 PDF / DOCX 或复制粘贴简历文本' };
+      return { error: '该 Word 文件无法解析，请用 Word/WPS 另存为 DOCX 或 PDF 后重试' };
     }
   }
   return { error: '仅支持 PDF / DOC / DOCX / JPG / PNG / WebP / GIF 格式' };

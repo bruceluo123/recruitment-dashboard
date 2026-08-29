@@ -7,6 +7,16 @@ export function aiHttpError(status: number, body?: string): Error {
   if (status === 413) {
     return new Error('内容过大（超出 4.5MB 上限），请减少一次匹配的岗位/候选人数量，或换用更小的简历文件');
   }
+  if (body) {
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === 'string' && parsed.error.trim()) {
+        return new Error(parsed.error.trim());
+      }
+    } catch {
+      // 非 JSON 错误继续使用通用提示。
+    }
+  }
   const tail = body ? `：${body.slice(0, 120)}` : '';
   return new Error(`服务错误 ${status}${tail}`);
 }
