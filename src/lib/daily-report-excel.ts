@@ -20,7 +20,7 @@ interface ExportDailyReportArgs {
 
 type Worksheet = import('exceljs').Worksheet;
 type Style = import('exceljs').Style;
-type ReportRow = Array<string | number>;
+type ReportRow = Array<string | number | null>;
 type RowTemplate = {
   height?: number;
   styles: Array<Partial<Style>>;
@@ -215,8 +215,8 @@ function applyRowTemplate(ws: Worksheet, rowNumber: number, template: RowTemplat
 function writeCells(ws: Worksheet, rowNumber: number, values: ReportRow, template: RowTemplate): void {
   applyRowTemplate(ws, rowNumber, template);
   for (let col = START_COL; col <= END_COL; col++) {
-    const value = values[col - START_COL] ?? '';
-    ws.getCell(rowNumber, col).value = value === 0 ? '' : value;
+    const value = values[col - START_COL] ?? null;
+    ws.getCell(rowNumber, col).value = value === 0 || value === '' ? null : value;
   }
 }
 
@@ -229,7 +229,7 @@ function writeMergedRow(ws: Worksheet, rowNumber: number, value: string | import
 function writeDataRows(ws: Worksheet, startRow: number, rows: ReportRow[], capacity: number, template: RowTemplate): number {
   const count = Math.max(rows.length, capacity);
   for (let i = 0; i < count; i++) {
-    writeCells(ws, startRow + i, rows[i] || ['', '', '', '', '', ''], template);
+    writeCells(ws, startRow + i, rows[i] || [null, null, null, null, null, null], template);
   }
   return startRow + count;
 }
@@ -316,7 +316,7 @@ export async function exportDailyReportExcel({
   applyRowTemplate(ws, row, difficultyNoteTemplate);
   applyRowTemplate(ws, row + 1, difficultyNoteTemplate);
   ws.mergeCells(row, START_COL, row + 1, END_COL);
-  ws.getCell(row, START_COL).value = '';
+  ws.getCell(row, START_COL).value = null;
 
   const output = await workbook.xlsx.writeBuffer();
   const filename = `${name}-工作日报-${localDateKey(date)}.xlsx`;
