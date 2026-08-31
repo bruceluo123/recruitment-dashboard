@@ -10,6 +10,8 @@ import type { InterviewStage, Candidate, CandidateStatus } from '@/types/intervi
 interface StageKanbanColumnProps {
   stage: InterviewStage;
   candidates: Candidate[];
+  title?: string;
+  subtitle?: string;
   onCandidateClick: (candidateId: string) => void;
   onFailCandidate: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
@@ -21,7 +23,7 @@ const LANE_TONES: Record<CandidateStatus, string> = {
   offer: 'bg-emerald-50/70',
 };
 
-export function StageKanbanColumn({ stage, candidates, onCandidateClick, onFailCandidate, onEarlyDeparture }: StageKanbanColumnProps) {
+export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandidateClick, onFailCandidate, onEarlyDeparture }: StageKanbanColumnProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
@@ -44,7 +46,8 @@ export function StageKanbanColumn({ stage, candidates, onCandidateClick, onFailC
       <header className={cn('flex h-12 items-center justify-between border-b border-gray-100 px-4', LANE_TONES[stage.id])}>
         <div className="flex min-w-0 items-center gap-3">
           <div className={cn('h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white/80', dotColor)} />
-          <h3 className="text-sm font-semibold text-gray-800">{stage.name}</h3>
+          <h3 className="text-sm font-semibold text-gray-800">{title || stage.name}</h3>
+          {subtitle && <span className="text-xs text-gray-400">{subtitle}</span>}
           <span className="rounded-md border border-white bg-white/90 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-600 shadow-sm">
             {badgeValue}{isOffer && <span className="ml-0.5 text-[10px] font-medium text-gray-400">分</span>}
           </span>
