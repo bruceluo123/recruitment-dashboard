@@ -95,17 +95,34 @@ export function RecommendationCenter() {
     }
 
     const targets = items.filter((item) => item.column === 'a' && !item.contact && (item.candidateName || displayName(item)));
+    const contactsByCandidateCode = new Map<string, Set<string>>();
+    for (const item of items) {
+      const code = item.candidateCode?.trim();
+      const contact = item.contact?.trim();
+      if (item.column !== 'a' || !code || !contact) continue;
+      const contacts = contactsByCandidateCode.get(code) || new Set<string>();
+      contacts.add(contact);
+      contactsByCandidateCode.set(code, contacts);
+    }
+    const inheritedContacts = new Map<string, string>();
+    for (const item of targets) {
+      const contacts = item.candidateCode ? contactsByCandidateCode.get(item.candidateCode.trim()) : undefined;
+      if (contacts?.size === 1) inheritedContacts.set(item.id, Array.from(contacts)[0]);
+    }
     const pending = targets.filter((item) => {
+      if (inheritedContacts.has(item.id)) return false;
       const lookupKey = `${item.candidateCode || item.candidateName || item.id}|${item.jdTitle || ''}`;
       if (attemptedContactLookups.current.has(lookupKey)) return false;
       attemptedContactLookups.current.add(lookupKey);
       return true;
     });
-    if (!pending.length) return;
+    if (!inheritedContacts.size && !pending.length) return;
 
     const controller = new AbortController();
     const run = async () => {
       try {
+        inheritedContacts.forEach((contact, id) => updateItem(id, { contact }));
+
         const targetById = new Map(pending.map((item) => [item.id, item]));
         const bestByCandidate = new Map<string, { contact: string; score: number }>();
         for (let index = 0; index < pending.length; index += 250) {
