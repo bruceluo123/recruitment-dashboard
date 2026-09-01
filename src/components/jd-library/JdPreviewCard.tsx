@@ -1,13 +1,34 @@
 'use client';
+import { useState } from 'react';
 import type { JD } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
-import { X } from 'lucide-react';
+import { formatSalary } from '@/lib/utils';
+import { Check, Copy, X } from 'lucide-react';
 
 // JD 详情预览卡（左侧滑出）。原本在 ImportDiffDialog 与 WeeklyAddedDialog 中各复制一份，
 // 抽成共用组件避免字段调整时漏改一处（历史上「今日增改与详情卡不一致」bug 即此类）。
 interface JdPreviewCardProps { jd: JD; onClose: () => void; }
 
 export function JdPreviewCard({ jd, onClose }: JdPreviewCardProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const salary = jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '');
+    const sections = [
+      jd.responsibilities.length
+        ? `岗位职责：\n${jd.responsibilities.map((item, index) => `${index + 1}. ${item}`).join('\n')}`
+        : '',
+      jd.requirements.length
+        ? `任职要求：\n${jd.requirements.map((item, index) => `${index + 1}. ${item}`).join('\n')}`
+        : '',
+    ].filter(Boolean);
+    const text = `${jd.title}${salary ? `\n薪资：${salary}` : ''}${sections.length ? `\n\n${sections.join('\n\n')}` : ''}`;
+
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
     <div className="relative z-10 w-[360px] h-full bg-white border-r border-gray-100 shadow-xl flex flex-col overflow-hidden animate-fade-in">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
@@ -17,9 +38,22 @@ export function JdPreviewCard({ jd, onClose }: JdPreviewCardProps) {
           </span>
           <h4 className="text-sm font-semibold text-gray-800 truncate">{jd.title}</h4>
         </div>
-        <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 shrink-0 ml-2">
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+          <button
+            onClick={handleCopy}
+            className={`h-7 px-2.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+              copied
+                ? 'bg-green-50 text-green-600 border border-green-200'
+                : 'bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100'
+            }`}
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? '已复制' : '复制 JD'}
+          </button>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
       <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
