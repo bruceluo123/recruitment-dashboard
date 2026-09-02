@@ -32,6 +32,12 @@ function parseGap(gap?: string): number {
   return m ? parseInt(m[0], 10) : 0;
 }
 
+function timestampOf(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const timestamp = Date.parse(String(value || ''));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 interface CategoryGroup {
   cat: JDCategory;
   jds: JD[];
@@ -153,7 +159,7 @@ function buildDepartmentGroups(jds: JD[]): DepartmentGroup[] {
           .map(([cat, categoryJds]) => ({
             cat,
             key: JSON.stringify([key, cat]),
-            jds: categoryJds.sort((a, b) => parseGap(b.gap) - parseGap(a.gap) || (b.updatedAt || '').localeCompare(a.updatedAt || '')),
+            jds: categoryJds.sort((a, b) => parseGap(b.gap) - parseGap(a.gap) || timestampOf(b.updatedAt) - timestampOf(a.updatedAt)),
           })),
       };
     })
@@ -176,7 +182,7 @@ export function HotHiringPage() {
   const selectJD = useJDStore((s) => s.selectJD);
   // 本周新增 = 最近 5 个工作日内新增（按 createdAt 滚动窗口，跨周末，与 JD 库角标一致）
   const weeklyJds = useMemo<JD[]>(
-    () => recentlyAddedJds(jds).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    () => recentlyAddedJds(jds).sort((a, b) => timestampOf(b.createdAt) - timestampOf(a.createdAt)),
     [jds],
   );
 
