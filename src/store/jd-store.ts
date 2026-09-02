@@ -18,6 +18,7 @@ import {
   getJDKey,
   isAllowedTitleHeader,
   mergeUniqueJDs,
+  normalizeJDCount,
   normalizeJDSections,
   normalizeExcelRows,
   parseSalary,
@@ -283,8 +284,8 @@ export const useJDStore = create<JDStore>()(
                 const orgSplit = splitOrgDept(orgCol ? String(row[orgCol] || '').trim() : '');
                 const organization = orgSplit.org;
                 const serviceUnit = serviceCol ? String(row[serviceCol] || '').trim() : '';
-                const headcount = hcCol ? String(row[hcCol] || '').trim() : '';
-                const gap = (vacancyCol ? String(row[vacancyCol] || '').trim() : '') || '0';
+                const headcount = normalizeJDCount(hcCol ? row[hcCol] : '');
+                const gap = normalizeJDCount(vacancyCol ? row[vacancyCol] : '', '0');
                 const priority = priorityCol ? parsePriority(String(row[priorityCol] || '').trim()) : undefined;
                 const odc = odcCol ? String(row[odcCol] || '').trim() : '';
                 const requester = requesterCol ? String(row[requesterCol] || '').trim() : '';

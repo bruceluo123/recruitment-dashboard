@@ -10,6 +10,7 @@ import { useCompanyStore } from '@/store/company-store';
 import { hasResearch } from '@/types/company';
 import { TalentQueryDialog } from '@/components/talent-pool/TalentQueryDialog';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
+import { normalizeJDCount } from '@/lib/jd-parse-core';
 
 interface JDDetailPanelProps { jd: JD | null; isOpen: boolean; onClose: () => void; }
 
@@ -68,8 +69,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       categories: jd.categories.length > 0 ? jd.categories : ['operations'], status: jd.status,
       responsibilities: jd.responsibilities.join('；'),
       requirements: jd.requirements.join('；'),
-      headcount: jd.headcount || '',
-      gap: jd.gap || '',
+      headcount: normalizeJDCount(jd.headcount),
+      gap: normalizeJDCount(jd.gap),
     });
     setEditing(true);
   };
@@ -106,8 +107,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       salaryRange,
       salaryText: salaryText || undefined,
       status: form.status,
-      headcount: form.headcount.trim() || undefined,
-      gap: form.gap.trim() || undefined,
+      headcount: normalizeJDCount(form.headcount) || undefined,
+      gap: normalizeJDCount(form.gap) || undefined,
     });
     setEditing(false);
   };
@@ -279,11 +280,11 @@ ${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 
               </>
             )}
             <InfoTile icon={Clock} label="更新" value={formatDate(jd.updatedAt)} />
-            {(jd.organization || jd.headcount || jd.gap) && (
+            {(jd.organization || normalizeJDCount(jd.headcount) || normalizeJDCount(jd.gap)) && (
               <>
                 {jd.organization && <InfoTile icon={Building2} label="编制组织" value={jd.organization} />}
-                {jd.headcount && <InfoTile icon={Users} label="HC" value={jd.headcount} />}
-                {jd.gap && <InfoTile icon={AlertCircle} label="缺口" value={jd.gap} />}
+                {normalizeJDCount(jd.headcount) && <InfoTile icon={Users} label="HC" value={normalizeJDCount(jd.headcount)} />}
+                {normalizeJDCount(jd.gap) && <InfoTile icon={AlertCircle} label="缺口" value={normalizeJDCount(jd.gap)} />}
               </>
             )}
           </div>

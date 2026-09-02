@@ -5,6 +5,7 @@ import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JD } from '@/types/jd';
 import { ChevronRight, Trash2, Copy, Check, Filter } from 'lucide-react';
 import { ColumnFilter } from '@/components/ui/ColumnFilter';
 import { groupPriorityLabel } from '@/lib/group-priority';
+import { normalizeJDCount } from '@/lib/jd-parse-core';
 
 interface JDTableProps {
   jds: JD[];
@@ -144,10 +145,13 @@ function JDTableImpl({
                 <span className={cn('inline-block px-2 py-0.5 rounded-md text-xs font-medium whitespace-nowrap', JD_CATEGORY_COLORS[jd.categories[0]])}>{JD_CATEGORY_LABELS[jd.categories[0]]}</span>
               </td>
               <td className={cn('py-3 px-2 text-center w-14', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <span className="text-sm font-medium text-gray-700">{jd.headcount || '-'}</span>
+                <span className="text-sm font-medium text-gray-700">{normalizeJDCount(jd.headcount, '-')}</span>
               </td>
               <td className={cn('py-3 px-2 text-center w-14', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <span className={cn('text-sm font-medium', jd.gap && jd.gap !== '0' ? 'text-red-500' : 'text-gray-400')}>{jd.gap || '-'}</span>
+                {(() => {
+                  const gap = normalizeJDCount(jd.gap, '-');
+                  return <span className={cn('text-sm font-medium', gap !== '-' && gap !== '0' ? 'text-red-500' : 'text-gray-400')}>{gap}</span>;
+                })()}
               </td>
               {(() => {
                 const orgServiceText = [jd.organization, jd.serviceUnit].filter(Boolean).join(' ');

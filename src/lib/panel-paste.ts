@@ -116,9 +116,6 @@ function reconstructPanelVertical(text: string): string[][] | null {
  *  2) 复制带的 HTML 表格 → DOM 解析（能正确处理含换行的单元格）
  *  3) 退回 TSV（制表符分列、换行分行） */
 export function parsePastedTable(plain: string, html?: string): string[][] {
-  const panel = reconstructPanelVertical(plain);
-  if (panel) return panel;
-
   if (html && /<table/i.test(html)) {
     try {
       const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -128,6 +125,10 @@ export function parsePastedTable(plain: string, html?: string): string[][] {
       if (rows.length) return rows;
     } catch { /* 退回 TSV */ }
   }
+
+  const panel = reconstructPanelVertical(plain);
+  if (panel) return panel;
+
   return plain
     .split(/\r?\n/)
     .map((line) => line.split('\t').map((c) => c.trim()))

@@ -59,6 +59,14 @@ export function normalizeExcelRows(rawRows: unknown[][]): Record<string, string>
   });
 }
 
+/** HC / 缺口只允许非负整数，避免列错位时把整段 JD 写进数字字段。 */
+export function normalizeJDCount(value: unknown, fallback = ''): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const match = raw.match(/^(\d+)(?:\.0+)?$/);
+  return match ? String(Number(match[1])) : fallback;
+}
+
 function looksLikeHeaderRow(row: string[]): boolean {
   const compactCells = row.filter(Boolean);
   if (!compactCells.length) return false;
@@ -579,9 +587,9 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   const orgSplit = splitOrgDept(cols.orgCol ? String(row[cols.orgCol] || '').trim() : '');
   const organization = orgSplit.org;
   const serviceUnit = cols.serviceCol ? String(row[cols.serviceCol] || '').trim() : '';
-  const headcount = cols.hcCol ? String(row[cols.hcCol] || '').trim() : '';
+  const headcount = normalizeJDCount(cols.hcCol ? row[cols.hcCol] : '');
   // 缺口为空一律填 0（无缺口 = 不需要再招，匹配时会跳过）
-  const gap = (cols.vacancyCol ? String(row[cols.vacancyCol] || '').trim() : '') || '0';
+  const gap = normalizeJDCount(cols.vacancyCol ? row[cols.vacancyCol] : '', '0');
   const priority = cols.priorityCol ? parsePriority(String(row[cols.priorityCol] || '').trim()) : undefined;
   const odc = cols.odcCol ? String(row[cols.odcCol] || '').trim() : '';
   const requester = cols.requesterCol ? String(row[cols.requesterCol] || '').trim() : '';
