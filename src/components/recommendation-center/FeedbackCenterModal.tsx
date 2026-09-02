@@ -7,7 +7,6 @@ import {
   ChevronUp,
   ClipboardCheck,
   Clock3,
-  Copy,
   ExternalLink,
   Loader2,
   MessageSquareText,
@@ -71,17 +70,6 @@ function ageLabel(value?: string): string {
   return `${Math.floor(hours / 24)} 天`;
 }
 
-function followUpText(item: FeedbackCenterItem): string {
-  const name = item.candidateName || item.candidateCode || '这位候选人';
-  if (bucket(item) === 'interview') {
-    return `你好，想跟进一下 ${name}（${item.jobTitle}）的面试反馈，有结果麻烦同步我一下。`;
-  }
-  if (item.followUpCount > 0) {
-    return `你好，再跟进一下 ${name} 推荐到「${item.jobTitle}」的进度，目前有反馈了吗？`;
-  }
-  return `你好，想跟进一下 ${name} 推荐到「${item.jobTitle}」的进度，辛苦帮忙看一下。`;
-}
-
 export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenterModalProps) {
   const [state, setState] = useState<FeedbackCenterState>({ version: 1, generatedAt: '', items: [] });
   const [activeTab, setActiveTab] = useState<TabId>('first');
@@ -89,7 +77,6 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
   const [error, setError] = useState('');
   const [updatingId, setUpdatingId] = useState('');
   const [expandedId, setExpandedId] = useState('');
-  const [copiedId, setCopiedId] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -148,12 +135,6 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
     }
   };
 
-  const copyFollowUp = async (item: FeedbackCenterItem) => {
-    await navigator.clipboard.writeText(followUpText(item));
-    setCopiedId(item.id);
-    window.setTimeout(() => setCopiedId(''), 1500);
-  };
-
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-3" role="dialog" aria-modal="true" aria-label="反馈中心">
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
@@ -174,14 +155,14 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
           </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b border-slate-100 px-5 py-3">
+        <nav className="grid grid-cols-2 gap-1.5 border-b border-slate-100 px-5 py-3 sm:grid-cols-5">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium',
+                'flex h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-2 text-sm font-medium',
                 activeTab === tab.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50',
               )}
             >
@@ -211,8 +192,8 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
             const updating = updatingId === item.id;
             return (
               <section key={item.id} className="border-b border-slate-100 py-4 last:border-b-0">
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
-                  <div className="min-w-0 flex-1">
+                <div className="min-w-0">
+                  <div>
                     <div className="flex flex-wrap items-center gap-2">
                       {item.candidateCode && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500">{item.candidateCode}</span>}
                       <h4 className="font-semibold text-slate-900">{item.candidateName || '待确认候选人'} · {item.jobTitle || '岗位待确认'}</h4>
@@ -225,13 +206,12 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
                     </div>
                     {(item.sourceSummary || item.auditConclusion) && <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">{item.sourceSummary || item.auditConclusion}</p>}
                   </div>
-
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
                     <select
                       value={item.confirmedStatus || ''}
                       onChange={(event) => event.target.value && void update(item, { action: 'status_update', status: event.target.value })}
                       disabled={updating}
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-600 outline-none focus:border-indigo-300"
+                      className="h-9 min-w-32 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-600 outline-none focus:border-indigo-300"
                       aria-label="确认反馈状态"
                     >
                       <option value="">确认反馈</option>
@@ -240,16 +220,13 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
                     <button type="button" disabled={updating} onClick={() => void update(item, { action: 'follow_up' })} className="flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200 px-3 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
                       <Check className="h-4 w-4" />标记已跟进
                     </button>
-                    <button type="button" onClick={() => void copyFollowUp(item)} className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm text-slate-600 hover:bg-slate-50">
-                      {copiedId === item.id ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}追问话术
-                    </button>
                     {item.recommendationId && (
                       <button type="button" onClick={() => { void update(item, { action: 'repush' }); onRepush(item.recommendationId!); }} className="flex h-9 items-center gap-1.5 rounded-lg border border-violet-200 px-3 text-sm font-medium text-violet-600 hover:bg-violet-50">
                         <Repeat className="h-4 w-4" />转复推
                       </button>
                     )}
-                    <button type="button" onClick={() => setExpandedId(expanded ? '' : item.id)} className="flex h-9 items-center gap-1 rounded-lg px-2 text-sm text-slate-400 hover:bg-slate-50">
-                      证据{expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    <button type="button" onClick={() => setExpandedId(expanded ? '' : item.id)} className="flex h-9 items-center gap-1 rounded-lg px-2 text-sm text-slate-500 hover:bg-slate-50 sm:ml-auto">
+                      OCR 证据{expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
