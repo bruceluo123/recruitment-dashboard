@@ -6,13 +6,15 @@ import { ResumeUploader } from './ResumeUploader';
 import { MatchingResultsList } from './MatchingResultsList';
 import { RecommendationCandidateDialog } from './RecommendationCandidateDialog';
 import { RecommendationCopyDialog, type RecommendationCopyItem } from './RecommendationCopyDialog';
+import { TargetJDPickerDialog } from './TargetJDPickerDialog';
 import { useResumeStore, MATCH_TTL_MS } from '@/store/resume-store';
+import { useJDStore } from '@/store/jd-store';
 import { useRepushStore, type RepushColumnId } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
 import type { JD } from '@/types/jd';
 import type { Resume } from '@/types/resume';
-import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock } from 'lucide-react';
+import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { extractRecommendationInfo, type ExtractedRecommendation } from '@/lib/recommendation';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
@@ -128,6 +130,8 @@ export function ResumeMatchingPage() {
   const [mounted, setMounted] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [matchCategory, setMatchCategory] = useState<JDCategory | 'all'>('all');
+  const [targetJDIds, setTargetJDIds] = useState<Set<string>>(() => new Set());
+  const [targetJDPickerOpen, setTargetJDPickerOpen] = useState(false);
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(() => new Set());
   const [recommendationCopies, setRecommendationCopies] = useState<RecommendationCopyItem[]>([]);
   const [candidateDialogOpen, setCandidateDialogOpen] = useState(false);
@@ -141,6 +145,7 @@ export function ResumeMatchingPage() {
   const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
   const activeOwner = usePrefStore((s) => s.activeOwner);
   const setActiveOwner = usePrefStore((s) => s.setActiveOwner);
+  const jds = useJDStore((s) => s.jds);
   const resumes = useResumeStore((s) => s.resumes);
   const activeResumeId = useResumeStore((s) => s.activeResumeId);
   const resultsByResume = useResumeStore((s) => s.resultsByResume);
@@ -200,7 +205,7 @@ export function ResumeMatchingPage() {
     setRecommendationCopies([]);
     setCandidateDialogOpen(false);
     setCopyDialogOpen(false);
-    matchWithJDs(activeResumeId, matchCategory).catch(() => {});
+    matchWithJDs(activeResumeId, matchCategory, targetJDIds.size > 0 ? Array.from(targetJDIds) : undefined).catch(() => {});
   };
 
   const handleToggleSelected = (resultId: string) => {
@@ -308,11 +313,14 @@ export function ResumeMatchingPage() {
           {allCats.map((cat) => (
             <button
               key={cat}
-              onClick={() => setMatchCategory(cat)}
+              onClick={() => {
+                setMatchCategory(cat);
+                setTargetJDIds(new Set());
+              }}
               disabled={isMatching}
               className={cn(
                 'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
-                matchCategory === cat
+                targetJDIds.size === 0 && matchCategory === cat
                   ? cat === 'all'
                     ? 'bg-indigo-500 text-white border-indigo-500'
                     : `${JD_CATEGORY_COLORS[cat as JDCategory]} border-current`
@@ -323,7 +331,34 @@ export function ResumeMatchingPage() {
               {cat === 'all' ? '全部' : JD_CATEGORY_LABELS[cat as JDCategory]}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setTargetJDPickerOpen(true)}
+            disabled={isMatching}
+            className={cn(
+              'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all',
+              targetJDIds.size > 0
+                ? 'border-indigo-500 bg-indigo-500 text-white shadow-sm'
+                : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100',
+              isMatching && 'opacity-50',
+            )}
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+            指定岗位
+            {targetJDIds.size > 0 && <span className="rounded bg-white/20 px-1.5 py-0.5">{targetJDIds.size}</span>}
+          </button>
         </div>
+        {targetJDIds.size > 0 && (
+          <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3 text-xs text-gray-500">
+            <span className="shrink-0 text-indigo-600">本次仅匹配：</span>
+            <span className="min-w-0 flex-1 truncate">
+              {jds.filter((jd) => targetJDIds.has(jd.id)).map((jd) => jd.title).join('、')}
+            </span>
+            <button type="button" onClick={() => setTargetJDIds(new Set())} disabled={isMatching} className="shrink-0 text-gray-400 hover:text-gray-600 disabled:opacity-50">
+              清除
+            </button>
+          </div>
+        )}
       </GlassPanel>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -335,7 +370,11 @@ export function ResumeMatchingPage() {
           activeResume && activeResume.parsingStatus === 'completed' && (
             <button onClick={handleMatch} disabled={isMatching} className="h-10 px-5 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all flex items-center gap-2 disabled:opacity-50">
               <Zap className="w-4 h-4" />
-              {matchCategory === 'all' ? '开始匹配（全部）' : `开始匹配（${JD_CATEGORY_LABELS[matchCategory as JDCategory]}）`}
+              {targetJDIds.size > 0
+                ? `开始匹配（指定 ${targetJDIds.size} 个岗位）`
+                : matchCategory === 'all'
+                  ? '开始匹配（全部）'
+                  : `开始匹配（${JD_CATEGORY_LABELS[matchCategory as JDCategory]}）`}
             </button>
           )
         )}
@@ -358,6 +397,20 @@ export function ResumeMatchingPage() {
           </>
         )}
       </div>
+
+      {targetJDPickerOpen && (
+        <TargetJDPickerDialog
+          jds={jds}
+          selectedIds={targetJDIds}
+          currentCategory={matchCategory}
+          disabled={isMatching}
+          onClose={() => setTargetJDPickerOpen(false)}
+          onConfirm={(ids) => {
+            setTargetJDIds(ids);
+            setTargetJDPickerOpen(false);
+          }}
+        />
+      )}
 
       {uploadError && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">

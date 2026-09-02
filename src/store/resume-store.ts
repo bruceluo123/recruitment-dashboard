@@ -31,7 +31,7 @@ interface ResumeStore {
 
   uploadResume: (file: File) => Promise<string>;
   setActiveResume: (id: string | null) => void;
-  matchWithJDs: (resumeId: string, category?: JDCategory | 'all') => Promise<void>;
+  matchWithJDs: (resumeId: string, category?: JDCategory | 'all', jdIds?: string[]) => Promise<void>;
   cancelMatching: () => void;
   clearMatchesFor: (resumeId: string) => void;
   pruneExpired: () => void;
@@ -135,7 +135,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
 
   setActiveResume: (id) => set({ activeResumeId: id }),
 
-  matchWithJDs: async (resumeId: string, category: JDCategory | 'all' = 'all') => {
+  matchWithJDs: async (resumeId: string, category: JDCategory | 'all' = 'all', jdIds?: string[]) => {
     const ac = new AbortController();
     set((s) => ({
       isMatching: true,
@@ -152,11 +152,14 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
 
       const { jds } = useJDStore.getState();
       let activeJds = jds.filter((j) => j.status !== 'paused');
-      if (category !== 'all') {
+      if (jdIds?.length) {
+        const targetIds = new Set(jdIds);
+        activeJds = activeJds.filter((j) => targetIds.has(j.id));
+      } else if (category !== 'all') {
         activeJds = activeJds.filter((j) => hasCategory(j, category));
       }
       if (activeJds.length === 0) {
-        set({ isMatching: false, matchingResumeId: null, matchError: '没有活跃的 JD 可匹配' });
+        set({ isMatching: false, matchingResumeId: null, matchError: jdIds?.length ? '所选岗位已不存在或已暂停招聘' : '没有活跃的 JD 可匹配' });
         return;
       }
 
