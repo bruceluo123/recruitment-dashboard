@@ -117,6 +117,19 @@ async function kvGet(key) {
   return (await response.json()).result;
 }
 
+async function kvSet(key, value) {
+  const response = await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
+      'Content-Type': 'text/plain; charset=utf-8',
+    },
+    body: typeof value === 'string' ? value : JSON.stringify(value),
+  });
+  if (!response.ok) throw new Error(`KV set ${key} failed: ${response.status}`);
+  return true;
+}
+
 function isImageMessage(message) {
   if (message.photo) return true;
   const mime = clean(message.document?.mimeType || message.file?.mimeType).toLowerCase();
@@ -272,6 +285,7 @@ function findCandidateForRecommendation(rec, candidates) {
 
 function reportRow(rec, extra = {}) {
   return {
+    recommendationId: clean(rec.id),
     candidateCode: normalizeCode(rec.candidateCode),
     candidateName: clean(rec.candidateName),
     jobTitle: clean(rec.jdTitle),
@@ -282,6 +296,88 @@ function reportRow(rec, extra = {}) {
     contact: clean(rec.contact),
     ...extra,
   };
+}
+
+function feedbackInboxId(row, sourceStatus, index) {
+  if (clean(row.recommendationId)) return clean(row.recommendationId);
+  if (clean(row.telegramMessageId || row.messageId)) {
+    return `${sourceStatus}:tg:${clean(row.telegramMessageId || row.messageId)}`;
+  }
+  return [
+    sourceStatus,
+    normalizeCode(row.candidateCode),
+    normalizeName(row.candidateName),
+    normalize(row.jobTitle),
+    index,
+  ].filter(Boolean).join(':');
+}
+
+function toFeedbackInboxItem(row, sourceStatus, index, generatedAt) {
+  return {
+    id: feedbackInboxId(row, sourceStatus, index),
+    recommendationId: clean(row.recommendationId) || undefined,
+    owner: 'a',
+    candidateCode: normalizeCode(row.candidateCode) || undefined,
+    candidateName: clean(row.candidateName),
+    jobTitle: clean(row.jobTitle),
+    organization: clean(row.organization) || undefined,
+    department: clean(row.department) || undefined,
+    contactPerson: clean(row.contact) || undefined,
+    recommendedAt: clean(row.recommendedAt) || undefined,
+    interviewStatus: clean(row.interviewStatus) || undefined,
+    feedbackAt: clean(row.feedbackAt) || undefined,
+    sourceStatus,
+    sourceSummary: clean(row.feedbackSummary || row.rawText || row.reason) || undefined,
+    sourceEvidence: clean(row.evidence) || undefined,
+    auditConclusion: clean(row.auditConclusion || row.reason) || undefined,
+    confidence: Number.isFinite(Number(row.confidence)) ? Number(row.confidence) : undefined,
+    telegramMessageId: clean(row.telegramMessageId || row.messageId) || undefined,
+    followUpCount: 0,
+    timeline: [],
+    updatedAt: generatedAt,
+  };
+}
+
+async function syncFeedbackInbox(meta, noFeedback, interviewFailed, screeningFailed, review) {
+  const key = 'recruit:feedback-inbox';
+  const generatedAt = meta.generatedAt;
+  const imported = [
+    ...noFeedback.map((row, index) => toFeedbackInboxItem(
+      row,
+      row.latestStatus === '待反馈' ? 'pending' : 'no_feedback',
+      index,
+      generatedAt,
+    )),
+    ...interviewFailed.map((row, index) => toFeedbackInboxItem(row, 'interview_failed', index, generatedAt)),
+    ...screeningFailed.map((row, index) => toFeedbackInboxItem(row, 'screening_failed', index, generatedAt)),
+    ...review.map((row, index) => toFeedbackInboxItem(row, 'manual_review', index, generatedAt)),
+  ];
+  const existing = parseStored(await kvGet(key), { version: 1, generatedAt: '', items: [] });
+  const existingItems = Array.isArray(existing?.items) ? existing.items : [];
+  const existingById = new Map(existingItems.map((item) => [clean(item.id), item]));
+  const importedIds = new Set(imported.map((item) => item.id));
+  const items = imported.map((item) => {
+    const previous = existingById.get(item.id);
+    if (!previous) return item;
+    return {
+      ...item,
+      confirmedStatus: previous.confirmedStatus,
+      followUpCount: Number(previous.followUpCount) || 0,
+      lastFollowUpAt: previous.lastFollowUpAt,
+      repushReady: previous.repushReady,
+      timeline: Array.isArray(previous.timeline) ? previous.timeline.slice(-30) : [],
+      updatedAt: previous.updatedAt || item.updatedAt,
+    };
+  });
+  for (const previous of existingItems) {
+    const hasUserWork = previous.confirmedStatus
+      || Number(previous.followUpCount) > 0
+      || previous.repushReady
+      || (Array.isArray(previous.timeline) && previous.timeline.length > 0);
+    if (!importedIds.has(clean(previous.id)) && hasUserWork) items.push(previous);
+  }
+  await kvSet(key, { version: 1, generatedAt, items });
+  return items.length;
 }
 
 function styleSheet(sheet, widths) {
@@ -390,12 +486,19 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
     ['明确初筛未通过', screeningFailed.length],
     ['待人工确认', review.length],
     ['判定规则', '沉默只归为无反馈；只有截图或面试日历存在明确否定结论才归为未通过。'],
-    ['隐私说明', '报表和截图仅保存在本机 artifacts 目录，不会反写推荐中心。'],
+    ['同步说明', 'OCR 结果同步到反馈中心；人工确认、跟进和复推记录优先，巡查不会覆盖人工操作。'],
   ]);
   styleSheet(summary, [24, 80]);
   const filePath = path.join(outputDir, '复推反馈审计.xlsx');
-  await workbook.xlsx.writeFile(filePath);
-  return filePath;
+  try {
+    await workbook.xlsx.writeFile(filePath);
+    return filePath;
+  } catch (error) {
+    if (error?.code !== 'EBUSY') throw error;
+    const fallbackPath = path.join(outputDir, `复推反馈审计-${Date.now()}.xlsx`);
+    await workbook.xlsx.writeFile(fallbackPath);
+    return fallbackPath;
+  }
 }
 
 async function main() {
@@ -534,6 +637,7 @@ async function main() {
       evidence: explicitFailure.evidence,
       confidence: explicitFailure.confidence,
       imagePath: explicitFailure.imagePath,
+      telegramMessageId: String(explicitFailure.messageId || ''),
     });
     if (isInterviewFailure) interviewFailed.push(row);
     else screeningFailed.push(row);
@@ -569,6 +673,8 @@ async function main() {
             ? `有面试记录（${clean(candidate.stage)}），但近 15 天截图中未找到明确反馈`
             : '近 15 天反馈截图中未找到明确结论',
         imagePath: latest?.imagePath || '',
+        telegramMessageId: String(latest?.messageId || ''),
+        evidence: latest?.evidence || '',
       }));
     }
   }
@@ -588,9 +694,12 @@ async function main() {
     screeningFailedCount: screeningFailed.length,
     reviewCount: review.length,
   };
+  const feedbackInboxCount = hasFlag('--sync')
+    ? await syncFeedbackInbox(meta, noFeedback, interviewFailed, screeningFailed, review)
+    : 0;
   const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, review, screenshotRows);
   fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, interviewFailed, screeningFailed, review, screenshots: screenshotRows }, null, 2));
-  console.log(JSON.stringify({ ok: true, ...meta, workbookPath }, null, 2));
+  console.log(JSON.stringify({ ok: true, ...meta, feedbackInboxCount, workbookPath }, null, 2));
 }
 
 main().catch((error) => {

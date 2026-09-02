@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Users, CalendarCheck, FileUp, FileText, Loader2 } from 'lucide-react';
+import { Users, CalendarCheck, FileUp, FileText, Loader2, MessageSquareText } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
@@ -9,6 +9,7 @@ import { EditRecommendationModal } from './EditRecommendationModal';
 import { RepushModal, type RepushArgs } from './RepushModal';
 import { OfferModal, type OfferFormValues } from './OfferModal';
 import { DailyReportModal } from './DailyReportModal';
+import { FeedbackCenterModal } from './FeedbackCenterModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
@@ -63,6 +64,7 @@ export function RecommendationCenter() {
   const [repushing, setRepushing] = useState<RepushItem | null>(null);
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
+  const [showFeedbackCenter, setShowFeedbackCenter] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
   const [contactRefreshTick, setContactRefreshTick] = useState(0);
@@ -310,6 +312,12 @@ export function RecommendationCenter() {
             </span>
           </h3>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            <button
+              onClick={() => setShowFeedbackCenter(true)}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition-colors"
+            >
+              <MessageSquareText className="w-4 h-4" />反馈中心
+            </button>
             {/* 一键看板：把当前推荐人今日数据提交到团队数据看板 */}
             <button
               onClick={() => setReporting(true)}
@@ -419,6 +427,18 @@ export function RecommendationCenter() {
           items={items}
           candidates={candidates}
           onClose={() => setReporting(false)}
+        />
+      )}
+      {showFeedbackCenter && (
+        <FeedbackCenterModal
+          owner={view}
+          onClose={() => setShowFeedbackCenter(false)}
+          onRepush={(recommendationId) => {
+            const recommendation = items.find((item) => item.id === recommendationId);
+            if (!recommendation) return;
+            setShowFeedbackCenter(false);
+            setRepushing(recommendation);
+          }}
         />
       )}
     </div>

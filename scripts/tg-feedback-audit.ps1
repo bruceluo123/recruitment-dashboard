@@ -1,7 +1,8 @@
 param(
   [int]$Days = 15,
   [string]$From = '',
-  [string]$To = ''
+  [string]$To = '',
+  [switch]$NoSync
 )
 
 Set-Location -LiteralPath 'D:\projects\recruitment-dashboard'
@@ -52,6 +53,7 @@ try {
   $arguments = @('scripts/tg-feedback-audit.mjs', '--days', [string]$Days)
   if ($From) { $arguments += @('--from', $From) }
   if ($To) { $arguments += @('--to', $To) }
+  if (-not $NoSync) { $arguments += '--sync' }
   & node @arguments
   $exitCode = $LASTEXITCODE
 } finally {
