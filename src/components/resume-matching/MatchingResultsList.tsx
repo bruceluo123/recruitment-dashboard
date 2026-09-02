@@ -8,6 +8,7 @@ interface MatchingResultsListProps {
   results: MatchingResult[];
   isMatching: boolean;
   selectedResultIds: Set<string>;
+  recommendationSelectionCount: number;
   generatedJdIds: Set<string>;
   isGeneratingCopy: boolean;
   onToggleSelected: (resultId: string) => void;
@@ -19,6 +20,7 @@ export function MatchingResultsList({
   results,
   isMatching,
   selectedResultIds,
+  recommendationSelectionCount,
   generatedJdIds,
   isGeneratingCopy,
   onToggleSelected,
@@ -33,6 +35,20 @@ export function MatchingResultsList({
       return priorityDifference || b.score - a.score;
     });
 
+  const recommendationButton = (
+    <button
+      type="button"
+      onClick={onGenerateRecommendationCopy}
+      disabled={recommendationSelectionCount === 0 || isGeneratingCopy}
+      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+    >
+      {isGeneratingCopy
+        ? <Loader2 className="h-4 w-4 animate-spin" />
+        : <FileText className="h-4 w-4" />}
+      生成推荐文案{recommendationSelectionCount > 0 ? `（${recommendationSelectionCount}）` : ''}
+    </button>
+  );
+
   // 流式：首条结果到达前显示加载态；到达后即展示，匹配中持续追加
   if (isMatching && visibleResults.length === 0) {
     return (
@@ -44,7 +60,13 @@ export function MatchingResultsList({
   }
   if (results.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-gray-400"><BarChart3 className="w-10 h-10 mb-3" /><p className="text-sm">点击「开始匹配」查看结果</p></div>
+      <div>
+        {recommendationSelectionCount > 0 && <div className="mb-4 flex justify-end">{recommendationButton}</div>}
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <BarChart3 className="w-10 h-10 mb-3" />
+          <p className="text-sm">{recommendationSelectionCount > 0 ? '已指定岗位，可直接生成推荐文案' : '点击「开始匹配」查看结果'}</p>
+        </div>
+      </div>
     );
   }
   if (visibleResults.length === 0) {
@@ -62,17 +84,7 @@ export function MatchingResultsList({
         <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-gray-400">
           <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-green-500" />高匹配 (≥80)</span>
           <span className="hidden items-center gap-1 xl:flex"><span className="h-2 w-2 rounded-full bg-amber-500" />可推荐 (70-79)</span>
-          <button
-            type="button"
-            onClick={onGenerateRecommendationCopy}
-            disabled={selectedResultIds.size === 0 || isGeneratingCopy}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-          >
-            {isGeneratingCopy
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <FileText className="h-4 w-4" />}
-            生成推荐文案{selectedResultIds.size > 0 ? `（${selectedResultIds.size}）` : ''}
-          </button>
+          {recommendationButton}
         </div>
       </div>
       {visibleResults.map((result, index) => (

@@ -221,7 +221,8 @@ export function ResumeMatchingPage() {
   };
 
   const handleRequestRecommendationCopy = () => {
-    if (!activeResume || selectedResultIds.size === 0 || isGeneratingCopy) return;
+    const selectionCount = targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size;
+    if (!activeResume || selectionCount === 0 || isGeneratingCopy) return;
     setCandidateCodeSuffix(nextCandidateCodeSuffix(activeOwner));
     if (!recommendationResumeFile && activeResume.file) {
       setRecommendationResumeFile(activeResume.file);
@@ -232,10 +233,12 @@ export function ResumeMatchingPage() {
   };
 
   const handleGenerateRecommendationCopy = async (candidateText: string, codeSuffix: string, resumeFile: File | null, resumeSource: string) => {
-    if (!activeResume || selectedResultIds.size === 0 || isGeneratingCopy) return;
+    if (!activeResume || (targetJDIds.size === 0 && selectedResultIds.size === 0) || isGeneratingCopy) return;
     const resumeId = activeResume.id;
-    const selectedResults = activeResults.filter((result) => selectedResultIds.has(result.id));
-    if (selectedResults.length === 0) return;
+    const selectedJDs = targetJDIds.size > 0
+      ? jds.filter((jd) => targetJDIds.has(jd.id) && jd.status !== 'paused')
+      : activeResults.filter((result) => selectedResultIds.has(result.id)).map((result) => result.jd);
+    if (selectedJDs.length === 0) return;
 
     setCandidateInfoText(candidateText);
     setCandidateCodeSuffix(codeSuffix);
@@ -247,11 +250,11 @@ export function ResumeMatchingPage() {
     try {
       const info = await extractRecommendationInfo(candidateText || activeResume.rawText);
       if (useResumeStore.getState().activeResumeId !== resumeId) return;
-      const copies = selectedResults.map((result) => (
+      const copies = selectedJDs.map((jd) => (
         buildRecommendationCopy(
           activeResume,
           info,
-          result.jd,
+          jd,
           candidateText,
           codeSuffix,
           resumeSource,
@@ -409,6 +412,10 @@ export function ResumeMatchingPage() {
           onClose={() => setTargetJDPickerOpen(false)}
           onConfirm={(ids) => {
             setTargetJDIds(ids);
+            setSelectedResultIds(new Set());
+            setRecommendationCopies([]);
+            setCandidateDialogOpen(false);
+            setCopyDialogOpen(false);
             setTargetJDPickerOpen(false);
           }}
         />
@@ -447,6 +454,7 @@ export function ResumeMatchingPage() {
             results={activeResults}
             isMatching={activeIsMatching}
             selectedResultIds={selectedResultIds}
+            recommendationSelectionCount={targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size}
             generatedJdIds={new Set(recommendationCopies.map((item) => item.jdId))}
             isGeneratingCopy={isGeneratingCopy}
             onToggleSelected={handleToggleSelected}
@@ -458,7 +466,7 @@ export function ResumeMatchingPage() {
       </div>
       {candidateDialogOpen && (
         <RecommendationCandidateDialog
-          jobCount={selectedResultIds.size}
+          jobCount={targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size}
           codePrefix={OWNER_CONFIG[activeOwner].codePrefix}
           initialCandidateText={candidateInfoText}
           initialCodeSuffix={candidateCodeSuffix}
