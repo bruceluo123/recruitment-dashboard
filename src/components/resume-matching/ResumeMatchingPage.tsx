@@ -331,22 +331,6 @@ export function ResumeMatchingPage() {
               {cat === 'all' ? '全部' : JD_CATEGORY_LABELS[cat as JDCategory]}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={() => setTargetJDPickerOpen(true)}
-            disabled={isMatching}
-            className={cn(
-              'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all',
-              targetJDIds.size > 0
-                ? 'border-indigo-500 bg-indigo-500 text-white shadow-sm'
-                : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100',
-              isMatching && 'opacity-50',
-            )}
-          >
-            <ListChecks className="h-3.5 w-3.5" />
-            指定岗位
-            {targetJDIds.size > 0 && <span className="rounded bg-white/20 px-1.5 py-0.5">{targetJDIds.size}</span>}
-          </button>
         </div>
         {targetJDIds.size > 0 && (
           <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3 text-xs text-gray-500">
@@ -377,6 +361,24 @@ export function ResumeMatchingPage() {
                   : `开始匹配（${JD_CATEGORY_LABELS[matchCategory as JDCategory]}）`}
             </button>
           )
+        )}
+        {!activeIsMatching && (
+          <button
+            type="button"
+            onClick={() => setTargetJDPickerOpen(true)}
+            disabled={isMatching}
+            className={cn(
+              'flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-medium transition-all',
+              targetJDIds.size > 0
+                ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm'
+                : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50',
+              isMatching && 'opacity-50',
+            )}
+          >
+            <ListChecks className="h-4 w-4" />
+            指定岗位
+            {targetJDIds.size > 0 && <span className="rounded-md bg-indigo-100 px-1.5 py-0.5 text-xs">{targetJDIds.size}</span>}
+          </button>
         )}
         {activeResults.length > 0 && !activeIsMatching && (
           <>

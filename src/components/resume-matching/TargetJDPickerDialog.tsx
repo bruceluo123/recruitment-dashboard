@@ -41,8 +41,7 @@ export function TargetJDPickerDialog({
       .filter((jd) => {
         if (!normalizedQuery) return true;
         return [jd.title, jd.organization, jd.serviceUnit, jd.department, jd.odc]
-          .filter(Boolean)
-          .some((value) => value!.toLowerCase().includes(normalizedQuery));
+          .some((value) => String(value || '').toLowerCase().includes(normalizedQuery));
       })
       .sort((a, b) => {
         const selectedDelta = Number(draftIds.has(b.id)) - Number(draftIds.has(a.id));
@@ -50,7 +49,8 @@ export function TargetJDPickerDialog({
         const categoryDelta = Number(currentCategory !== 'all' && hasCategory(b, currentCategory))
           - Number(currentCategory !== 'all' && hasCategory(a, currentCategory));
         if (categoryDelta !== 0) return categoryDelta;
-        return b.updatedAt.localeCompare(a.updatedAt) || a.title.localeCompare(b.title, 'zh-CN');
+        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
+          || String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN');
       });
   }, [activeJds, currentCategory, draftIds, query]);
 
