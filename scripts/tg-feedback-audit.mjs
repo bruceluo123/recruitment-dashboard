@@ -147,7 +147,7 @@ function messageDate(message) {
   return new Date(Number(message.date || 0) * 1000);
 }
 
-function contextFor(messages, index) {
+function contextFor(messages, index, accountLabel) {
   const current = messages[index];
   const currentTime = messageDate(current).getTime();
   return messages
@@ -156,7 +156,7 @@ function contextFor(messages, index) {
       const text = clean(message.message);
       return text && Math.abs(messageDate(message).getTime() - currentTime) <= 30 * 60 * 1000;
     })
-    .map((message) => `${message.out ? '麦满分' : 'ojisamer'} ${shanghaiDateTime(messageDate(message))}: ${clean(message.message)}`)
+    .map((message) => `${message.out ? accountLabel : 'ojisamer'} ${shanghaiDateTime(messageDate(message))}: ${clean(message.message)}`)
     .join('\n');
 }
 
@@ -298,12 +298,13 @@ function reportRow(rec, extra = {}) {
   };
 }
 
-function feedbackInboxId(row, sourceStatus, index) {
+function feedbackInboxId(row, sourceStatus, index, owner) {
   if (clean(row.recommendationId)) return clean(row.recommendationId);
   if (clean(row.telegramMessageId || row.messageId)) {
-    return `${sourceStatus}:tg:${clean(row.telegramMessageId || row.messageId)}`;
+    return `${owner}:${sourceStatus}:tg:${clean(row.telegramMessageId || row.messageId)}`;
   }
   return [
+    owner,
     sourceStatus,
     normalizeCode(row.candidateCode),
     normalizeName(row.candidateName),
@@ -312,11 +313,11 @@ function feedbackInboxId(row, sourceStatus, index) {
   ].filter(Boolean).join(':');
 }
 
-function toFeedbackInboxItem(row, sourceStatus, index, generatedAt) {
+function toFeedbackInboxItem(row, sourceStatus, index, generatedAt, owner) {
   return {
-    id: feedbackInboxId(row, sourceStatus, index),
+    id: feedbackInboxId(row, sourceStatus, index, owner),
     recommendationId: clean(row.recommendationId) || undefined,
-    owner: 'a',
+    owner,
     candidateCode: normalizeCode(row.candidateCode) || undefined,
     candidateName: clean(row.candidateName),
     jobTitle: clean(row.jobTitle),
@@ -338,7 +339,7 @@ function toFeedbackInboxItem(row, sourceStatus, index, generatedAt) {
   };
 }
 
-async function syncFeedbackInbox(meta, noFeedback, interviewFailed, screeningFailed, review) {
+async function syncFeedbackInbox(owner, meta, noFeedback, interviewFailed, screeningFailed, review) {
   const key = 'recruit:feedback-inbox';
   const generatedAt = meta.generatedAt;
   const imported = [
@@ -347,17 +348,21 @@ async function syncFeedbackInbox(meta, noFeedback, interviewFailed, screeningFai
       row.latestStatus === '待反馈' ? 'pending' : 'no_feedback',
       index,
       generatedAt,
+      owner,
     )),
-    ...interviewFailed.map((row, index) => toFeedbackInboxItem(row, 'interview_failed', index, generatedAt)),
-    ...screeningFailed.map((row, index) => toFeedbackInboxItem(row, 'screening_failed', index, generatedAt)),
-    ...review.map((row, index) => toFeedbackInboxItem(row, 'manual_review', index, generatedAt)),
+    ...interviewFailed.map((row, index) => toFeedbackInboxItem(row, 'interview_failed', index, generatedAt, owner)),
+    ...screeningFailed.map((row, index) => toFeedbackInboxItem(row, 'screening_failed', index, generatedAt, owner)),
+    ...review.map((row, index) => toFeedbackInboxItem(row, 'manual_review', index, generatedAt, owner)),
   ];
   const existing = parseStored(await kvGet(key), { version: 1, generatedAt: '', items: [] });
   const existingItems = Array.isArray(existing?.items) ? existing.items : [];
-  const existingById = new Map(existingItems.map((item) => [clean(item.id), item]));
+  const existingById = new Map(existingItems.map((item) => [
+    `${item.owner === 'b' ? 'b' : 'a'}:${clean(item.id)}`,
+    item,
+  ]));
   const importedIds = new Set(imported.map((item) => item.id));
   const items = imported.map((item) => {
-    const previous = existingById.get(item.id);
+    const previous = existingById.get(`${owner}:${item.id}`);
     if (!previous) return item;
     return {
       ...item,
@@ -370,6 +375,11 @@ async function syncFeedbackInbox(meta, noFeedback, interviewFailed, screeningFai
     };
   });
   for (const previous of existingItems) {
+    const previousOwner = previous.owner === 'b' ? 'b' : 'a';
+    if (previousOwner !== owner) {
+      items.push(previous);
+      continue;
+    }
     const hasUserWork = previous.confirmedStatus
       || Number(previous.followUpCount) > 0
       || previous.repushReady
@@ -479,7 +489,7 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
     ['项目', '内容'],
     ['审计时间范围', `${meta.from} 至 ${meta.to}`],
     ['聊天对象', '@ojisamer'],
-    ['推荐记录范围', `麦满分近 ${meta.days} 天推荐记录（同候选人同岗位去重）`],
+    ['推荐记录范围', `${meta.accountLabel}近 ${meta.days} 天推荐记录（同候选人同岗位去重）`],
     ['截图数', meta.screenshotCount],
     ['无反馈待复推', noFeedback.length],
     ['明确面试未通过', interviewFailed.length],
@@ -503,26 +513,31 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
 
 async function main() {
   loadEnv();
-  for (const key of ['TG_API_ID', 'TG_API_HASH', 'TG_SESSION', 'DEEPSEEK_API_KEY', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) {
+  const owner = arg('--owner', 'a') === 'b' ? 'b' : 'a';
+  const accountLabel = owner === 'b' ? '啵啵' : '麦满分';
+  const telegramEnv = owner === 'b'
+    ? { apiId: 'TG_BB_API_ID', apiHash: 'TG_BB_API_HASH', session: 'TG_BB_SESSION' }
+    : { apiId: 'TG_API_ID', apiHash: 'TG_API_HASH', session: 'TG_SESSION' };
+  for (const key of [telegramEnv.apiId, telegramEnv.apiHash, telegramEnv.session, 'DEEPSEEK_API_KEY', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) {
     if (!process.env[key]) throw new Error(`Missing ${key}`);
   }
   const days = Math.max(1, Number.parseInt(arg('--days', '7'), 10));
   const to = arg('--to') ? new Date(`${arg('--to')}T23:59:59+08:00`) : new Date();
   const from = arg('--from') ? new Date(`${arg('--from')}T00:00:00+08:00`) : new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
-  const outputRoot = path.resolve(arg('--output', path.join(ROOT, 'artifacts', 'tg-feedback-audit', shanghaiDateKey(new Date()))));
+  const outputRoot = path.resolve(arg('--output', path.join(ROOT, 'artifacts', 'tg-feedback-audit', shanghaiDateKey(new Date()), owner)));
   const imageDir = path.join(outputRoot, 'screenshots');
   const cacheDir = path.join(outputRoot, 'cache');
   fs.mkdirSync(imageDir, { recursive: true });
   fs.mkdirSync(cacheDir, { recursive: true });
 
   const client = new TelegramClient(
-    new StringSession(process.env.TG_SESSION),
-    Number.parseInt(process.env.TG_API_ID, 10),
-    process.env.TG_API_HASH,
+    new StringSession(process.env[telegramEnv.session]),
+    Number.parseInt(process.env[telegramEnv.apiId], 10),
+    process.env[telegramEnv.apiHash],
     { connectionRetries: 5, proxy: parseProxy(process.env.TG_PROXY), useWSS: false },
   );
   await client.connect();
-  if (!await client.checkAuthorization()) throw new Error('Telegram account A authorization is invalid');
+  if (!await client.checkAuthorization()) throw new Error(`Telegram account ${owner.toUpperCase()} authorization is invalid`);
   const dialogs = await client.getDialogs({ limit: 500 });
   const dialog = dialogs.find((item) => {
     const username = clean(item.entity?.username).replace(/^@/, '').toLowerCase();
@@ -553,7 +568,7 @@ async function main() {
     }
     const buffer = Buffer.from(await client.downloadMedia(message, {}));
     fs.writeFileSync(imagePath, buffer);
-    const result = await recognizeScreenshot(buffer, extension, contextFor(messages, index));
+    const result = await recognizeScreenshot(buffer, extension, contextFor(messages, index, accountLabel));
     const record = {
       promptVersion: PROMPT_VERSION,
       model: VISION_MODEL,
@@ -571,7 +586,7 @@ async function main() {
   const [repushRaw, candidatesRaw] = await Promise.all([kvGet('recruit:repush'), kvGet('recruit:candidates')]);
   const allRecommendations = parseStored(repushRaw, []);
   const candidates = parseStored(candidatesRaw, []);
-  const ownerRecommendations = dedupeRecommendations(allRecommendations.filter((item) => item.column === 'a'));
+  const ownerRecommendations = dedupeRecommendations(allRecommendations.filter((item) => item.column === owner));
   const recommendations = ownerRecommendations.filter((item) => {
     const date = recommendationDate(item);
     return date && date >= from && date <= to;
@@ -684,6 +699,8 @@ async function main() {
   screeningFailed.sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt)));
   const meta = {
     generatedAt: new Date().toISOString(),
+    owner,
+    accountLabel,
     days,
     from: shanghaiDateTime(from),
     to: shanghaiDateTime(to),
@@ -696,7 +713,7 @@ async function main() {
     reviewCount: review.length,
   };
   const feedbackInboxCount = hasFlag('--sync')
-    ? await syncFeedbackInbox(meta, noFeedback, interviewFailed, screeningFailed, review)
+    ? await syncFeedbackInbox(owner, meta, noFeedback, interviewFailed, screeningFailed, review)
     : 0;
   const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, review, screenshotRows);
   fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, interviewFailed, screeningFailed, review, screenshots: screenshotRows }, null, 2));
