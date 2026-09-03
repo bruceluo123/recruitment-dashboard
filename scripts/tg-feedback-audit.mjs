@@ -109,6 +109,63 @@ function jobSimilarity(a, b) {
   return hits / Math.max(1, Math.min(left.size, right.size));
 }
 
+const ORGANIZATION_ALIAS_GROUPS = [
+  ['极乐引擎', '极乐'],
+  ['瑞升公司', '瑞升'],
+  ['紫宸星宇', '紫宸'],
+  ['万有引力'],
+  ['悦达'],
+  ['无极'],
+  ['鼎丰'],
+  ['经纬'],
+  ['happy'],
+  ['odc'],
+];
+
+function organizationTokens(value) {
+  const normalized = normalize(value);
+  const tokens = new Set(normalized ? [normalized] : []);
+  for (const aliases of ORGANIZATION_ALIAS_GROUPS) {
+    if (aliases.some((alias) => normalized.includes(normalize(alias)))) tokens.add(normalize(aliases[0]));
+  }
+  return tokens;
+}
+
+function organizationSimilarity(a, b) {
+  const left = organizationTokens(a);
+  const right = organizationTokens(b);
+  if (!left.size || !right.size) return 0;
+  for (const token of left) {
+    if (right.has(token)) return 1;
+  }
+  for (const token of left) {
+    if ([...right].some((item) => item.includes(token) || token.includes(item))) return 0.5;
+  }
+  return 0;
+}
+
+function screenshotJobTitle(rawText, candidateName) {
+  const raw = String(rawText || '');
+  const escapedName = clean(candidateName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (escapedName) {
+    const namedFile = raw.match(new RegExp(`${escapedName}\\s*[-_—–]\\s*([^,，。\\n]{1,100}?)\\.(?:pdf|docx?)`, 'i'));
+    if (namedFile?.[1]) return clean(namedFile[1]);
+  }
+  const file = raw.match(/([^,，。\n]{2,120}?)\.(?:pdf|docx?)/i)?.[1];
+  if (!file) return '';
+  const parts = file.split(/[-_—–]/).map(clean).filter(Boolean);
+  return parts.length > 1 ? clean(parts.slice(1).join(' ')) : '';
+}
+
+function normalizedFeedbackResult(item, rawText) {
+  if (item.result === 'failed' || item.result === 'passed') return item.result;
+  const text = `${item.interviewStage} ${item.feedbackSummary} ${item.evidence} ${rawText}`;
+  if (/(辛苦约|约面|安排.{0,8}面试|面试.{0,8}(安排|时间)|约.{0,12}(今天|明天|上午|下午|晚上|\d{1,2}\s*[:：]\s*\d{2}))/i.test(text)) {
+    return 'scheduled';
+  }
+  return item.result;
+}
+
 async function kvGet(key) {
   const response = await fetch(`${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`, {
     headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
@@ -169,7 +226,7 @@ function extractJson(text) {
 }
 
 function sanitizeVisionResult(value) {
-  const allowed = new Set(['passed', 'failed', 'pending', 'no_feedback', 'other', 'unknown']);
+  const allowed = new Set(['passed', 'failed', 'scheduled', 'pending', 'no_feedback', 'other', 'unknown']);
   const items = Array.isArray(value?.items) ? value.items : [];
   return {
     screenType: clean(value?.screenType || 'other'),
@@ -193,7 +250,7 @@ function sanitizeVisionResult(value) {
 
 async function recognizeScreenshot(buffer, extension, context) {
   const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg';
-  const prompt = `你是招聘反馈截图审计助手。识别截图中的候选人、岗位、面试轮次和明确反馈，并结合聊天上下文辅助定位。\n\n规则：\n1. 只有截图中明确出现“未通过、不通过、不合适、淘汰、拒绝、不推进、面试失败”等否定结论，且能明确归属到候选人时，result 才能是 failed。\n2. “待反馈、还没反馈、催一下、暂无消息”是 pending，绝不能当作 failed。\n3. 没看见结果时用 unknown；截图只是推荐信息或排期时不要虚构反馈。\n4. 一张截图可能有多个人，逐条输出。候选人编码、姓名、岗位看不清就留空。\n5. evidence 只写截图中支持结论的短句，confidence 为 0 到 1。\n6. 仅返回 JSON，不要 Markdown。\n\nJSON 格式：\n{"screenType":"feedback|schedule|recommendation|chat|other","rawText":"截图全文摘要","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n聊天上下文：\n${context || '无'}`;
+  const prompt = `你是招聘反馈截图审计助手。识别截图中的候选人、岗位、部门或服务单位、面试轮次和明确反馈，并结合聊天上下文辅助定位。\n\n规则：\n1. 只有截图中明确出现“未通过、不通过、不合适、淘汰、拒绝、不推进、面试失败”等否定结论，且能明确归属到候选人时，result 才能是 failed。\n2. “待反馈、还没反馈、催一下、暂无消息”是 pending，绝不能当作 failed。\n3. 截图明确出现约面或面试时间安排时，result 使用 scheduled；没有任何结论或排期时才用 unknown。\n4. 优先从转发文件名中的“候选人-岗位.pdf”识别姓名和岗位，不要用相似岗位替换文件名里的岗位。\n5. 保留截图中出现的部门、服务单位及简称，例如“极乐”与“极乐引擎”，不要自行改成其他单位。\n6. 一张截图可能有多个人，逐条输出。候选人编码、姓名、岗位看不清就留空。\n7. evidence 只写截图中支持结论的短句，confidence 为 0 到 1。\n8. 仅返回 JSON，不要 Markdown。\n\nJSON 格式：\n{"screenType":"feedback|schedule|recommendation|chat|other","rawText":"截图全文摘要","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n聊天上下文：\n${context || '无'}`;
   const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -246,26 +303,47 @@ function dedupeRecommendations(items) {
   return [...map.values()];
 }
 
-function matchFeedback(item, recommendations) {
+function matchFeedback(item, recommendations, rawText = '') {
+  const fileJobTitle = screenshotJobTitle(rawText, item.candidateName);
+  const effectiveJobTitle = fileJobTitle || item.jobTitle;
+  const rankMatches = (matches) => matches
+    .map((rec) => {
+      const job = jobSimilarity(effectiveJobTitle, rec.jdTitle);
+      const organization = Math.max(
+        organizationSimilarity(item.organization, `${rec.organization} ${rec.department}`),
+        organizationSimilarity(rawText, `${rec.organization} ${rec.department}`),
+      );
+      return { rec, job, organization, rank: job * 0.8 + organization * 0.2 };
+    })
+    .sort((a, b) => b.rank - a.rank
+      || b.organization - a.organization
+      || b.job - a.job
+      || (recommendationDate(b.rec)?.getTime() || 0) - (recommendationDate(a.rec)?.getTime() || 0)
+      || clean(a.rec.id).localeCompare(clean(b.rec.id)));
   const code = normalizeCode(item.candidateCode);
   if (code) {
     const codeMatches = recommendations.filter((rec) => normalizeCode(rec.candidateCode) === code);
     if (codeMatches.length === 1) return { recommendation: codeMatches[0], score: 1, reason: '候选人编码一致' };
     if (codeMatches.length > 1) {
-      const ranked = codeMatches.map((rec) => ({ rec, job: jobSimilarity(item.jobTitle, rec.jdTitle) })).sort((a, b) => b.job - a.job);
-      if (ranked[0].job > 0 || !item.jobTitle) return { recommendation: ranked[0].rec, score: 0.98, reason: '候选人编码一致，按岗位匹配' };
+      const ranked = rankMatches(codeMatches);
+      if (ranked[0].job > 0 || ranked[0].organization > 0 || !effectiveJobTitle) {
+        return { recommendation: ranked[0].rec, score: 0.98, reason: fileJobTitle ? '候选人编码一致，按截图文件名及单位匹配' : '候选人编码一致，按岗位及单位匹配' };
+      }
     }
   }
   const name = normalizeName(item.candidateName);
   if (!name) return null;
-  const candidates = recommendations
-    .filter((rec) => normalizeName(rec.candidateName) === name)
-    .map((rec) => ({ rec, job: jobSimilarity(item.jobTitle, rec.jdTitle) }))
-    .sort((a, b) => b.job - a.job);
+  const candidates = rankMatches(recommendations.filter((rec) => normalizeName(rec.candidateName) === name));
   if (!candidates.length) return null;
-  if (candidates.length === 1) return { recommendation: candidates[0].rec, score: item.jobTitle ? 0.82 + candidates[0].job * 0.15 : 0.78, reason: '候选人姓名一致' };
-  if (candidates[0].job >= 0.3 && candidates[0].job > candidates[1].job) {
-    return { recommendation: candidates[0].rec, score: 0.82 + candidates[0].job * 0.15, reason: '候选人姓名及岗位相符' };
+  if (candidates.length === 1) {
+    return { recommendation: candidates[0].rec, score: Math.min(0.99, effectiveJobTitle ? 0.78 + candidates[0].job * 0.14 + candidates[0].organization * 0.08 : 0.78), reason: '候选人姓名一致' };
+  }
+  if (candidates[0].rank > candidates[1].rank && (candidates[0].job >= 0.3 || candidates[0].organization > 0)) {
+    return {
+      recommendation: candidates[0].rec,
+      score: Math.min(0.99, 0.78 + candidates[0].job * 0.14 + candidates[0].organization * 0.08),
+      reason: fileJobTitle ? '候选人姓名、截图文件名及单位相符' : '候选人姓名、岗位及单位相符',
+    };
   }
   return { ambiguous: candidates.map((candidate) => candidate.rec), score: 0.5, reason: '同名多岗位，无法唯一确认' };
 }
@@ -339,7 +417,7 @@ function toFeedbackInboxItem(row, sourceStatus, index, generatedAt, owner) {
   };
 }
 
-async function syncFeedbackInbox(owner, meta, noFeedback, interviewFailed, screeningFailed, review) {
+async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review) {
   const key = 'recruit:feedback-inbox';
   const generatedAt = meta.generatedAt;
   const imported = [
@@ -350,6 +428,7 @@ async function syncFeedbackInbox(owner, meta, noFeedback, interviewFailed, scree
       generatedAt,
       owner,
     )),
+    ...scheduledFeedback.map((row, index) => toFeedbackInboxItem(row, 'scheduled', index, generatedAt, owner)),
     ...interviewFailed.map((row, index) => toFeedbackInboxItem(row, 'interview_failed', index, generatedAt, owner)),
     ...screeningFailed.map((row, index) => toFeedbackInboxItem(row, 'screening_failed', index, generatedAt, owner)),
     ...review.map((row, index) => toFeedbackInboxItem(row, 'manual_review', index, generatedAt, owner)),
@@ -366,12 +445,14 @@ async function syncFeedbackInbox(owner, meta, noFeedback, interviewFailed, scree
     if (!previous) return item;
     return {
       ...item,
-      confirmedStatus: previous.confirmedStatus,
+      confirmedStatus: item.sourceStatus === 'scheduled' && previous.confirmedStatus === 'pending'
+        ? undefined
+        : previous.confirmedStatus,
       followUpCount: Number(previous.followUpCount) || 0,
       lastFollowUpAt: previous.lastFollowUpAt,
       repushReady: previous.repushReady,
       timeline: Array.isArray(previous.timeline) ? previous.timeline.slice(-30) : [],
-      updatedAt: previous.updatedAt || item.updatedAt,
+      updatedAt: item.sourceStatus === 'scheduled' ? item.updatedAt : previous.updatedAt || item.updatedAt,
     };
   });
   for (const previous of existingItems) {
@@ -612,11 +693,16 @@ async function main() {
       continue;
     }
     for (const item of record.items) {
-      const row = { ...record, ...item };
+      const normalizedItem = {
+        ...item,
+        jobTitle: screenshotJobTitle(record.rawText, item.candidateName) || item.jobTitle,
+        result: normalizedFeedbackResult(item, record.rawText),
+      };
+      const row = { ...record, ...normalizedItem };
       delete row.items;
       screenshotRows.push(row);
-      const match = matchFeedback(item, ownerRecommendations);
-      if (!match || match.ambiguous || match.score < 0.75 || item.confidence < 0.6) {
+      const match = matchFeedback(normalizedItem, ownerRecommendations, record.rawText);
+      if (!match || match.ambiguous || match.score < 0.75 || normalizedItem.confidence < 0.6) {
         review.push({
           ...row,
           reason: match?.reason || '没有找到可信的推荐记录对应项',
@@ -631,6 +717,7 @@ async function main() {
 
   const interviewFailed = [];
   const screeningFailed = [];
+  const scheduledFeedback = [];
   const noFeedback = [];
   const explicitFailures = [];
   for (const rec of ownerRecommendations) {
@@ -675,6 +762,22 @@ async function main() {
     const terminalFeedback = feedback.some((item) => item.result === 'failed' || item.result === 'passed');
     const terminalCandidate = candidate?.stage === 'offer'
       || ['onboarded', 'withdrawn', 'offer-rejected', 'early-departure-7', 'early-departure-30'].includes(candidate?.outcome);
+    const latestScheduled = feedback
+      .filter((item) => item.result === 'scheduled')
+      .sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt)))[0];
+    if (!terminalFeedback && !terminalCandidate && latestScheduled) {
+      scheduledFeedback.push(reportRow(rec, {
+        feedbackAt: latestScheduled.feedbackAt,
+        feedbackSummary: latestScheduled.feedbackSummary || latestScheduled.rawText || '已确认约面安排',
+        evidence: latestScheduled.evidence,
+        confidence: latestScheduled.confidence,
+        imagePath: latestScheduled.imagePath,
+        telegramMessageId: String(latestScheduled.messageId || ''),
+        interviewStatus: '已约面',
+        auditConclusion: '反馈截图已确认约面安排',
+      }));
+      continue;
+    }
     if (!terminalFeedback && !terminalCandidate) {
       const latest = [...feedback].sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt)))[0];
       const hasPending = feedback.some((item) => item.result === 'pending' || item.result === 'no_feedback');
@@ -708,15 +811,16 @@ async function main() {
     screenshotCount: imageEntries.length,
     recommendationCount: recommendations.length,
     noFeedbackCount: noFeedback.length,
+    scheduledCount: scheduledFeedback.length,
     failedCount: interviewFailed.length,
     screeningFailedCount: screeningFailed.length,
     reviewCount: review.length,
   };
   const feedbackInboxCount = hasFlag('--sync')
-    ? await syncFeedbackInbox(owner, meta, noFeedback, interviewFailed, screeningFailed, review)
+    ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review)
     : 0;
   const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, review, screenshotRows);
-  fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, interviewFailed, screeningFailed, review, screenshots: screenshotRows }, null, 2));
+  fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, screenshots: screenshotRows }, null, 2));
   console.log(JSON.stringify({ ok: true, ...meta, feedbackInboxCount, workbookPath }, null, 2));
 }
 

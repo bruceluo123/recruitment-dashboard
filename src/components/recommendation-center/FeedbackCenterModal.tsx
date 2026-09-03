@@ -45,6 +45,7 @@ const statusOptions: { value: FeedbackConfirmedStatus; label: string }[] = [
 ];
 
 function bucket(item: FeedbackCenterItem): TabId | 'closed' {
+  if (item.sourceStatus === 'scheduled') return 'closed';
   const status = item.confirmedStatus;
   if (status) {
     if (status === 'closed' || status === 'interview_passed') return 'closed';
@@ -83,6 +84,7 @@ function candidateKey(item: FeedbackCenterItem): string {
 }
 
 function statusLabel(item: FeedbackCenterItem): string {
+  if (item.sourceStatus === 'scheduled') return '已约面';
   if (item.confirmedStatus === 'interview_pending') return '面试待反馈';
   if (item.confirmedStatus === 'interview_passed') return '面试通过';
   if (item.confirmedStatus === 'closed') return '已关闭';
