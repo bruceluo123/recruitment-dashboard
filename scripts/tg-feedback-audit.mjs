@@ -7,7 +7,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 
 const ROOT = process.cwd();
 const ENV_PATH = path.join(ROOT, '.env.local');
-const PROMPT_VERSION = 'feedback-audit-v1';
+const PROMPT_VERSION = 'feedback-audit-v4';
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
 
 function loadEnv() {
@@ -69,8 +69,10 @@ function normalizeName(value) {
 }
 
 function normalizeCode(value) {
-  const match = String(value || '').match(/XY(?:MMF|BB)\d+/i);
-  return match ? match[0].toUpperCase() : '';
+  const match = String(value || '').match(/XY\s*(MMF|BB)\s*([0-9O]{1,6})/i);
+  if (!match) return '';
+  const digits = match[2].replace(/O/gi, '0');
+  return `XY${match[1].toUpperCase()}${digits.padStart(5, '0')}`;
 }
 
 function shanghaiDateKey(date) {
@@ -110,17 +112,35 @@ function jobSimilarity(a, b) {
 }
 
 const ORGANIZATION_ALIAS_GROUPS = [
-  ['极乐引擎', '极乐'],
-  ['瑞升公司', '瑞升'],
+  ['极乐引擎', '极乐', '极乐引擎-CN'],
+  ['瑞升公司', '瑞升', '瑞声'],
   ['紫宸星宇', '紫宸'],
-  ['万有引力'],
+  ['万有引力', '万有'],
   ['悦达'],
   ['无极'],
   ['鼎丰'],
   ['经纬'],
   ['happy'],
-  ['odc'],
+  ['odc', '组织发展中心'],
+  ['效能中心', '效能'],
+  ['技术中心', '技术部'],
+  ['渠道中心', '渠道'],
+  ['星河无界', '星河'],
+  ['孵化中心', '孵化'],
+  ['恒睿'],
+  ['迷境'],
+  ['领航'],
+  ['逸品'],
+  ['天权'],
+  ['天枢'],
 ];
+
+const NON_CANDIDATE_NAMES = new Set([
+  'bruce', 'ojisamer', '麦满分', '啵啵', 'bobo', 'robin', 'robinlee99',
+  '极乐', '极乐引擎', '瑞升', '瑞升公司', '紫宸', '紫宸星宇', '万有引力',
+  '悦达', '无极', '鼎丰', '经纬', 'happy', 'odc', '技术中心', '运营中心',
+  '效能中心', '渠道中心', '候选人', '面试官', 'hr', 'bp',
+].map(normalizeName));
 
 function organizationTokens(value) {
   const normalized = normalize(value);
@@ -144,6 +164,80 @@ function organizationSimilarity(a, b) {
   return 0;
 }
 
+function screenshotFilePartsList(rawText) {
+  const raw = String(rawText || '');
+  const files = [...raw.matchAll(/([^,，。；;：:\n]{2,140}?)\.(?:pdf|docx?)/gi)];
+  const results = [];
+  for (const match of files) {
+    const stem = clean(match[1]).replace(/^.*(?:文件|简历|topic)\s*[：:]\s*/i, '');
+    const parts = stem.split(/[-_—–]/).map(clean).filter(Boolean);
+    if (parts.length < 2) continue;
+    const candidateName = parts[0].replace(/^[^a-z0-9\u4e00-\u9fa5]+/i, '');
+    const jobTitle = clean(parts.slice(1).join(' ')).replace(/\s*\(\d+\)\s*$/i, '');
+    if (candidateName && jobTitle) results.push({ candidateName, jobTitle });
+  }
+  return results;
+}
+
+function screenshotFileParts(rawText) {
+  return screenshotFilePartsList(rawText)[0] || { candidateName: '', jobTitle: '' };
+}
+
+function sanitizeCandidateName(value) {
+  return clean(value)
+    .replace(/\s*(?:性别|年龄|工作年限|应聘岗位|当前薪资|期望薪资)\s*[：:].*$/i, '')
+    .replace(/\s*[1-9][\ufe0f\u20e3].*$/, '')
+    .trim();
+}
+
+function sanitizeJobTitle(value) {
+  const title = clean(value);
+  if (!title || title.length > 100) return '';
+  if (/(?:Ojisamer|Bruce|Robin|Reply|候选人编码|简历推荐人|寻英\s*[➡➜→]|招聘\s*(?:MY|CN))/i.test(title)) return '';
+  return title;
+}
+
+function isLikelyCandidateName(value) {
+  const name = normalizeName(sanitizeCandidateName(value));
+  return Boolean(name && name.length >= 2 && !NON_CANDIDATE_NAMES.has(name));
+}
+
+function explicitCandidateName(rawText) {
+  const match = String(rawText || '').match(/候选人(?:姓名)?(?:\s*[（(]英文名[）)])?\s*[：:]\s*([^\n,，。；;]{1,40}?)(?=\s*(?:[-—–|]|应聘岗位|岗位|部门|编制|$))/i);
+  return isLikelyCandidateName(match?.[1]) ? clean(match[1]) : '';
+}
+
+function explicitJobTitle(rawText) {
+  const match = String(rawText || '').match(/(?:应聘岗位|岗位)\s*[：:]\s*([^\n,，；;]{2,100}?)(?=\s*(?:部门|编制|服务单位|工作年限|当前薪资|期望薪资|$))/i);
+  return sanitizeJobTitle(match?.[1]);
+}
+
+function structuredIdentity(rawText) {
+  const raw = String(rawText || '');
+  const topic = raw.match(/(?:topic|会议主题)\s*[：:]\s*([^\n]{2,120})/i)?.[1] || '';
+  const topicParts = topic.split(/[-_—–|]/).map(clean).filter(Boolean);
+  const candidateName = explicitCandidateName(raw)
+    || (topicParts.length >= 2 && isLikelyCandidateName(topicParts[0]) ? topicParts[0] : '');
+  const jobTitle = explicitJobTitle(raw)
+    || (topicParts.length >= 2 ? clean(topicParts.slice(1).join(' ')) : '');
+  return {
+    candidateCode: normalizeCode(raw),
+    candidateName,
+    jobTitle,
+    organization: detectedOrganization(raw),
+  };
+}
+
+function detectedOrganization(rawText) {
+  const raw = clean(rawText);
+  for (const aliases of ORGANIZATION_ALIAS_GROUPS) {
+    const matched = aliases.find((alias) => normalize(raw).includes(normalize(alias)));
+    if (matched) return aliases[0];
+  }
+  const labeled = raw.match(/(?:部门|服务单位|编制组织|组织|单位)\s*[：:]\s*([^,，。；;\n]{2,30})/i)?.[1];
+  return clean(labeled);
+}
+
 function screenshotJobTitle(rawText, candidateName) {
   const raw = String(rawText || '');
   const escapedName = clean(candidateName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -151,19 +245,38 @@ function screenshotJobTitle(rawText, candidateName) {
     const namedFile = raw.match(new RegExp(`${escapedName}\\s*[-_—–]\\s*([^,，。\\n]{1,100}?)\\.(?:pdf|docx?)`, 'i'));
     if (namedFile?.[1]) return clean(namedFile[1]);
   }
-  const file = raw.match(/([^,，。\n]{2,120}?)\.(?:pdf|docx?)/i)?.[1];
-  if (!file) return '';
-  const parts = file.split(/[-_—–]/).map(clean).filter(Boolean);
-  return parts.length > 1 ? clean(parts.slice(1).join(' ')) : '';
+  return screenshotFileParts(raw).jobTitle;
 }
 
-function normalizedFeedbackResult(item, rawText) {
-  if (item.result === 'failed' || item.result === 'passed') return item.result;
-  const text = `${item.interviewStage} ${item.feedbackSummary} ${item.evidence} ${rawText}`;
-  if (/(辛苦约|约面|安排.{0,8}面试|面试.{0,8}(安排|时间)|约.{0,12}(今天|明天|上午|下午|晚上|\d{1,2}\s*[:：]\s*\d{2}))/i.test(text)) {
-    return 'scheduled';
-  }
+function normalizedFeedbackResult(item, rawText, itemCount = 1) {
+  const itemText = clean(`${item.interviewStage} ${item.feedbackSummary} ${item.evidence}`);
+  const text = clean(`${itemText} ${itemCount === 1 ? rawText : ''}`);
+  if (/(未通过|没通过|不通过|不过了|没过|不合适|不匹配|不符合|不考虑|不推荐|不要了?|不推进|淘汰|拒绝|拒了|面试失败|面试挂|挂了|不约面|暂不约|放弃面试|放弃推进|取消面试|终止流程)/i.test(text)) return 'failed';
+  if (/(辛苦约|约面|已约|安排.{0,8}面试|面试.{0,8}(安排|时间)|会议邀请|zoom|约.{0,12}(今天|明天|上午|下午|晚上|\d{1,2}\s*[:：]\s*\d{2}))/i.test(text)) return 'scheduled';
+  if (/(面试通过|初筛通过|简历通过|通过初筛|过了初筛|过了面试|进入下一轮|进入[二三]面|安排下一轮|可以推进|继续推进|发\s*offer|已录用|确认录用)/i.test(text)) return 'passed';
+  if (/(待反馈|还没反馈|暂无反馈|等反馈|催一下|跟进一下|待定|先等等|横向对比)/i.test(text)) return 'pending';
+  if (/(薪资|期望|到岗|工作地点|开视频|改期|迟到|缺席|失联|联系不上|意向|背调|试岗|入职时间)/i.test(text)) return 'other';
   return item.result;
+}
+
+function itemSpecificContext(context, item) {
+  const lines = String(context || '').split(/\r?\n/).filter(Boolean);
+  const code = normalizeCode(item?.candidateCode);
+  const name = clean(item?.candidateName);
+  const matched = new Set();
+  lines.forEach((line, index) => {
+    const hasName = name && candidateNameMentioned(line, name);
+    const hasCode = !name && code && normalizeCode(line) === code;
+    if (!hasCode && !hasName) return;
+    matched.add(index);
+    if (index > 0) matched.add(index - 1);
+    if (index + 1 < lines.length) matched.add(index + 1);
+  });
+  return [...matched].sort((a, b) => a - b).map((index) => lines[index]).join('\n');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function kvGet(key) {
@@ -208,12 +321,12 @@ function contextFor(messages, index, accountLabel) {
   const current = messages[index];
   const currentTime = messageDate(current).getTime();
   return messages
-    .slice(Math.max(0, index - 3), Math.min(messages.length, index + 4))
+    .slice(Math.max(0, index - 6), Math.min(messages.length, index + 7))
     .filter((message) => {
       const text = clean(message.message);
-      return text && Math.abs(messageDate(message).getTime() - currentTime) <= 30 * 60 * 1000;
+      return text && Math.abs(messageDate(message).getTime() - currentTime) <= 90 * 60 * 1000;
     })
-    .map((message) => `${message.out ? accountLabel : 'ojisamer'} ${shanghaiDateTime(messageDate(message))}: ${clean(message.message)}`)
+    .map((message) => `[消息${message.id}] ${message.out ? accountLabel : 'ojisamer'} ${shanghaiDateTime(messageDate(message))}: ${clean(message.message)}`)
     .join('\n');
 }
 
@@ -228,51 +341,198 @@ function extractJson(text) {
 function sanitizeVisionResult(value) {
   const allowed = new Set(['passed', 'failed', 'scheduled', 'pending', 'no_feedback', 'other', 'unknown']);
   const items = Array.isArray(value?.items) ? value.items : [];
+  const normalizedItems = items.map((item) => {
+    const result = allowed.has(item?.result) ? item.result : 'unknown';
+    const candidateName = sanitizeCandidateName(item?.candidateName);
+    return {
+      candidateCode: normalizeCode(item?.candidateCode),
+      candidateCodeConflict: Boolean(item?.candidateCodeConflict),
+      candidateName: isLikelyCandidateName(candidateName) ? candidateName : '',
+      jobTitle: sanitizeJobTitle(item?.jobTitle),
+      organization: clean(item?.organization),
+      interviewStage: clean(item?.interviewStage),
+      result,
+      feedbackSummary: clean(item?.feedbackSummary),
+      evidence: clean(item?.evidence),
+      confidence: Math.max(0, Math.min(1, Number(item?.confidence) || 0)),
+    };
+  });
+  const namesByCode = new Map();
+  for (const item of normalizedItems) {
+    if (!item.candidateCode || !item.candidateName) continue;
+    const names = namesByCode.get(item.candidateCode) || new Set();
+    names.add(normalizeName(item.candidateName));
+    namesByCode.set(item.candidateCode, names);
+  }
+  for (const item of normalizedItems) {
+    if ((namesByCode.get(item.candidateCode)?.size || 0) > 1) {
+      item.candidateCode = '';
+      item.candidateCodeConflict = true;
+    }
+  }
   return {
     screenType: clean(value?.screenType || 'other'),
     rawText: clean(value?.rawText),
-    items: items.map((item) => {
-      const result = allowed.has(item?.result) ? item.result : 'unknown';
-      return {
-        candidateCode: normalizeCode(item?.candidateCode),
-        candidateName: clean(item?.candidateName),
-        jobTitle: clean(item?.jobTitle),
-        organization: clean(item?.organization),
-        interviewStage: clean(item?.interviewStage),
-        result,
-        feedbackSummary: clean(item?.feedbackSummary),
-        evidence: clean(item?.evidence),
-        confidence: Math.max(0, Math.min(1, Number(item?.confidence) || 0)),
-      };
-    }),
+    items: normalizedItems,
   };
 }
 
 async function recognizeScreenshot(buffer, extension, context) {
   const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg';
-  const prompt = `你是招聘反馈截图审计助手。识别截图中的候选人、岗位、部门或服务单位、面试轮次和明确反馈，并结合聊天上下文辅助定位。\n\n规则：\n1. 只有截图中明确出现“未通过、不通过、不合适、淘汰、拒绝、不推进、面试失败”等否定结论，且能明确归属到候选人时，result 才能是 failed。\n2. “待反馈、还没反馈、催一下、暂无消息”是 pending，绝不能当作 failed。\n3. 截图明确出现约面或面试时间安排时，result 使用 scheduled；没有任何结论或排期时才用 unknown。\n4. 优先从转发文件名中的“候选人-岗位.pdf”识别姓名和岗位，不要用相似岗位替换文件名里的岗位。\n5. 保留截图中出现的部门、服务单位及简称，例如“极乐”与“极乐引擎”，不要自行改成其他单位。\n6. 一张截图可能有多个人，逐条输出。候选人编码、姓名、岗位看不清就留空。\n7. evidence 只写截图中支持结论的短句，confidence 为 0 到 1。\n8. 仅返回 JSON，不要 Markdown。\n\nJSON 格式：\n{"screenType":"feedback|schedule|recommendation|chat|other","rawText":"截图全文摘要","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n聊天上下文：\n${context || '无'}`;
-  const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: VISION_MODEL,
-      temperature: 0,
-      thinking: { type: 'disabled' },
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: `data:${mime};base64,${buffer.toString('base64')}` } },
-        ],
-      }],
-    }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`DeepSeek vision failed: ${response.status} ${clean(body?.error?.message)}`);
-  return sanitizeVisionResult(extractJson(body?.choices?.[0]?.message?.content));
+  const prompt = `你是招聘反馈截图审计助手。逐块识别截图中的候选人、岗位、部门或服务单位、面试轮次和明确反馈，并结合截图前后的聊天上下文辅助定位。\n\n规则：\n1. 一张截图里出现多位候选人、多个附件或多条反馈时，必须按候选人逐条输出 items，不能合并。\n2. 候选人身份按可靠性依次取：候选人编码；“候选人姓名”字段；附件文件名“姓名-岗位.pdf/doc/docx”；会议 Topic；被回复或转发消息中的姓名。\n3. Bruce、ojisamer、麦满分、啵啵、BOBO、Robin、HR、BP，以及极乐、瑞升、紫宸、万有引力、悦达、无极、鼎丰、经纬、Happy、ODC 等招聘人或组织名绝不是候选人姓名。\n4. 明确出现“未通过、不通过、不合适、淘汰、拒绝、不推进、不约面、放弃面试”等否定结论时 result=failed。先识别否定句，绝不能因其中含有“通过”二字而判 passed。\n5. 明确出现“面试通过、初筛通过、进入下一轮、录用”等肯定结论时 result=passed。\n6. 明确出现约面、面试时间、会议邀请时 result=scheduled；“待反馈、还没反馈、催一下、先等等”是 pending。\n7. 如果是“这个人、他、她、这个简历”等省略姓名的沟通，只有上下文能唯一指向紧邻候选人时才补齐；否则姓名留空。\n8. 其他与 HR 的薪资、到岗、意向、改期、缺席等沟通也输出；能对应候选人就填姓名，result 用 pending 或 other，并在 feedbackSummary 概括。\n9. 优先保留附件文件名中的岗位和截图中的组织简称，不要用相似岗位替换，也不要自行扩写简称。\n10. 看不清的字段留空，不得猜测。evidence 只写支持结论的短句，confidence 为 0 到 1。只返回 JSON，不要 Markdown。\n\nJSON 格式：\n{"screenType":"feedback|schedule|recommendation|chat|other","rawText":"尽量完整保留截图文字、附件名和候选人编码","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n聊天上下文：\n${context || '无'}`;
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(90_000),
+        body: JSON.stringify({
+          model: VISION_MODEL,
+          temperature: 0,
+          thinking: { type: 'disabled' },
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: `data:${mime};base64,${buffer.toString('base64')}` } },
+            ],
+          }],
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`DeepSeek vision failed: ${response.status} ${clean(body?.error?.message)}`);
+      const result = sanitizeVisionResult(extractJson(body?.choices?.[0]?.message?.content));
+      if (!result.rawText && !result.items.length) throw new Error('DeepSeek vision returned an empty result');
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await sleep(1_000 * attempt);
+    }
+  }
+  throw lastError;
+}
+
+function enrichVisionItem(item, record) {
+  const singleItem = record.items.length === 1;
+  const directText = clean(`${singleItem ? record.rawText : ''} ${item.feedbackSummary} ${item.evidence}`);
+  const fileParts = screenshotFileParts(directText);
+  const explicitName = explicitCandidateName(directText);
+  const detectedCode = item.candidateCodeConflict
+    ? ''
+    : normalizeCode(`${item.candidateCode} ${directText} ${singleItem ? record.context || '' : ''}`);
+  let candidateName = sanitizeCandidateName(item.candidateName);
+  if (!isLikelyCandidateName(candidateName)) candidateName = explicitName || fileParts.candidateName;
+  if (singleItem && !isLikelyCandidateName(candidateName)) candidateName = explicitCandidateName(record.context || '');
+  const relatedContext = itemSpecificContext(record.context, { ...item, candidateName, candidateCode: detectedCode });
+  return {
+    ...item,
+    candidateCode: detectedCode,
+    candidateName: isLikelyCandidateName(candidateName) ? candidateName : '',
+    jobTitle: sanitizeJobTitle(screenshotJobTitle(directText, candidateName))
+      || sanitizeJobTitle(fileParts.jobTitle)
+      || sanitizeJobTitle(item.jobTitle)
+      || sanitizeJobTitle(screenshotJobTitle(clean(`${directText} ${relatedContext}`), candidateName)),
+    organization: item.organization || detectedOrganization(directText),
+    result: normalizedFeedbackResult(
+      item,
+      clean(`${record.items.length === 1 ? record.rawText : ''} ${relatedContext}`),
+      1,
+    ),
+  };
+}
+
+function candidateNameMentioned(text, candidateName) {
+  const name = clean(candidateName);
+  if (!isLikelyCandidateName(name)) return false;
+  if (/^[a-z][a-z\s.'-]+$/i.test(name)) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`, 'i').test(text);
+  }
+  return String(text || '').includes(name);
+}
+
+function inferIdentityFromContext(item, record, recommendations) {
+  const currentCode = normalizeCode(item.candidateCode);
+  const currentName = normalizeName(item.candidateName);
+  const identityExists = recommendations.some((rec) => (
+    (currentCode && normalizeCode(rec.candidateCode) === currentCode)
+    || (currentName && normalizeName(rec.candidateName) === currentName)
+  ));
+  const relatedContext = itemSpecificContext(record.context, item);
+  const hasItemIdentity = Boolean(currentCode || currentName);
+  const itemText = clean(`${item.feedbackSummary} ${item.evidence}`);
+  const directText = record.items?.length === 1 ? record.rawText : itemText;
+  const text = clean(`${directText} ${relatedContext || (!hasItemIdentity ? record.context || '' : '')}`);
+  const structured = structuredIdentity(text);
+  if (item.candidateCodeConflict) structured.candidateCode = '';
+  if (identityExists) {
+    return {
+      ...item,
+      jobTitle: item.jobTitle || structured.jobTitle,
+      organization: item.organization || structured.organization,
+    };
+  }
+  if (structured.candidateCode || structured.candidateName) {
+    const structuredExists = recommendations.some((rec) => (
+      (structured.candidateCode && normalizeCode(rec.candidateCode) === structured.candidateCode)
+      || (structured.candidateName && normalizeName(rec.candidateName) === normalizeName(structured.candidateName))
+    ));
+    if (structuredExists) return { ...item, ...structured };
+  }
+  const codeMatches = item.candidateCodeConflict ? [] : [...text.matchAll(/XY\s*(?:MMF|BB)\s*[0-9O]{1,6}/gi)]
+    .map((match) => normalizeCode(match[0]))
+    .filter(Boolean);
+  const uniqueCodes = [...new Set(codeMatches)];
+  if (uniqueCodes.length === 1) {
+    const rec = recommendations.find((candidate) => normalizeCode(candidate.candidateCode) === uniqueCodes[0]);
+    if (rec) return { ...item, candidateCode: uniqueCodes[0], candidateName: clean(rec.candidateName) };
+  }
+  const fileNames = screenshotFilePartsList(text)
+    .map((part) => ({ ...part, normalizedName: normalizeName(part.candidateName) }))
+    .filter((part) => isLikelyCandidateName(part.candidateName));
+  const uniqueFileNames = [...new Map(fileNames.map((part) => [part.normalizedName, part])).values()];
+  if (uniqueFileNames.length === 1) {
+    const matchingNames = recommendations.filter((rec) => (
+      normalizeName(rec.candidateName) === uniqueFileNames[0].normalizedName
+    ));
+    if (!matchingNames.length) return item;
+    return {
+      ...item,
+      candidateName: uniqueFileNames[0].candidateName,
+      jobTitle: item.jobTitle || uniqueFileNames[0].jobTitle,
+    };
+  }
+  const mentionedNames = [...new Map(recommendations
+    .filter((rec) => candidateNameMentioned(text, rec.candidateName))
+    .map((rec) => [normalizeName(rec.candidateName), clean(rec.candidateName)]))
+    .values()];
+  if (mentionedNames.length === 1) return { ...item, candidateName: mentionedNames[0] };
+  return item;
+}
+
+function inferItemFromRecord(record, recommendations) {
+  const text = clean(`${record.rawText || ''} ${record.context || ''}`);
+  if (!text) return null;
+  const structured = structuredIdentity(text);
+  const seed = {
+    candidateCode: structured.candidateCode,
+    candidateName: structured.candidateName,
+    jobTitle: structured.jobTitle,
+    organization: structured.organization,
+    interviewStage: '',
+    result: normalizedFeedbackResult({ result: 'unknown' }, text, 1),
+    feedbackSummary: clean(record.rawText),
+    evidence: clean(record.rawText).slice(0, 240),
+    confidence: 0.62,
+  };
+  const inferred = inferIdentityFromContext(seed, record, recommendations);
+  const hasIdentity = normalizeCode(inferred.candidateCode) || isLikelyCandidateName(inferred.candidateName);
+  if (!hasIdentity || inferred.result === 'unknown') return null;
+  return inferred;
 }
 
 async function runPool(tasks, concurrency) {
@@ -320,20 +580,48 @@ function matchFeedback(item, recommendations, rawText = '') {
       || b.job - a.job
       || (recommendationDate(b.rec)?.getTime() || 0) - (recommendationDate(a.rec)?.getTime() || 0)
       || clean(a.rec.id).localeCompare(clean(b.rec.id)));
+  const uniqueExactMatch = (matches) => {
+    if (!matches.length) return null;
+    const title = normalize(effectiveJobTitle);
+    if (title) {
+      const exact = matches.filter((rec) => normalize(rec.jdTitle) === title);
+      if (exact.length === 1) return exact[0];
+      const contained = matches.filter((rec) => {
+        const recTitle = normalize(rec.jdTitle);
+        return recTitle.length >= 4 && title.length >= 4 && (recTitle.includes(title) || title.includes(recTitle));
+      });
+      if (contained.length === 1) return contained[0];
+    }
+    if (item.organization) {
+      const sameOrganization = matches.filter((rec) => (
+        organizationSimilarity(item.organization, `${rec.organization} ${rec.department}`) === 1
+      ));
+      if (sameOrganization.length === 1) return sameOrganization[0];
+    }
+    return null;
+  };
   const code = normalizeCode(item.candidateCode);
   if (code) {
     const codeMatches = recommendations.filter((rec) => normalizeCode(rec.candidateCode) === code);
     if (codeMatches.length === 1) return { recommendation: codeMatches[0], score: 1, reason: '候选人编码一致' };
     if (codeMatches.length > 1) {
+      const exact = uniqueExactMatch(codeMatches);
+      if (exact) return { recommendation: exact, score: 0.99, reason: '候选人编码一致，岗位或部门唯一对应' };
       const ranked = rankMatches(codeMatches);
-      if (ranked[0].job > 0 || ranked[0].organization > 0 || !effectiveJobTitle) {
+      const hasLocator = Boolean(effectiveJobTitle || item.organization);
+      const uniquelyRanked = ranked.length === 1 || ranked[0].rank > ranked[1].rank;
+      if (hasLocator && uniquelyRanked && (ranked[0].job > 0 || ranked[0].organization > 0)) {
         return { recommendation: ranked[0].rec, score: 0.98, reason: fileJobTitle ? '候选人编码一致，按截图文件名及单位匹配' : '候选人编码一致，按岗位及单位匹配' };
       }
+      return { ambiguous: codeMatches, score: 0.6, reason: '候选人编码一致，但同一人有多个岗位且截图缺少可区分信息' };
     }
   }
   const name = normalizeName(item.candidateName);
   if (!name) return null;
-  const candidates = rankMatches(recommendations.filter((rec) => normalizeName(rec.candidateName) === name));
+  const sameName = recommendations.filter((rec) => normalizeName(rec.candidateName) === name);
+  const exact = uniqueExactMatch(sameName);
+  if (exact) return { recommendation: exact, score: 0.98, reason: '候选人姓名一致，岗位或部门唯一对应' };
+  const candidates = rankMatches(sameName);
   if (!candidates.length) return null;
   if (candidates.length === 1) {
     return { recommendation: candidates[0].rec, score: Math.min(0.99, effectiveJobTitle ? 0.78 + candidates[0].job * 0.14 + candidates[0].organization * 0.08 : 0.78), reason: '候选人姓名一致' };
@@ -346,6 +634,38 @@ function matchFeedback(item, recommendations, rawText = '') {
     };
   }
   return { ambiguous: candidates.map((candidate) => candidate.rec), score: 0.5, reason: '同名多岗位，无法唯一确认' };
+}
+
+function reviewCategory(record, item, match) {
+  if (record?.error) return 'ocr_failed';
+  if (!clean(record?.rawText) && !clean(item?.evidence)) return 'ocr_empty';
+  if (!normalizeCode(item?.candidateCode) && !normalizeName(item?.candidateName)) return 'missing_candidate';
+  if (match?.ambiguous) return 'ambiguous_recommendation';
+  if (!match) return 'no_recommendation';
+  if (Number(item?.confidence) < 0.6) return 'low_confidence';
+  return 'needs_review';
+}
+
+function ambiguousRecommendationSummary(match) {
+  const candidates = Array.isArray(match?.ambiguous) ? match.ambiguous : [];
+  if (!candidates.length) return '';
+  return [...new Set(candidates.map((rec) => clean(`${rec.jdTitle}（${rec.organization || rec.department || '未标部门'}）`)))]
+    .filter(Boolean)
+    .join('、');
+}
+
+const REVIEW_CATEGORY_LABELS = {
+  ocr_failed: '图片识别失败',
+  ocr_empty: '图片未读出文字',
+  missing_candidate: '缺候选人身份',
+  ambiguous_recommendation: '同一人有多个岗位',
+  no_recommendation: '没有对应推荐记录',
+  low_confidence: '识别置信度较低',
+  needs_review: '需要人工核对',
+};
+
+function reviewCategoryLabel(category) {
+  return REVIEW_CATEGORY_LABELS[category] || REVIEW_CATEGORY_LABELS.needs_review;
 }
 
 function findCandidateForRecommendation(rec, candidates) {
@@ -392,6 +712,9 @@ function feedbackInboxId(row, sourceStatus, index, owner) {
 }
 
 function toFeedbackInboxItem(row, sourceStatus, index, generatedAt, owner) {
+  const possibleRecommendations = clean(row.possibleRecommendations);
+  const categoryLabel = clean(row.categoryLabel);
+  const auditConclusion = clean(row.auditConclusion || row.reason);
   return {
     id: feedbackInboxId(row, sourceStatus, index, owner),
     recommendationId: clean(row.recommendationId) || undefined,
@@ -408,7 +731,9 @@ function toFeedbackInboxItem(row, sourceStatus, index, generatedAt, owner) {
     sourceStatus,
     sourceSummary: clean(row.feedbackSummary || row.rawText || row.reason) || undefined,
     sourceEvidence: clean(row.evidence) || undefined,
-    auditConclusion: clean(row.auditConclusion || row.reason) || undefined,
+    auditConclusion: [categoryLabel, auditConclusion, possibleRecommendations ? `可能岗位：${possibleRecommendations}` : '']
+      .filter(Boolean)
+      .join('；') || undefined,
     confidence: Number.isFinite(Number(row.confidence)) ? Number(row.confidence) : undefined,
     telegramMessageId: clean(row.telegramMessageId || row.messageId) || undefined,
     followUpCount: 0,
@@ -540,6 +865,7 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
   ], screeningFailed, 'FFFFF7ED');
   addRowsSheet(workbook, '待人工确认', [
     { header: '反馈时间', key: 'feedbackAt', width: 20 },
+    { header: '问题类型', key: 'categoryLabel', width: 20 },
     { header: '候选人编码', key: 'candidateCode', width: 16 },
     { header: '候选人', key: 'candidateName', width: 18 },
     { header: '截图岗位', key: 'jobTitle', width: 32 },
@@ -637,25 +963,50 @@ async function main() {
   messages.sort((a, b) => Number(a.date) - Number(b.date));
   const imageEntries = messages.map((message, index) => ({ message, index })).filter(({ message }) => isImageMessage(message));
   const force = hasFlag('--force-ocr');
+  const reuseOcr = hasFlag('--reuse-ocr');
 
   const tasks = imageEntries.map(({ message, index }) => async () => {
     const extension = imageExtension(message);
     const baseName = `msg-${message.id}`;
     const imagePath = path.join(imageDir, `${baseName}${extension}`);
     const cachePath = path.join(cacheDir, `${baseName}.json`);
+    const context = contextFor(messages, index, accountLabel);
     if (!force && fs.existsSync(cachePath)) {
       const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-      if (cached.promptVersion === PROMPT_VERSION) return cached;
+      if (cached.promptVersion === PROMPT_VERSION || (reuseOcr && (cached.rawText || cached.items?.length))) {
+        return {
+          ...cached,
+          ...sanitizeVisionResult(cached),
+          promptVersion: PROMPT_VERSION,
+          context,
+        };
+      }
     }
     const buffer = Buffer.from(await client.downloadMedia(message, {}));
     fs.writeFileSync(imagePath, buffer);
-    const result = await recognizeScreenshot(buffer, extension, contextFor(messages, index, accountLabel));
+    let result;
+    try {
+      result = await recognizeScreenshot(buffer, extension, context);
+    } catch (error) {
+      return {
+        promptVersion: PROMPT_VERSION,
+        model: VISION_MODEL,
+        messageId: String(message.id),
+        feedbackAt: shanghaiDateTime(messageDate(message)),
+        imagePath,
+        context,
+        rawText: '',
+        items: [],
+        error: clean(error?.message || error),
+      };
+    }
     const record = {
       promptVersion: PROMPT_VERSION,
       model: VISION_MODEL,
       messageId: String(message.id),
       feedbackAt: shanghaiDateTime(messageDate(message)),
       imagePath,
+      context,
       ...result,
     };
     fs.writeFileSync(cachePath, JSON.stringify(record, null, 2));
@@ -677,34 +1028,64 @@ async function main() {
   const review = [];
   const feedbackByRecommendation = new Map();
   for (let index = 0; index < recognized.length; index += 1) {
-    const record = recognized[index];
+    const record = recognized[index] || {};
     const entry = imageEntries[index];
-    if (record?.error) {
+    const originalItems = Array.isArray(record.items) ? record.items : [];
+    const inferredItem = originalItems.length ? null : inferItemFromRecord(record, ownerRecommendations);
+    if (record.error && !inferredItem) {
       const row = {
         messageId: String(entry.message.id), feedbackAt: shanghaiDateTime(messageDate(entry.message)),
-        imagePath: '', error: record.error,
+        imagePath: clean(record.imagePath), context: clean(record.context), error: record.error,
       };
       screenshotRows.push(row);
-      review.push({ ...row, reason: '截图识别失败，需要人工查看' });
+      review.push({
+        ...row,
+        category: 'ocr_failed',
+        categoryLabel: reviewCategoryLabel('ocr_failed'),
+        reason: '截图连续三次识别失败，需要人工查看',
+      });
       continue;
     }
-    if (!record.items.length) {
+    const workingRecord = {
+      ...record,
+      error: inferredItem ? undefined : record.error,
+      items: originalItems.length ? originalItems : inferredItem ? [inferredItem] : [],
+    };
+    if (!workingRecord.items.length) {
       screenshotRows.push({ ...record, result: '无候选人条目' });
+      const recruitingSignal = /(候选人|简历|面试|初筛|通过|不通过|不合适|约面|offer|薪资|到岗|岗位|反馈|推进|放弃)/i
+        .test(record.rawText || '');
+      if (recruitingSignal) {
+        const category = clean(record.rawText) ? 'missing_candidate' : 'ocr_empty';
+        review.push({
+          ...record,
+          result: 'unknown',
+          category,
+          categoryLabel: reviewCategoryLabel(category),
+          reason: clean(record.rawText)
+            ? '截图包含招聘沟通，但没有拆出可归档的候选人'
+            : '截图没有提取到可核对文字',
+        });
+      }
       continue;
     }
-    for (const item of record.items) {
-      const normalizedItem = {
-        ...item,
-        jobTitle: screenshotJobTitle(record.rawText, item.candidateName) || item.jobTitle,
-        result: normalizedFeedbackResult(item, record.rawText),
-      };
-      const row = { ...record, ...normalizedItem };
+    for (const item of workingRecord.items) {
+      const enrichedItem = enrichVisionItem(item, workingRecord);
+      const normalizedItem = inferIdentityFromContext(enrichedItem, workingRecord, ownerRecommendations);
+      const row = { ...workingRecord, ...normalizedItem };
       delete row.items;
       screenshotRows.push(row);
-      const match = matchFeedback(normalizedItem, ownerRecommendations, record.rawText);
+      const matchingText = workingRecord.items.length === 1
+        ? workingRecord.rawText
+        : clean(`${normalizedItem.feedbackSummary} ${normalizedItem.evidence}`);
+      const match = matchFeedback(normalizedItem, ownerRecommendations, matchingText);
       if (!match || match.ambiguous || match.score < 0.75 || normalizedItem.confidence < 0.6) {
+        const category = reviewCategory(workingRecord, normalizedItem, match);
         review.push({
           ...row,
+          category,
+          categoryLabel: reviewCategoryLabel(category),
+          possibleRecommendations: ambiguousRecommendationSummary(match),
           reason: match?.reason || '没有找到可信的推荐记录对应项',
         });
         continue;
