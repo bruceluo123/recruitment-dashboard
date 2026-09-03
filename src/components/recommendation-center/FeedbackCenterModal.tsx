@@ -22,7 +22,7 @@ import type {
   FeedbackConfirmedStatus,
 } from '@/types/feedback-center';
 
-type TabId = 'pending' | 'interview_pending' | 'interview_failed' | 'screening_failed' | 'review';
+type TabId = 'pending' | 'screening_failed' | 'interview_failed';
 
 interface FeedbackCenterModalProps {
   owner: 'a' | 'b';
@@ -32,11 +32,9 @@ interface FeedbackCenterModalProps {
 }
 
 const tabs: { id: TabId; label: string }[] = [
-  { id: 'pending', label: '无反馈待跟进' },
-  { id: 'interview_pending', label: '面试待反馈' },
-  { id: 'interview_failed', label: '面试未通过' },
-  { id: 'screening_failed', label: '初筛未通过' },
-  { id: 'review', label: 'OCR 待核对' },
+  { id: 'pending', label: '无反馈，去跟进' },
+  { id: 'screening_failed', label: '已反馈，可复推' },
+  { id: 'interview_failed', label: '面试后，可复推' },
 ];
 
 const statusOptions: { value: FeedbackConfirmedStatus; label: string }[] = [
@@ -54,13 +52,13 @@ function bucket(item: FeedbackCenterItem): TabId | 'closed' {
     if (status === 'closed' || status === 'interview_passed') return 'closed';
     if (status === 'interview_failed') return 'interview_failed';
     if (status === 'screening_failed') return 'screening_failed';
-    if (status === 'interview_pending') return 'interview_pending';
+    if (status === 'interview_pending') return 'pending';
     return 'pending';
   }
   if (item.sourceStatus === 'interview_failed') return 'interview_failed';
   if (item.sourceStatus === 'screening_failed') return 'screening_failed';
-  if (item.sourceStatus === 'manual_review') return 'review';
-  if (item.interviewStatus === '已约面') return 'interview_pending';
+  if (item.sourceStatus === 'manual_review') return 'pending';
+  if (item.interviewStatus === '已约面') return 'pending';
   return 'pending';
 }
 
@@ -114,22 +112,19 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
     return result;
   }, {
     pending: 0,
-    interview_pending: 0,
     interview_failed: 0,
     screening_failed: 0,
-    review: 0,
   }), [ownerItems]);
   const visibleItems = useMemo(() => ownerItems
     .filter((item) => bucket(item) === activeTab)
     .sort((a, b) => {
       const aTime = String(a.feedbackAt || a.recommendedAt || '');
       const bTime = String(b.feedbackAt || b.recommendedAt || '');
-      return activeTab === 'pending' || activeTab === 'interview_pending'
+      return activeTab === 'pending'
         ? aTime.localeCompare(bTime)
         : bTime.localeCompare(aTime);
-    }), [activeTab, ownerItems]);
-  const followUpTotal = counts.pending + counts.interview_pending;
-  const repushTotal = counts.interview_failed + counts.screening_failed;
+  }), [activeTab, ownerItems]);
+  const followUpTotal = counts.pending;
 
   const update = async (item: FeedbackCenterItem, body: object) => {
     setUpdatingId(item.id);
@@ -164,7 +159,7 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
             <p className="mt-1 text-sm text-slate-500">
               {loading && state.items.length === 0
                 ? '正在整理待跟进名单...'
-                : `待跟进 ${followUpTotal} 条 · 可复推 ${repushTotal} 条，最久未反馈的排在前面。`}
+                : `未反馈 ${followUpTotal} 条 · 已反馈可复推 ${counts.screening_failed} 条 · 面试后可复推 ${counts.interview_failed} 条。`}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -177,7 +172,7 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
           </div>
         </header>
 
-        <nav className="grid grid-cols-2 gap-1.5 border-b border-slate-100 px-5 py-3 sm:grid-cols-5">
+        <nav className="grid grid-cols-1 gap-2 border-b border-slate-100 px-5 py-3 sm:grid-cols-3">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -245,10 +240,10 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
                     <button type="button" disabled={updating} onClick={() => void update(item, { action: 'follow_up' })} className="flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200 px-3 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
                       <Check className="h-4 w-4" />标记已跟进
                     </button>
-                    {item.recommendationId && (
+                    {activeTab !== 'pending' && item.recommendationId && (
                       <button type="button" onClick={() => { void update(item, { action: 'repush' }); onRepush(item.recommendationId!); }} className="flex h-9 items-center gap-1.5 rounded-lg border border-violet-200 px-3 text-sm font-medium text-violet-600 hover:bg-violet-50">
                         <Repeat className="h-4 w-4" />
-                        {activeTab === 'interview_failed' || activeTab === 'screening_failed' ? '复推其他部门' : '转复推'}
+                        复推其他部门
                       </button>
                     )}
                     <button type="button" onClick={() => setExpandedId(expanded ? '' : item.id)} className="flex h-9 items-center gap-1 rounded-lg px-2 text-sm text-slate-500 hover:bg-slate-50 sm:ml-auto">
