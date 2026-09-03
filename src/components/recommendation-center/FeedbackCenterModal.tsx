@@ -26,6 +26,7 @@ type TabId = 'pending' | 'interview_pending' | 'interview_failed' | 'screening_f
 
 interface FeedbackCenterModalProps {
   owner: 'a' | 'b';
+  initialState?: FeedbackCenterState | null;
   onClose: () => void;
   onRepush: (recommendationId: string) => void;
 }
@@ -72,16 +73,17 @@ function ageLabel(value?: string): string {
   return `${Math.floor(hours / 24)} 天`;
 }
 
-export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenterModalProps) {
-  const [state, setState] = useState<FeedbackCenterState>({ version: 1, generatedAt: '', items: [] });
+export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: FeedbackCenterModalProps) {
+  const hasInitialData = Boolean(initialState);
+  const [state, setState] = useState<FeedbackCenterState>(initialState || { version: 1, generatedAt: '', items: [] });
   const [activeTab, setActiveTab] = useState<TabId>('pending');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!hasInitialData);
   const [error, setError] = useState('');
   const [updatingId, setUpdatingId] = useState('');
   const [expandedId, setExpandedId] = useState('');
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (showBlockingLoader = state.items.length === 0) => {
+    if (showBlockingLoader) setLoading(true);
     setError('');
     try {
       const response = await fetch('/api/feedback-center', { cache: 'no-store' });
@@ -100,7 +102,7 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
   };
 
   useEffect(() => {
-    void load();
+    void load(!hasInitialData);
   }, []);
 
   const ownerItems = useMemo(
@@ -119,7 +121,15 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
   }), [ownerItems]);
   const visibleItems = useMemo(() => ownerItems
     .filter((item) => bucket(item) === activeTab)
-    .sort((a, b) => String(b.feedbackAt || b.recommendedAt || '').localeCompare(String(a.feedbackAt || a.recommendedAt || ''))), [activeTab, ownerItems]);
+    .sort((a, b) => {
+      const aTime = String(a.feedbackAt || a.recommendedAt || '');
+      const bTime = String(b.feedbackAt || b.recommendedAt || '');
+      return activeTab === 'pending' || activeTab === 'interview_pending'
+        ? aTime.localeCompare(bTime)
+        : bTime.localeCompare(aTime);
+    }), [activeTab, ownerItems]);
+  const followUpTotal = counts.pending + counts.interview_pending;
+  const repushTotal = counts.interview_failed + counts.screening_failed;
 
   const update = async (item: FeedbackCenterItem, body: object) => {
     setUpdatingId(item.id);
@@ -149,12 +159,16 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
         <header className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <h3 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-              <MessageSquareText className="h-5 w-5 text-indigo-500" />反馈中心
+              <MessageSquareText className="h-5 w-5 text-indigo-500" />反馈待办
             </h3>
-            <p className="mt-1 text-sm text-slate-400">OCR 只提供识别建议，确认后才进入正式跟进流程。沉默不会被判定为未通过。</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {loading && state.items.length === 0
+                ? '正在整理待跟进名单...'
+                : `待跟进 ${followUpTotal} 条 · 可复推 ${repushTotal} 条，最久未反馈的排在前面。`}
+            </p>
           </div>
           <div className="flex items-center gap-1">
-            <button type="button" onClick={() => void load()} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" title="刷新">
+            <button type="button" onClick={() => void load(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" title="刷新">
               <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             </button>
             <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" title="关闭">
@@ -178,7 +192,7 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
               <span className={cn(
                 'rounded-md px-1.5 py-0.5 text-xs',
                 activeTab === tab.id ? 'bg-white text-indigo-600' : 'bg-slate-100 text-slate-500',
-              )}>{counts[tab.id]}</span>
+              )}>{loading && state.items.length === 0 ? '...' : counts[tab.id]}</span>
             </button>
           ))}
         </nav>
@@ -186,7 +200,7 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
         {error && <div className="mx-5 mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
-          {loading ? (
+          {loading && state.items.length === 0 ? (
             <div className="flex h-56 items-center justify-center gap-2 text-sm text-slate-400">
               <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />正在读取反馈收件箱
             </div>

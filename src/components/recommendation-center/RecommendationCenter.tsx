@@ -20,6 +20,7 @@ import { matchJDByTitle } from '@/lib/recommendation';
 import { exportDailyReportExcel } from '@/lib/daily-report-excel';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
+import type { FeedbackCenterState } from '@/types/feedback-center';
 
 /** 把推荐记录按「天」分组，组与组按时间由近到远排序 */
 function groupByDay(items: RepushItem[]): { key: number; label: string; items: RepushItem[] }[] {
@@ -65,6 +66,7 @@ export function RecommendationCenter() {
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
   const [showFeedbackCenter, setShowFeedbackCenter] = useState(false);
+  const [feedbackCenterState, setFeedbackCenterState] = useState<FeedbackCenterState | null>(null);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
   const [contactRefreshTick, setContactRefreshTick] = useState(0);
@@ -83,6 +85,30 @@ export function RecommendationCenter() {
   }, [jds]);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch('/api/feedback-center', { cache: 'no-store' });
+        const data = await response.json();
+        if (!cancelled && response.ok && data.ok) {
+          setFeedbackCenterState({
+            version: 1,
+            generatedAt: data.generatedAt || '',
+            items: Array.isArray(data.items) ? data.items : [],
+          });
+        }
+      } catch {
+        // 弹窗打开时仍会再次读取，预加载失败不打断推荐中心使用。
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [mounted]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setContactRefreshTick((value) => value + 1), 60_000);
@@ -432,6 +458,7 @@ export function RecommendationCenter() {
       {showFeedbackCenter && (
         <FeedbackCenterModal
           owner={view}
+          initialState={feedbackCenterState}
           onClose={() => setShowFeedbackCenter(false)}
           onRepush={(recommendationId) => {
             const recommendation = items.find((item) => item.id === recommendationId);
