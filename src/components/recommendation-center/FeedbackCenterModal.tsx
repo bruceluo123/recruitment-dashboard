@@ -71,6 +71,13 @@ function ageLabel(value?: string): string {
   return `${Math.floor(hours / 24)} 天`;
 }
 
+function isWithinRecentDays(value?: string, days = 7): boolean {
+  if (!value) return false;
+  const parsed = new Date(value.replace(' ', 'T'));
+  if (Number.isNaN(parsed.getTime())) return false;
+  return parsed.getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
 export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: FeedbackCenterModalProps) {
   const hasInitialData = Boolean(initialState);
   const [state, setState] = useState<FeedbackCenterState>(initialState || { version: 1, generatedAt: '', items: [] });
@@ -104,7 +111,7 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
   }, []);
 
   const ownerItems = useMemo(
-    () => state.items.filter((item) => item.owner === owner),
+    () => state.items.filter((item) => item.owner === owner && isWithinRecentDays(item.recommendedAt)),
     [owner, state.items],
   );
   const counts = useMemo(() => tabs.reduce<Record<TabId, number>>((result, tab) => {
@@ -159,7 +166,7 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
             <p className="mt-1 text-sm text-slate-500">
               {loading && state.items.length === 0
                 ? '正在整理待跟进名单...'
-                : `未反馈 ${followUpTotal} 条 · 已反馈可复推 ${counts.screening_failed} 条 · 面试后可复推 ${counts.interview_failed} 条。`}
+                : `最近 7 天投递：未反馈 ${followUpTotal} 条 · 已反馈可复推 ${counts.screening_failed} 条 · 面试后可复推 ${counts.interview_failed} 条。`}
             </p>
           </div>
           <div className="flex items-center gap-1">

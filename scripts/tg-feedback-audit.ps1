@@ -1,5 +1,5 @@
 param(
-  [int]$Days = 15,
+  [int]$Days = 7,
   [string]$From = '',
   [string]$To = '',
   [switch]$NoSync

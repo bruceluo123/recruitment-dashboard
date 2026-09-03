@@ -479,7 +479,7 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
     ['项目', '内容'],
     ['审计时间范围', `${meta.from} 至 ${meta.to}`],
     ['聊天对象', '@ojisamer'],
-    ['推荐记录范围', '麦满分近 15 天推荐记录（同候选人同岗位去重）'],
+    ['推荐记录范围', `麦满分近 ${meta.days} 天推荐记录（同候选人同岗位去重）`],
     ['截图数', meta.screenshotCount],
     ['无反馈待复推', noFeedback.length],
     ['明确面试未通过', interviewFailed.length],
@@ -506,7 +506,7 @@ async function main() {
   for (const key of ['TG_API_ID', 'TG_API_HASH', 'TG_SESSION', 'DEEPSEEK_API_KEY', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) {
     if (!process.env[key]) throw new Error(`Missing ${key}`);
   }
-  const days = Math.max(1, Number.parseInt(arg('--days', '15'), 10));
+  const days = Math.max(1, Number.parseInt(arg('--days', '7'), 10));
   const to = arg('--to') ? new Date(`${arg('--to')}T23:59:59+08:00`) : new Date();
   const from = arg('--from') ? new Date(`${arg('--from')}T00:00:00+08:00`) : new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
   const outputRoot = path.resolve(arg('--output', path.join(ROOT, 'artifacts', 'tg-feedback-audit', shanghaiDateKey(new Date()))));
@@ -670,8 +670,8 @@ async function main() {
         auditConclusion: hasPending
           ? '截图明确显示待反馈/暂无反馈'
           : candidate?.stage
-            ? `有面试记录（${clean(candidate.stage)}），但近 15 天截图中未找到明确反馈`
-            : '近 15 天反馈截图中未找到明确结论',
+            ? `有面试记录（${clean(candidate.stage)}），但近 ${days} 天截图中未找到明确反馈`
+            : `近 ${days} 天反馈截图中未找到明确结论`,
         imagePath: latest?.imagePath || '',
         telegramMessageId: String(latest?.messageId || ''),
         evidence: latest?.evidence || '',
@@ -684,6 +684,7 @@ async function main() {
   screeningFailed.sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt)));
   const meta = {
     generatedAt: new Date().toISOString(),
+    days,
     from: shanghaiDateTime(from),
     to: shanghaiDateTime(to),
     messageCount: messages.length,
