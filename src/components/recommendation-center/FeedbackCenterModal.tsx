@@ -22,7 +22,7 @@ import type {
   FeedbackConfirmedStatus,
 } from '@/types/feedback-center';
 
-type TabId = 'first' | 'second' | 'interview' | 'failed' | 'review';
+type TabId = 'pending' | 'interview_pending' | 'interview_failed' | 'screening_failed' | 'review';
 
 interface FeedbackCenterModalProps {
   owner: 'a' | 'b';
@@ -31,11 +31,11 @@ interface FeedbackCenterModalProps {
 }
 
 const tabs: { id: TabId; label: string }[] = [
-  { id: 'first', label: '待首次跟进' },
-  { id: 'second', label: '待二次跟进' },
-  { id: 'interview', label: '面试待反馈' },
-  { id: 'failed', label: '明确未通过' },
-  { id: 'review', label: '待人工确认' },
+  { id: 'pending', label: '无反馈待跟进' },
+  { id: 'interview_pending', label: '面试待反馈' },
+  { id: 'interview_failed', label: '面试未通过' },
+  { id: 'screening_failed', label: '初筛未通过' },
+  { id: 'review', label: 'OCR 待核对' },
 ];
 
 const statusOptions: { value: FeedbackConfirmedStatus; label: string }[] = [
@@ -51,14 +51,16 @@ function bucket(item: FeedbackCenterItem): TabId | 'closed' {
   const status = item.confirmedStatus;
   if (status) {
     if (status === 'closed' || status === 'interview_passed') return 'closed';
-    if (status === 'screening_failed' || status === 'interview_failed') return 'failed';
-    if (status === 'interview_pending') return 'interview';
-    return item.followUpCount > 0 ? 'second' : 'first';
+    if (status === 'interview_failed') return 'interview_failed';
+    if (status === 'screening_failed') return 'screening_failed';
+    if (status === 'interview_pending') return 'interview_pending';
+    return 'pending';
   }
-  if (item.sourceStatus === 'screening_failed' || item.sourceStatus === 'interview_failed') return 'failed';
+  if (item.sourceStatus === 'interview_failed') return 'interview_failed';
+  if (item.sourceStatus === 'screening_failed') return 'screening_failed';
   if (item.sourceStatus === 'manual_review') return 'review';
-  if (item.interviewStatus === '已约面') return 'interview';
-  return item.followUpCount > 0 ? 'second' : 'first';
+  if (item.interviewStatus === '已约面') return 'interview_pending';
+  return 'pending';
 }
 
 function ageLabel(value?: string): string {
@@ -72,7 +74,7 @@ function ageLabel(value?: string): string {
 
 export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenterModalProps) {
   const [state, setState] = useState<FeedbackCenterState>({ version: 1, generatedAt: '', items: [] });
-  const [activeTab, setActiveTab] = useState<TabId>('first');
+  const [activeTab, setActiveTab] = useState<TabId>('pending');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [updatingId, setUpdatingId] = useState('');
@@ -108,7 +110,13 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
   const counts = useMemo(() => tabs.reduce<Record<TabId, number>>((result, tab) => {
     result[tab.id] = ownerItems.filter((item) => bucket(item) === tab.id).length;
     return result;
-  }, { first: 0, second: 0, interview: 0, failed: 0, review: 0 }), [ownerItems]);
+  }, {
+    pending: 0,
+    interview_pending: 0,
+    interview_failed: 0,
+    screening_failed: 0,
+    review: 0,
+  }), [ownerItems]);
   const visibleItems = useMemo(() => ownerItems
     .filter((item) => bucket(item) === activeTab)
     .sort((a, b) => String(b.feedbackAt || b.recommendedAt || '').localeCompare(String(a.feedbackAt || a.recommendedAt || ''))), [activeTab, ownerItems]);
@@ -198,7 +206,10 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
                       {item.candidateCode && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500">{item.candidateCode}</span>}
                       <h4 className="font-semibold text-slate-900">{item.candidateName || '待确认候选人'} · {item.jobTitle || '岗位待确认'}</h4>
                     </div>
-                    <p className="mt-1 text-sm text-slate-500">{[item.organization, item.department, item.contactPerson].filter(Boolean).join(' · ') || '部门信息待确认'}</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {[item.organization, item.department].filter(Boolean).join(' / ') || '部门信息待确认'}
+                      {item.contactPerson ? ` · 对接 ${item.contactPerson}` : ''}
+                    </p>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
                       <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />推荐后 {ageLabel(item.recommendedAt)}</span>
                       <span>已跟进 {item.followUpCount || 0} 次</span>
@@ -222,7 +233,8 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
                     </button>
                     {item.recommendationId && (
                       <button type="button" onClick={() => { void update(item, { action: 'repush' }); onRepush(item.recommendationId!); }} className="flex h-9 items-center gap-1.5 rounded-lg border border-violet-200 px-3 text-sm font-medium text-violet-600 hover:bg-violet-50">
-                        <Repeat className="h-4 w-4" />转复推
+                        <Repeat className="h-4 w-4" />
+                        {activeTab === 'interview_failed' || activeTab === 'screening_failed' ? '复推其他部门' : '转复推'}
                       </button>
                     )}
                     <button type="button" onClick={() => setExpandedId(expanded ? '' : item.id)} className="flex h-9 items-center gap-1 rounded-lg px-2 text-sm text-slate-500 hover:bg-slate-50 sm:ml-auto">
@@ -259,7 +271,7 @@ export function FeedbackCenterModal({ owner, onClose, onRepush }: FeedbackCenter
 
         <footer className="flex items-center justify-between border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
           <span>{state.generatedAt ? `最近识别：${new Date(state.generatedAt).toLocaleString('zh-CN')}` : '尚未同步 OCR 审计结果'}</span>
-          <span className="flex items-center gap-1"><SearchCheck className="h-3.5 w-3.5" />人工确认优先于 OCR</span>
+          <span className="flex items-center gap-1"><SearchCheck className="h-3.5 w-3.5" />确认后的状态优先于 OCR 判断</span>
         </footer>
       </div>
     </div>
