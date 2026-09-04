@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { CalendarClock, CircleX, LogOut, Mail, Pencil, UserRound } from 'lucide-react';
 import { cn, formatInterviewDate } from '@/lib/utils';
+import { getOfferGrade } from '@/lib/offer-compensation';
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
 
@@ -40,7 +41,14 @@ function getScoreColor(score: number): string {
 export function StageKanbanCard({ candidate, onClick, onFail, onEarlyDeparture }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const accent = STAGE_ACCENTS[candidate.stage];
-  const showScore = candidate.stage === 'offer' || candidate.score > 0;
+  const inferredGrade = candidate.stage === 'offer'
+    ? getOfferGrade(candidate.regularSalary || (candidate.salary?.includes('/') ? undefined : candidate.salary))
+    : null;
+  const offerLevel = candidate.jobLevel || inferredGrade?.level;
+  const displayScore = candidate.outcome === 'early-departure-7' || candidate.outcome === 'early-departure-30'
+    ? candidate.score
+    : candidate.score || inferredGrade?.score || 0;
+  const showScore = candidate.stage === 'offer' || displayScore > 0;
   const roundLabel = candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
 
   return (
@@ -62,9 +70,14 @@ export function StageKanbanCard({ candidate, onClick, onFail, onEarlyDeparture }
           )}
         </div>
         {showScore && (
-          <span className="flex shrink-0 items-baseline gap-0.5 leading-none">
-            <span className={cn('text-base font-extrabold tabular-nums', getScoreColor(candidate.score))}>{candidate.score}</span>
-            <span className="text-[10px] font-medium text-gray-400">分</span>
+          <span className="flex shrink-0 items-center gap-1.5 leading-none">
+            {candidate.stage === 'offer' && offerLevel && (
+              <span className="rounded-md bg-emerald-50 px-1.5 py-1 text-[11px] font-semibold text-emerald-700">{offerLevel}</span>
+            )}
+            <span className="flex items-baseline gap-0.5">
+              <span className={cn('text-base font-extrabold tabular-nums', getScoreColor(displayScore))}>{displayScore}</span>
+              <span className="text-[10px] font-medium text-gray-400">分</span>
+            </span>
           </span>
         )}
       </div>
