@@ -7,7 +7,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 
 const ROOT = process.cwd();
 const ENV_PATH = path.join(ROOT, '.env.local');
-const PROMPT_VERSION = 'feedback-audit-v5';
+const PROMPT_VERSION = 'feedback-audit-v7';
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
 
 function loadEnv() {
@@ -68,11 +68,26 @@ function normalizeName(value) {
   return normalize(String(value || '').split(/[-—–_|]/)[0]);
 }
 
+function candidateNamesMatch(left, right) {
+  const a = normalizeName(left);
+  const b = normalizeName(right);
+  if (!a || !b) return false;
+  return a === b || (Math.min(a.length, b.length) >= 3 && (a.includes(b) || b.includes(a)));
+}
+
 function normalizeCode(value) {
   const match = String(value || '').match(/XY\s*(MMF|BB)\s*([0-9O]{1,6})/i);
   if (!match) return '';
   const digits = match[2].replace(/O/gi, '0');
   return `XY${match[1].toUpperCase()}${digits.padStart(5, '0')}`;
+}
+
+function uniqueCandidateCode(value) {
+  const codes = [...String(value || '').matchAll(/XY\s*(?:MMF|BB)\s*[0-9O]{1,6}/gi)]
+    .map((match) => normalizeCode(match[0]))
+    .filter(Boolean);
+  const unique = [...new Set(codes)];
+  return unique.length === 1 ? unique[0] : '';
 }
 
 function codeBelongsToOwner(code, owner) {
@@ -286,24 +301,44 @@ function sleep(ms) {
 }
 
 async function kvGet(key) {
-  const response = await fetch(`${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
-  });
-  if (!response.ok) throw new Error(`KV get ${key} failed: ${response.status}`);
-  return (await response.json()).result;
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(`${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`, {
+        headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return (await response.json()).result;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await sleep(attempt * 1_000);
+    }
+  }
+  throw new Error(`KV get ${key} failed: ${clean(lastError?.message || lastError)}`);
 }
 
 async function kvSet(key, value) {
-  const response = await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
-    body: typeof value === 'string' ? value : JSON.stringify(value),
-  });
-  if (!response.ok) throw new Error(`KV set ${key} failed: ${response.status}`);
-  return true;
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
+          'Content-Type': 'text/plain; charset=utf-8',
+        },
+        body: typeof value === 'string' ? value : JSON.stringify(value),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await sleep(attempt * 1_000);
+    }
+  }
+  throw new Error(`KV set ${key} failed: ${clean(lastError?.message || lastError)}`);
 }
 
 function isImageMessage(message) {
@@ -323,17 +358,93 @@ function messageDate(message) {
   return new Date(Number(message.date || 0) * 1000);
 }
 
-function contextFor(messages, index, accountLabel) {
-  const current = messages[index];
-  const currentTime = messageDate(current).getTime();
-  return messages
-    .slice(Math.max(0, index - 6), Math.min(messages.length, index + 7))
-    .filter((message) => {
-      const text = clean(message.message);
-      return text && Math.abs(messageDate(message).getTime() - currentTime) <= 90 * 60 * 1000;
+function replyToMessageId(message) {
+  return String(message?.replyTo?.replyToMsgId || message?.replyTo?.replyToTopId || message?.replyToMsgId || '');
+}
+
+function formatContextMessage(message, accountLabel, label) {
+  return `[${label} 消息${message.id}] ${message.out ? accountLabel : 'ojisamer'} ${shanghaiDateTime(messageDate(message))}: ${clean(message.message)}`;
+}
+
+function recommendationReference(text, recommendations) {
+  const source = clean(text);
+  if (!source) return null;
+  const sourceCode = normalizeCode(source);
+  const ranked = recommendations
+    .map((rec) => {
+      const codeMatch = sourceCode && normalizeCode(rec.candidateCode) === sourceCode;
+      const nameMatch = candidateNameMentioned(source, rec.candidateName);
+      if (!codeMatch && !nameMatch) return null;
+      const job = jobSimilarity(source, rec.jdTitle);
+      const organization = organizationSimilarity(source, `${rec.organization} ${rec.department}`);
+      return {
+        rec,
+        score: (codeMatch ? 100 : 40) + job * 20 + organization * 16,
+      };
     })
-    .map((message) => `[消息${message.id}] ${message.out ? accountLabel : 'ojisamer'} ${shanghaiDateTime(messageDate(message))}: ${clean(message.message)}`)
-    .join('\n');
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score
+      || (recommendationDate(b.rec)?.getTime() || 0) - (recommendationDate(a.rec)?.getTime() || 0));
+  if (!ranked.length) return null;
+  if (ranked.length === 1 || ranked[0].score - ranked[1].score >= 4) return ranked[0].rec;
+  return null;
+}
+
+function referenceContextFor(messages, index, accountLabel, recommendations) {
+  const current = messages[index];
+  const byId = new Map(messages.map((message) => [String(message.id), message]));
+  const direct = [];
+  let replyId = replyToMessageId(current);
+  const visited = new Set();
+  while (replyId && !visited.has(replyId) && direct.length < 4) {
+    visited.add(replyId);
+    const replied = byId.get(replyId);
+    if (!replied) break;
+    if (clean(replied.message)) direct.push(replied);
+    replyId = replyToMessageId(replied);
+  }
+  if (direct.length) {
+    return direct.map((message, replyIndex) => formatContextMessage(
+      message,
+      accountLabel,
+      replyIndex === 0 ? '直接回复的上文' : '继续引用的上文',
+    )).join('\n');
+  }
+
+  const currentText = clean(current.message);
+  if (currentText && recommendationReference(currentText, recommendations)) {
+    return formatContextMessage(current, accountLabel, '当前身份标签');
+  }
+
+  const currentTime = messageDate(current).getTime();
+  for (let nextIndex = index + 1; nextIndex < Math.min(messages.length, index + 4); nextIndex += 1) {
+    const next = messages[nextIndex];
+    if (messageDate(next).getTime() - currentTime > 5 * 60 * 1000) break;
+    if (next.out !== current.out) continue;
+    const nextText = clean(next.message);
+    if (nextText && recommendationReference(nextText, recommendations)) {
+      return formatContextMessage(next, accountLabel, '紧随其后的身份标签');
+    }
+  }
+
+  for (let previousIndex = index - 1; previousIndex >= Math.max(0, index - 16); previousIndex -= 1) {
+    const previous = messages[previousIndex];
+    if (currentTime - messageDate(previous).getTime() > 20 * 60 * 1000) break;
+    const previousText = clean(previous.message);
+    if (!previous.out || !previousText) continue;
+    if (recommendationReference(previousText, recommendations)) {
+      return formatContextMessage(previous, accountLabel, '向上找到的推荐语');
+    }
+  }
+  return '';
+}
+
+function contextFor(messages, index, accountLabel, referenceContext = '') {
+  const current = messages[index];
+  const lines = [];
+  void referenceContext;
+  if (clean(current.message)) lines.push(formatContextMessage(current, accountLabel, '当前'));
+  return lines.join('\n');
 }
 
 function extractJson(text) {
@@ -383,9 +494,9 @@ function sanitizeVisionResult(value) {
   };
 }
 
-async function recognizeScreenshot(buffer, extension, context) {
+async function recognizeScreenshot(buffer, extension, context, referenceContext) {
   const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg';
-  const prompt = `你是招聘反馈截图审计助手。逐块识别截图中的候选人、岗位、部门或服务单位、面试轮次和明确反馈，并结合截图前后的聊天上下文辅助定位。\n\n规则：\n1. 一张截图里出现多位候选人、多个附件或多条反馈时，必须按候选人逐条输出 items，不能合并。\n2. 候选人身份按可靠性依次取：候选人编码；“候选人姓名”字段；附件文件名“姓名-岗位.pdf/doc/docx”；会议 Topic；被回复或转发消息中的姓名。\n3. Bruce、ojisamer、麦满分、啵啵、BOBO、Robin、HR、BP，以及极乐、瑞升、紫宸、万有引力、悦达、无极、鼎丰、经纬、Happy、ODC 等招聘人或组织名绝不是候选人姓名。\n4. 明确出现“未通过、不通过、不合适、淘汰、拒绝、不推进、不约面、放弃面试”等否定结论时 result=failed。先识别否定句，绝不能因其中含有“通过”二字而判 passed。\n5. 明确出现“面试通过、初筛通过、进入下一轮、录用”等肯定结论时 result=passed。\n6. 明确出现约面、面试时间、会议邀请时 result=scheduled；“待反馈、还没反馈、催一下、先等等”是 pending。\n7. 如果是“这个人、他、她、这个简历”等省略姓名的沟通，只有上下文能唯一指向紧邻候选人时才补齐；否则姓名留空。\n8. 其他与 HR 的薪资、到岗、意向、改期、缺席等沟通也输出；能对应候选人就填姓名，result 用 pending 或 other，并在 feedbackSummary 概括。\n9. 优先保留附件文件名中的岗位和截图中的组织简称，不要用相似岗位替换，也不要自行扩写简称。\n10. 看不清的字段留空，不得猜测。evidence 只写支持结论的短句，confidence 为 0 到 1。只返回 JSON，不要 Markdown。\n\nJSON 格式：\n{"screenType":"feedback|schedule|recommendation|chat|other","rawText":"尽量完整保留截图文字、附件名和候选人编码","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n聊天上下文：\n${context || '无'}`;
+  const prompt = `你是招聘反馈截图审计助手。逐块识别截图中的候选人、岗位、部门或服务单位、面试轮次和明确反馈。\n\n规则：\n1. 一张截图里出现多位候选人、多个附件或多条反馈时，必须按候选人逐条输出 items，不能合并。\n2. 候选人身份按可靠性依次取：候选人编码；截图“候选人姓名”字段；附件文件名“姓名-岗位.pdf/doc/docx”；会议 Topic；明确被回复或引用的推荐语。\n3. “被回复/引用的上文”是当前截图的身份锚点，可以从中补候选人、岗位和组织；不得从其他相邻消息借用候选人编码或姓名。截图自身出现的身份永远优先于引用上文。\n4. 像“恒睿 eli”这样的“组织＋姓名”标签表示恒睿的候选人 eli；引用完整推荐语时，要沿用其中的候选人编码、姓名、岗位和组织。\n5. Bruce、ojisamer、麦满分、啵啵、BOBO、Robin、HR、BP，以及极乐、瑞升、紫宸、万有引力、悦达、无极、鼎丰、经纬、Happy、ODC 等招聘人或组织名绝不是候选人姓名。\n6. 明确出现“未通过、不通过、不合适、淘汰、拒绝、不推进、不约面、放弃面试”等否定结论时 result=failed。先识别否定句，绝不能因其中含有“通过”二字而判 passed。\n7. 明确出现“面试通过、初筛通过、进入下一轮、录用”等肯定结论时 result=passed；约面、面试时间、会议邀请为 scheduled；“待反馈、还没反馈、催一下、先等等”为 pending。\n8. 其他薪资、到岗、意向、改期、缺席等沟通也输出，result 用 pending 或 other。\n9. 优先保留附件文件名中的岗位和截图中的组织简称，不要用相似岗位替换，也不要自行扩写简称。\n10. rawText 只能转写图片里实际看见的文字，绝对不能复制“被回复/引用的上文”或“当前消息”文字。看不清的字段留空，不得猜测。evidence 只写支持结论的短句，confidence 为 0 到 1。只返回 JSON，不要 Markdown。\n\nJSON 格式：\n{"screenType":"feedback|schedule|recommendation|chat|other","rawText":"只保留图片本身的文字、附件名和候选人编码","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n被回复/引用的上文（身份优先）：\n${referenceContext || '无'}\n\n当前消息：\n${context || '无'}`;
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -422,21 +533,21 @@ async function recognizeScreenshot(buffer, extension, context) {
   throw lastError;
 }
 
-function isPotentialRecruitingText(text, context, recommendations) {
+function isPotentialRecruitingText(text, referenceContext, recommendations) {
   const current = clean(text);
   if (!current) return false;
-  const recruitingSignal = /(候选人|简历|面试|初筛|复试|终面|约面|通过|没过|未过|不合适|不匹配|不考虑|淘汰|拒绝|推进|待反馈|反馈|薪资|期望|到岗|入职|改期|缺席|失联|offer|岗位|部门|编制)/i;
+  if (/^(收到|好的|好|嗯|嗯嗯|ok|okay|辛苦了|谢谢|等等)[。！!，,\s]*$/i.test(current)) return false;
+  const recruitingSignal = /(候选人|简历|面试|初筛|复试|终面|约面|通过|没过|未过|不合适|不匹配|不考虑|淘汰|拒绝|推进|待反馈|反馈|薪资|期望|到岗|入职|改期|缺席|失联|offer)/i;
   if (recruitingSignal.test(current) || normalizeCode(current)) return true;
   if (recommendations.some((rec) => candidateNameMentioned(current, rec.candidateName))) return true;
-  const shortReply = current.length <= 24 && /(可以|不行|要|不要|行|收到|好的|等等|待定|约|过|不过|继续|暂停|放弃)/i.test(current);
+  const shortReply = current.length <= 24 && /(可以|不行|要|不要|行|待定|约|过|不过|继续|暂停|放弃)/i.test(current);
   if (!shortReply) return false;
-  const nearby = clean(context);
-  return recruitingSignal.test(nearby)
-    || recommendations.some((rec) => candidateNameMentioned(nearby, rec.candidateName));
+  const referenced = clean(referenceContext);
+  return Boolean(referenced && recommendationReference(referenced, recommendations));
 }
 
-async function recognizeTextMessage(text, context) {
-  const prompt = `你是招聘聊天反馈审计助手。只判断“当前消息”本身是否包含对候选人或岗位流程有意义的信息；上下文只用于补齐“他、她、这个人、这个岗位”等指代，不能把上下文中的结论错误算成当前消息。\n\n规则：\n1. 当前消息与招聘反馈无关时，items 返回空数组。\n2. 当前消息涉及多位候选人或多个岗位时，逐条输出 items。\n3. 身份优先级：候选人编码、明确姓名、附件名、紧邻上下文中的唯一候选人。无法唯一确认时留空，不能猜。\n4. 未通过、不合适、不推进、淘汰、拒绝等 result=failed；约面或给出面试时间 result=scheduled；明确通过或进入下一轮 result=passed；等待或催反馈 result=pending；薪资、到岗、意向、改期等 result=other。\n5. evidence 只摘录当前消息中支持判断的短句，confidence 为 0 到 1。只返回 JSON。\n\nJSON 格式：\n{"screenType":"feedback|schedule|chat|other","rawText":"当前消息原文","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n当前消息：\n${clean(text)}\n\n聊天上下文：\n${context || '无'}`;
+async function recognizeTextMessage(text, context, referenceContext) {
+  const prompt = `你是招聘聊天反馈审计助手。只判断“当前消息”本身是否包含对候选人或岗位流程有意义的信息。\n\n规则：\n1. 当前消息与招聘反馈无关时，items 返回空数组。\n2. 当前消息涉及多位候选人或多个岗位时，逐条输出 items。\n3. 身份优先级：候选人编码、当前消息明确姓名、附件名、被回复/引用推荐语中的唯一候选人。“恒睿 eli”表示恒睿的候选人 eli。\n4. 被回复/引用的上文只用于补齐当前消息的候选人、岗位和组织，不得把上文结论当成当前消息结论，也不得借用其他相邻消息的身份。\n5. 未通过、不合适、不推进、淘汰、拒绝等 result=failed；约面或给出面试时间 result=scheduled；明确通过或进入下一轮 result=passed；等待或催反馈 result=pending；薪资、到岗、意向、改期等 result=other。\n6. evidence 只摘录当前消息中支持判断的短句，confidence 为 0 到 1。只返回 JSON。\n\nJSON 格式：\n{"screenType":"feedback|schedule|chat|other","rawText":"当前消息原文","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n当前消息：\n${clean(text)}\n\n被回复/引用的上文（身份优先）：\n${referenceContext || '无'}\n\n当前消息结构化上下文：\n${context || '无'}`;
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -472,10 +583,9 @@ function enrichVisionItem(item, record) {
   const explicitName = explicitCandidateName(directText);
   const detectedCode = item.candidateCodeConflict
     ? ''
-    : normalizeCode(`${item.candidateCode} ${directText} ${singleItem ? record.context || '' : ''}`);
+    : normalizeCode(item.candidateCode) || uniqueCandidateCode(directText);
   let candidateName = sanitizeCandidateName(item.candidateName);
   if (!isLikelyCandidateName(candidateName)) candidateName = explicitName || fileParts.candidateName;
-  if (singleItem && !isLikelyCandidateName(candidateName)) candidateName = explicitCandidateName(record.context || '');
   const relatedContext = itemSpecificContext(record.context, { ...item, candidateName, candidateCode: detectedCode });
   return {
     ...item,
@@ -515,7 +625,26 @@ function inferIdentityFromContext(item, record, recommendations) {
   const hasItemIdentity = Boolean(currentCode || currentName);
   const itemText = clean(`${item.feedbackSummary} ${item.evidence}`);
   const directText = record.items?.length === 1 ? record.rawText : itemText;
-  const text = clean(`${directText} ${relatedContext || (!hasItemIdentity ? record.context || '' : '')}`);
+  const referenceText = clean(record.referenceContext);
+  const referencedRecommendation = recommendationReference(referenceText, recommendations);
+  if (referencedRecommendation) {
+    const referencedCode = normalizeCode(referencedRecommendation.candidateCode);
+    const referencedName = normalizeName(referencedRecommendation.candidateName);
+    const sameIdentity = !hasItemIdentity
+      || (currentCode && referencedCode === currentCode)
+      || (currentName && candidateNamesMatch(currentName, referencedName));
+    if (sameIdentity) {
+      return {
+        ...item,
+        candidateCode: currentCode || referencedCode,
+        candidateName: item.candidateName || clean(referencedRecommendation.candidateName),
+        jobTitle: item.jobTitle || clean(referencedRecommendation.jdTitle),
+        organization: item.organization || clean(referencedRecommendation.organization || referencedRecommendation.department),
+        referencedRecommendationId: clean(referencedRecommendation.id),
+      };
+    }
+  }
+  const text = clean(`${directText} ${relatedContext} ${!hasItemIdentity ? referenceText : ''}`);
   const structured = structuredIdentity(text);
   if (item.candidateCodeConflict) structured.candidateCode = '';
   if (identityExists) {
@@ -691,39 +820,6 @@ function matchFeedback(item, recommendations, rawText = '') {
   return { ambiguous: candidates.map((candidate) => candidate.rec), score: 0.5, reason: '同名多岗位，无法唯一确认' };
 }
 
-function reviewCategory(record, item, match) {
-  if (record?.error) return 'ocr_failed';
-  if (!clean(record?.rawText) && !clean(item?.evidence)) return 'ocr_empty';
-  if (!normalizeCode(item?.candidateCode) && !normalizeName(item?.candidateName)) return 'missing_candidate';
-  if (match?.ambiguous) return 'ambiguous_recommendation';
-  if (!match) return 'no_recommendation';
-  if (Number(item?.confidence) < 0.6) return 'low_confidence';
-  return 'needs_review';
-}
-
-function ambiguousRecommendationSummary(match) {
-  const candidates = Array.isArray(match?.ambiguous) ? match.ambiguous : [];
-  if (!candidates.length) return '';
-  return [...new Set(candidates.map((rec) => clean(`${rec.jdTitle}（${rec.organization || rec.department || '未标部门'}）`)))]
-    .filter(Boolean)
-    .join('、');
-}
-
-const REVIEW_CATEGORY_LABELS = {
-  ocr_failed: '图片识别失败',
-  ocr_empty: '图片未读出文字',
-  missing_candidate: '缺候选人身份',
-  ambiguous_recommendation: '同一人有多个岗位',
-  no_recommendation: '没有对应推荐记录',
-  low_confidence: '识别置信度较低',
-  owner_conflict: '候选人编码所属人冲突',
-  needs_review: '需要人工核对',
-};
-
-function reviewCategoryLabel(category) {
-  return REVIEW_CATEGORY_LABELS[category] || REVIEW_CATEGORY_LABELS.needs_review;
-}
-
 function findCandidateForRecommendation(rec, candidates) {
   if (rec.candidateId) {
     const linked = candidates.find((candidate) => candidate.id === rec.candidateId);
@@ -805,7 +901,7 @@ function toFeedbackInboxItem(row, sourceStatus, index, generatedAt, owner) {
   };
 }
 
-async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, ledger) {
+async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, ledger) {
   const key = 'recruit:feedback-inbox';
   const generatedAt = meta.generatedAt;
   const imported = [
@@ -819,7 +915,6 @@ async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, int
     ...scheduledFeedback.map((row, index) => toFeedbackInboxItem(row, 'scheduled', index, generatedAt, owner)),
     ...interviewFailed.map((row, index) => toFeedbackInboxItem(row, 'interview_failed', index, generatedAt, owner)),
     ...screeningFailed.map((row, index) => toFeedbackInboxItem(row, 'screening_failed', index, generatedAt, owner)),
-    ...review.map((row, index) => toFeedbackInboxItem(row, 'manual_review', index, generatedAt, owner)),
   ];
   const existing = parseStored(await kvGet(key), { version: 1, generatedAt: '', items: [] });
   const existingItems = Array.isArray(existing?.items) ? existing.items : [];
@@ -849,6 +944,7 @@ async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, int
       items.push(previous);
       continue;
     }
+    if (previous.sourceStatus === 'manual_review') continue;
     const hasUserWork = previous.confirmedStatus
       || Number(previous.followUpCount) > 0
       || previous.repushReady
@@ -893,7 +989,7 @@ function addRowsSheet(workbook, name, columns, rows, color) {
   return sheet;
 }
 
-async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeningFailed, review, screenshots) {
+async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeningFailed, screenshots) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = '企鹅岛';
   const common = [
@@ -931,18 +1027,6 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
     { header: '识别置信度', key: 'confidence', width: 14 },
     { header: '本地截图', key: 'imagePath', width: 46 },
   ], screeningFailed, 'FFFFF7ED');
-  addRowsSheet(workbook, '待人工确认', [
-    { header: '反馈时间', key: 'feedbackAt', width: 20 },
-    { header: '问题类型', key: 'categoryLabel', width: 20 },
-    { header: '候选人编码', key: 'candidateCode', width: 16 },
-    { header: '候选人', key: 'candidateName', width: 18 },
-    { header: '截图岗位', key: 'jobTitle', width: 32 },
-    { header: '识别结果', key: 'result', width: 14 },
-    { header: '原因', key: 'reason', width: 38 },
-    { header: '证据', key: 'evidence', width: 42 },
-    { header: '置信度', key: 'confidence', width: 12 },
-    { header: '本地截图', key: 'imagePath', width: 46 },
-  ], review, 'FFFFFBEB');
   addRowsSheet(workbook, '截图识别明细', [
     { header: '消息ID', key: 'messageId', width: 14 },
     { header: '截图时间', key: 'feedbackAt', width: 20 },
@@ -969,9 +1053,8 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
     ['无反馈待复推', noFeedback.length],
     ['明确面试未通过', interviewFailed.length],
     ['明确初筛未通过', screeningFailed.length],
-    ['待人工确认', review.length],
     ['判定规则', '沉默只归为无反馈；只有截图或面试日历存在明确否定结论才归为未通过。'],
-    ['同步说明', 'OCR 结果同步到反馈中心；人工确认、跟进和复推记录优先，巡查不会覆盖人工操作。'],
+    ['同步说明', 'AI 只自动落实能够唯一关联候选人和岗位的结果；不能唯一定位的消息保留在逐消息台账，不产生人工待办。'],
   ]);
   styleSheet(summary, [24, 80]);
   const filePath = path.join(outputDir, '复推反馈审计.xlsx');
@@ -1080,9 +1163,12 @@ async function main() {
   });
 
   const tasks = prepared.map((entry, index) => async () => {
-    if (entry.cached) return { ...entry.cached, sourceType: 'image' };
-    if (entry.failed) return { ...entry.failed, sourceType: 'image' };
     const sourceMessage = entry.message || imageEntries[index].message;
+    const sourceIndex = imageEntries[index].index;
+    const referenceContext = referenceContextFor(messages, sourceIndex, accountLabel, ownerRecommendations);
+    const context = contextFor(messages, sourceIndex, accountLabel, referenceContext);
+    if (entry.cached) return { ...entry.cached, context, referenceContext, sourceType: 'image' };
+    if (entry.failed) return { ...entry.failed, context, referenceContext, sourceType: 'image' };
     if (!entry.buffer) {
       return {
         promptVersion: PROMPT_VERSION,
@@ -1090,7 +1176,8 @@ async function main() {
         messageId: String(sourceMessage.id),
         feedbackAt: shanghaiDateTime(messageDate(sourceMessage)),
         imagePath: clean(entry.imagePath),
-        context: clean(entry.context),
+        context,
+        referenceContext,
         rawText: '',
         items: [],
         sourceType: 'image',
@@ -1099,7 +1186,7 @@ async function main() {
     }
     let result;
     try {
-      result = await recognizeScreenshot(entry.buffer, entry.extension, entry.context);
+      result = await recognizeScreenshot(entry.buffer, entry.extension, context, referenceContext);
     } catch (error) {
       return {
         promptVersion: PROMPT_VERSION,
@@ -1107,7 +1194,8 @@ async function main() {
         messageId: String(sourceMessage.id),
         feedbackAt: shanghaiDateTime(messageDate(sourceMessage)),
         imagePath: entry.imagePath,
-        context: entry.context,
+        context,
+        referenceContext,
         rawText: '',
         items: [],
         sourceType: 'image',
@@ -1120,7 +1208,8 @@ async function main() {
       messageId: String(sourceMessage.id),
       feedbackAt: shanghaiDateTime(messageDate(sourceMessage)),
       imagePath: entry.imagePath,
-      context: entry.context,
+      context,
+      referenceContext,
       sourceType: 'image',
       ...result,
     };
@@ -1131,21 +1220,20 @@ async function main() {
   const textEntries = messages
     .map((message, index) => ({ message, index, text: clean(message.message) }))
     .filter(({ message, text }) => !message.out && !isImageMessage(message) && text);
-  const relevantTextIds = new Set();
   const textTasks = textEntries.flatMap(({ message, index, text }) => {
-    const context = contextFor(messages, index, accountLabel);
-    if (!isPotentialRecruitingText(text, context, ownerRecommendations)) return [];
-    relevantTextIds.add(String(message.id));
+    const referenceContext = referenceContextFor(messages, index, accountLabel, ownerRecommendations);
+    const context = contextFor(messages, index, accountLabel, referenceContext);
+    if (!isPotentialRecruitingText(text, referenceContext, ownerRecommendations)) return [];
     return [async () => {
       const cachePath = path.join(cacheDir, `msg-${message.id}-text.json`);
       if (!force && fs.existsSync(cachePath)) {
         const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
         if (cached.promptVersion === PROMPT_VERSION || (reuseOcr && (cached.rawText || cached.items?.length))) {
-          return { ...cached, ...sanitizeVisionResult(cached), promptVersion: PROMPT_VERSION, context, sourceType: 'text' };
+          return { ...cached, ...sanitizeVisionResult(cached), promptVersion: PROMPT_VERSION, context, referenceContext, sourceType: 'text' };
         }
       }
       try {
-        const result = await recognizeTextMessage(text, context);
+        const result = await recognizeTextMessage(text, context, referenceContext);
         const record = {
           promptVersion: PROMPT_VERSION,
           model: VISION_MODEL,
@@ -1153,6 +1241,7 @@ async function main() {
           feedbackAt: shanghaiDateTime(messageDate(message)),
           imagePath: '',
           context,
+          referenceContext,
           sourceType: 'text',
           ...result,
         };
@@ -1166,6 +1255,7 @@ async function main() {
           feedbackAt: shanghaiDateTime(messageDate(message)),
           imagePath: '',
           context,
+          referenceContext,
           rawText: text,
           items: [],
           sourceType: 'text',
@@ -1179,7 +1269,12 @@ async function main() {
   const messageById = new Map(messages.map((message) => [String(message.id), message]));
 
   const screenshotRows = [];
-  const review = [];
+  const unresolvedByMessage = new Map();
+  const noteUnresolved = (messageId, note) => {
+    const key = String(messageId || '');
+    if (!key || unresolvedByMessage.has(key)) return;
+    unresolvedByMessage.set(key, clean(note));
+  };
   const feedbackByRecommendation = new Map();
   for (let index = 0; index < recognized.length; index += 1) {
     const record = recognized[index] || {};
@@ -1196,12 +1291,6 @@ async function main() {
         sourceType: record.sourceType || 'image',
       };
       screenshotRows.push(row);
-      review.push({
-        ...row,
-        category: 'ocr_failed',
-        categoryLabel: reviewCategoryLabel('ocr_failed'),
-        reason: '截图连续三次识别失败，需要人工查看',
-      });
       continue;
     }
     const workingRecord = {
@@ -1211,20 +1300,7 @@ async function main() {
     };
     if (!workingRecord.items.length) {
       screenshotRows.push({ ...record, result: '无候选人条目' });
-      const recruitingSignal = /(候选人|简历|面试|初筛|通过|不通过|不合适|约面|offer|薪资|到岗|岗位|反馈|推进|放弃)/i
-        .test(record.rawText || '');
-      if (recruitingSignal || relevantTextIds.has(String(record.messageId || ''))) {
-        const category = clean(record.rawText) ? 'missing_candidate' : 'ocr_empty';
-        review.push({
-          ...record,
-          result: 'unknown',
-          category,
-          categoryLabel: reviewCategoryLabel(category),
-          reason: clean(record.rawText)
-            ? `${record.sourceType === 'text' ? '文字消息' : '截图'}包含招聘沟通，但没有拆出可归档的候选人`
-            : `${record.sourceType === 'text' ? '文字消息' : '截图'}没有提取到可核对文字`,
-        });
-      }
+      if (clean(record.rawText)) noteUnresolved(record.messageId, 'AI 未识别出可落实的候选人结论，原消息已保留');
       continue;
     }
     for (const item of workingRecord.items) {
@@ -1234,27 +1310,33 @@ async function main() {
       delete row.items;
       screenshotRows.push(row);
       if (!codeBelongsToOwner(normalizedItem.candidateCode, owner)) {
-        review.push({
-          ...row,
-          category: 'owner_conflict',
-          categoryLabel: reviewCategoryLabel('owner_conflict'),
-          reason: `候选人编码不属于${accountLabel}，已禁止按姓名回退匹配`,
-        });
+        noteUnresolved(record.messageId, `候选人编码不属于${accountLabel}，已隔离且未归档`);
         continue;
       }
       const matchingText = workingRecord.items.length === 1
         ? workingRecord.rawText
         : clean(`${normalizedItem.feedbackSummary} ${normalizedItem.evidence}`);
-      const match = matchFeedback(normalizedItem, ownerRecommendations, matchingText);
-      if (!match || match.ambiguous || match.score < 0.75 || normalizedItem.confidence < 0.6) {
-        const category = reviewCategory(workingRecord, normalizedItem, match);
-        review.push({
-          ...row,
-          category,
-          categoryLabel: reviewCategoryLabel(category),
-          possibleRecommendations: ambiguousRecommendationSummary(match),
-          reason: match?.reason || '没有找到可信的推荐记录对应项',
-        });
+      const referencedRecommendation = recommendationReference(workingRecord.referenceContext, ownerRecommendations);
+      const normalizedCode = normalizeCode(normalizedItem.candidateCode);
+      const itemNameKey = normalizeName(normalizedItem.candidateName);
+      const referenceMatchesIdentity = referencedRecommendation && (
+        (!normalizedCode && !itemNameKey)
+        || (normalizedCode && normalizedCode === normalizeCode(referencedRecommendation.candidateCode))
+        || (itemNameKey && candidateNamesMatch(itemNameKey, referencedRecommendation.candidateName))
+      );
+      const match = referencedRecommendation && referenceMatchesIdentity
+        ? { recommendation: referencedRecommendation, score: 1, reason: '按回复或引用的推荐语唯一对应' }
+        : matchFeedback(normalizedItem, ownerRecommendations, matchingText);
+      const reliableMatch = match && !match.ambiguous && (
+        match.score >= 0.95 || (match.score >= 0.75 && normalizedItem.confidence >= 0.55)
+      );
+      if (!reliableMatch) {
+        noteUnresolved(
+          record.messageId,
+          match?.ambiguous
+            ? '已读懂消息，但同一候选人存在多个岗位且缺少唯一定位信息，暂未归档'
+            : '已读取消息，但没有找到唯一对应的推荐记录，暂未归档',
+        );
         continue;
       }
       const list = feedbackByRecommendation.get(match.recommendation.id) || [];
@@ -1362,36 +1444,25 @@ async function main() {
       resolvedByMessage.set(messageId, ids);
     }
   }
-  const reviewsByMessage = new Map();
-  for (const row of review) {
-    const messageId = String(row.messageId || '');
-    if (!messageId) continue;
-    const reasons = reviewsByMessage.get(messageId) || [];
-    const reason = clean(row.categoryLabel || row.reason);
-    if (reason && !reasons.includes(reason)) reasons.push(reason);
-    reviewsByMessage.set(messageId, reasons);
-  }
   const recordsByMessage = new Map(recognized.map((record) => [String(record.messageId || ''), record]));
   const ledger = messages.map((message) => {
     const messageId = String(message.id);
     const record = recordsByMessage.get(messageId);
     const recommendationIds = resolvedByMessage.get(messageId) || [];
-    const reviewReasons = reviewsByMessage.get(messageId) || [];
     const sourceType = isImageMessage(message) ? 'image' : clean(message.message) ? 'text' : 'other';
     let status = 'irrelevant';
     let note = '未发现需要归档的招聘反馈';
     if (message.out) {
       status = 'context_only';
       note = '本方发送的消息，仅作为识别上下文';
-    } else if (reviewReasons.length) {
-      status = 'manual_review';
-      note = reviewReasons.join('、');
     } else if (recommendationIds.length) {
       status = 'resolved';
       note = `已落实到 ${recommendationIds.length} 条推荐记录`;
     } else if (record?.error) {
       status = 'failed';
       note = clean(record.error);
+    } else if (unresolvedByMessage.has(messageId)) {
+      note = unresolvedByMessage.get(messageId);
     }
     return {
       id: `${owner}:tg:${messageId}`,
@@ -1421,16 +1492,16 @@ async function main() {
     scheduledCount: scheduledFeedback.length,
     failedCount: interviewFailed.length,
     screeningFailedCount: screeningFailed.length,
-    reviewCount: review.length,
+    reviewCount: 0,
     ledgerCount: ledger.length,
     resolvedMessageCount: ledger.filter((item) => item.status === 'resolved').length,
-    reviewMessageCount: ledger.filter((item) => item.status === 'manual_review').length,
+    reviewMessageCount: 0,
   };
   const feedbackInboxCount = hasFlag('--sync')
-    ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, ledger)
+    ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, ledger)
     : 0;
-  const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, review, screenshotRows);
-  fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, ledger, screenshots: screenshotRows }, null, 2));
+  const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, screenshotRows);
+  fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review: [], ledger, screenshots: screenshotRows }, null, 2));
   console.log(JSON.stringify({ ok: true, ...meta, feedbackInboxCount, workbookPath }, null, 2));
 }
 

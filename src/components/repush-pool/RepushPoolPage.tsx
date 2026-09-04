@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check, ChevronDown, ChevronUp, Clock3, ExternalLink, FileText,
-  ListChecks, Loader2, MessageSquareText, RefreshCw, Repeat2, Search, ShieldAlert,
+  ListChecks, Loader2, MessageSquareText, RefreshCw, Repeat2, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { displayName } from '@/lib/repush-format';
@@ -16,7 +16,6 @@ import { getPrimaryCategory, hasCategory, JD_CATEGORY_LABELS, type JD, type JDCa
 import type {
   FeedbackCenterItem,
   FeedbackCenterState,
-  FeedbackConfirmedStatus,
   FeedbackMessageLedgerItem,
 } from '@/types/feedback-center';
 
@@ -56,15 +55,6 @@ const BUCKETS: Array<{ id: FeedbackBucket; label: string; description: string }>
 const FEEDBACK_CACHE_MS = 60_000;
 const feedbackCache = new Map<'a' | 'b', CachedFeedback>();
 const feedbackRequests = new Map<'a' | 'b', Promise<FeedbackCenterState>>();
-const REVIEW_STATUSES: Array<{ value: FeedbackConfirmedStatus; label: string }> = [
-  { value: 'pending', label: '待反馈' },
-  { value: 'screening_failed', label: '初筛未通过' },
-  { value: 'interview_pending', label: '已约面，等待反馈' },
-  { value: 'interview_passed', label: '面试通过' },
-  { value: 'interview_failed', label: '面试未通过' },
-  { value: 'closed', label: '关闭/无需处理' },
-];
-
 function clean(value?: string): string {
   return String(value || '').trim();
 }
@@ -235,8 +225,6 @@ export function RepushPoolPage() {
   const [loadingDetailsKey, setLoadingDetailsKey] = useState('');
   const [repushing, setRepushing] = useState<CandidateGroup | null>(null);
   const [updatingId, setUpdatingId] = useState('');
-  const [showReviews, setShowReviews] = useState(false);
-  const [reviewDrafts, setReviewDrafts] = useState<Record<string, { recommendationId: string; status: FeedbackConfirmedStatus }>>({});
   const [showLedger, setShowLedger] = useState(false);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [messageLedger, setMessageLedger] = useState<FeedbackMessageLedgerItem[]>([]);
@@ -276,10 +264,6 @@ export function RepushPoolPage() {
   const recentRecommendations = useMemo(() => items.filter((item) => (
     item.column === owner && recentDayKeys.has(dateKey(item.uploadedAt))
   )), [items, owner, recentDayKeys]);
-  const manualReviewItems = useMemo(() => feedbackItems.filter((item) => (
-    item.owner === owner && item.sourceStatus === 'manual_review'
-  )), [feedbackItems, owner]);
-
   const recommendationIndex = useMemo<RecommendationIndex>(() => {
     const byId = new Map<string, RepushItem>();
     const byCandidate = new Map<string, RepushItem[]>();
@@ -341,58 +325,6 @@ export function RepushPoolPage() {
     return [...apiItems, ...synthetic];
   }, [feedbackItems, owner, recentRecommendations, recommendationIndex]);
 
-  const reviewRecommendations = useCallback((review: FeedbackCenterItem) => [...recentRecommendations].sort((a, b) => {
-    const score = (item: RepushItem) => {
-      let value = 0;
-      if (review.candidateCode && normalize(review.candidateCode) === normalize(item.candidateCode)) value += 10;
-      if (review.candidateName && normalize(review.candidateName) === normalize(item.candidateName || displayName(item).split('-')[0])) value += 5;
-      if (review.jobTitle && normalize(review.jobTitle) === normalize(item.jdTitle)) value += 3;
-      if (review.organization && normalize(review.organization) === normalize(item.organization)) value += 1;
-      return value;
-    };
-    return score(b) - score(a) || new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
-  }), [recentRecommendations]);
-
-  const resolveReview = async (review: FeedbackCenterItem) => {
-    const draft = reviewDrafts[review.id];
-    if (!draft?.recommendationId || !draft.status) {
-      setError('请先选择正确的候选人岗位和反馈结论');
-      return;
-    }
-    setUpdatingId(review.id);
-    setError('');
-    try {
-      const response = await fetch('/api/feedback-center', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: review.id,
-          owner,
-          action: 'resolve_review',
-          recommendationId: draft.recommendationId,
-          status: draft.status,
-          note: '人工核对 OCR / Telegram 消息后确认',
-        }),
-      });
-      const data = await response.json() as { ok?: boolean; item?: FeedbackCenterItem; error?: string };
-      if (!response.ok || !data.ok || !data.item) throw new Error(data.error || '人工核对保存失败');
-      setFeedbackItems((current) => [
-        ...current.filter((item) => item.id !== review.id && item.id !== data.item!.id),
-        data.item!,
-      ]);
-      setReviewDrafts((current) => {
-        const next = { ...current };
-        delete next[review.id];
-        return next;
-      });
-      feedbackCache.delete(owner);
-    } catch (resolveError) {
-      setError(resolveError instanceof Error ? resolveError.message : '人工核对保存失败');
-    } finally {
-      setUpdatingId('');
-    }
-  };
-
   const toggleLedger = async () => {
     if (showLedger) {
       setShowLedger(false);
@@ -409,35 +341,6 @@ export function RepushPoolPage() {
       setError(ledgerError instanceof Error ? ledgerError.message : '读取消息台账失败');
     } finally {
       setLedgerLoading(false);
-    }
-  };
-
-  const flagLedgerForReview = async (entry: FeedbackMessageLedgerItem) => {
-    setUpdatingId(entry.id);
-    setError('');
-    try {
-      const response = await fetch('/api/feedback-center', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: entry.id, owner, action: 'flag_ledger' }),
-      });
-      const data = await response.json() as {
-        ok?: boolean;
-        item?: FeedbackCenterItem;
-        ledgerItem?: FeedbackMessageLedgerItem;
-        error?: string;
-      };
-      if (!response.ok || !data.ok || !data.item || !data.ledgerItem) throw new Error(data.error || '转入人工核对失败');
-      setMessageLedger((current) => current.map((item) => item.id === entry.id ? data.ledgerItem! : item));
-      setFeedbackItems((current) => current.some((item) => item.id === data.item!.id)
-        ? current.map((item) => item.id === data.item!.id ? data.item! : item)
-        : [...current, data.item!]);
-      setShowReviews(true);
-      feedbackCache.delete(owner);
-    } catch (flagError) {
-      setError(flagError instanceof Error ? flagError.message : '转入人工核对失败');
-    } finally {
-      setUpdatingId('');
     }
   };
 
@@ -597,56 +500,19 @@ export function RepushPoolPage() {
           </div>
         </div>
 
-        <div className="mb-4 grid gap-2 md:grid-cols-2">
-          <button type="button" onClick={() => setShowReviews((value) => !value)} className={cn(
-            'flex min-h-16 items-center justify-between rounded-lg border px-4 text-left transition-colors',
-            showReviews ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-white hover:border-violet-200',
-          )}>
-            <span className="flex items-center gap-3"><ShieldAlert className="h-5 w-5 text-violet-500" /><span><span className="block text-sm font-semibold text-slate-800">待人工核对</span><span className="mt-0.5 block text-xs text-slate-400">选择正确推荐记录和最终结论后落库</span></span></span>
-            <span className="rounded-md bg-violet-100 px-2.5 py-1 text-sm font-semibold text-violet-700">{manualReviewItems.length} 条</span>
-          </button>
+        <div className="mb-4">
           <button type="button" onClick={() => void toggleLedger()} className={cn(
             'flex min-h-16 items-center justify-between rounded-lg border px-4 text-left transition-colors',
             showLedger ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-white hover:border-blue-200',
           )}>
-            <span className="flex items-center gap-3"><ListChecks className="h-5 w-5 text-blue-500" /><span><span className="block text-sm font-semibold text-slate-800">逐消息台账</span><span className="mt-0.5 block text-xs text-slate-400">每条消息都有处理状态，不再静默遗漏</span></span></span>
+            <span className="flex items-center gap-3"><ListChecks className="h-5 w-5 text-blue-500" /><span><span className="block text-sm font-semibold text-slate-800">逐消息台账</span><span className="mt-0.5 block text-xs text-slate-400">AI 自动落实可唯一对应的反馈，无法定位的消息仅留档</span></span></span>
             {ledgerLoading ? <Loader2 className="h-5 w-5 animate-spin text-blue-500" /> : <span className="text-xs font-medium text-blue-600">{showLedger ? '收起' : '查看'}</span>}
           </button>
         </div>
 
-        {showReviews && (
-          <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50/40 p-4">
-            <div className="mb-3"><h2 className="font-semibold text-slate-900">人工核对工作台</h2><p className="mt-1 text-xs text-slate-500">先看消息证据，再选对应的候选人岗位。系统会校验推荐人和候选人编码，不允许跨麦满分/啵啵归档。</p></div>
-            {manualReviewItems.length === 0 ? <p className="rounded-md bg-white px-4 py-5 text-center text-sm text-slate-400">当前没有待人工核对的消息</p> : (
-              <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
-                {manualReviewItems.map((review) => {
-                  const draft = reviewDrafts[review.id] || { recommendationId: '', status: 'pending' as FeedbackConfirmedStatus };
-                  const options = reviewRecommendations(review);
-                  return (
-                    <div key={review.id} className="rounded-lg border border-violet-100 bg-white p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium text-slate-800">{review.candidateName || '候选人待确认'}{review.jobTitle ? ` · ${review.jobTitle}` : ''}</p><p className="mt-1 text-xs text-slate-400">TG 消息 #{review.telegramMessageId || '未知'} · {review.feedbackAt || '时间未知'}</p></div><span className="rounded bg-violet-50 px-2 py-1 text-xs text-violet-700">{review.auditConclusion || '需要人工核对'}</span></div>
-                      <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-600">{review.sourceEvidence || review.sourceSummary || '未提取到清晰文字，请结合聊天原文判断。'}</div>
-                      <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_auto]">
-                        <select value={draft.recommendationId} onChange={(event) => setReviewDrafts((current) => ({ ...current, [review.id]: { ...draft, recommendationId: event.target.value } }))} className="h-10 min-w-0 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
-                          <option value="">选择正确的候选人和已投岗位</option>
-                          {options.map((item) => <option key={item.id} value={item.id}>{item.candidateCode || '无编码'} · {item.candidateName || displayName(item).split('-')[0]} · {item.jdTitle || item.fileName} · {item.organization || item.department || '部门待补充'}</option>)}
-                        </select>
-                        <select value={draft.status} onChange={(event) => setReviewDrafts((current) => ({ ...current, [review.id]: { ...draft, status: event.target.value as FeedbackConfirmedStatus } }))} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
-                          {REVIEW_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
-                        </select>
-                        <button type="button" onClick={() => void resolveReview(review)} disabled={updatingId === review.id} className="flex h-10 items-center justify-center gap-2 rounded-md bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50">{updatingId === review.id && <Loader2 className="h-4 w-4 animate-spin" />}确认落实</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
         {showLedger && (
           <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/30 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">近 7 天逐消息台账</h2><p className="mt-1 text-xs text-slate-500">已落实 {ledgerCounts.resolved || 0} · 待核对 {ledgerCounts.manual_review || 0} · 处理失败 {ledgerCounts.failed || 0} · 无关 {ledgerCounts.irrelevant || 0} · 上下文 {ledgerCounts.context_only || 0}</p></div><span className="text-xs text-slate-400">共 {messageLedger.length} 条</span></div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">近 7 天逐消息台账</h2><p className="mt-1 text-xs text-slate-500">已落实 {ledgerCounts.resolved || 0} · 处理失败 {ledgerCounts.failed || 0} · 未关联/无关 {ledgerCounts.irrelevant || 0} · 上下文 {ledgerCounts.context_only || 0}</p></div><span className="text-xs text-slate-400">共 {messageLedger.length} 条</span></div>
             {ledgerLoading ? <div className="flex h-24 items-center justify-center text-sm text-slate-400"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取台账</div> : messageLedger.length === 0 ? <p className="rounded-md bg-white px-4 py-5 text-center text-sm text-slate-400">台账将在下一次反馈审计后生成</p> : (
               <div className="max-h-[520px] space-y-1.5 overflow-y-auto pr-1">
                 {messageLedger.map((entry) => {
@@ -659,7 +525,7 @@ export function RepushPoolPage() {
                         : entry.status === 'context_only'
                           ? { label: '上下文', className: 'bg-blue-50 text-blue-600' }
                           : { label: '无关', className: 'bg-slate-100 text-slate-500' };
-                  return <div key={entry.id} className="grid items-center gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs md:grid-cols-[105px_68px_minmax(0,1fr)_minmax(160px,0.7fr)_auto]"><span className="text-slate-400">{entry.sentAt}</span><span className={cn('w-fit rounded px-2 py-0.5 font-medium', meta.className)}>{meta.label}</span><span className="truncate text-slate-700" title={entry.preview}>{entry.preview || `[${entry.sourceType}]`}</span><span className="truncate text-slate-400" title={entry.note}>{entry.note}</span>{entry.direction === 'incoming' && entry.status === 'irrelevant' ? <button type="button" onClick={() => void flagLedgerForReview(entry)} disabled={updatingId === entry.id} className="rounded border border-violet-200 px-2 py-1 font-medium text-violet-600 hover:bg-violet-50 disabled:opacity-50">转人工核对</button> : <span />}</div>;
+                  return <div key={entry.id} className="grid items-center gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs md:grid-cols-[105px_68px_minmax(0,1fr)_minmax(160px,0.7fr)]"><span className="text-slate-400">{entry.sentAt}</span><span className={cn('w-fit rounded px-2 py-0.5 font-medium', meta.className)}>{meta.label}</span><span className="truncate text-slate-700" title={entry.preview}>{entry.preview || `[${entry.sourceType}]`}</span><span className="truncate text-slate-400" title={entry.note}>{entry.note}</span></div>;
                 })}
               </div>
             )}

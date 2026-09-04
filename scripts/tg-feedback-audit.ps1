@@ -17,7 +17,9 @@ if (-not $proxy) {
 }
 
 $env:TG_PROXY = $proxy.Endpoint
-Remove-Item Env:HTTP_PROXY, Env:HTTPS_PROXY, Env:NODE_USE_ENV_PROXY -ErrorAction SilentlyContinue
+$env:HTTP_PROXY = $proxy.Url
+$env:HTTPS_PROXY = $proxy.Url
+$env:NODE_USE_ENV_PROXY = '1'
 $env:NODE_NO_WARNINGS = '1'
 
 $exitCode = 0

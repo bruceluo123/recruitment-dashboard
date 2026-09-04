@@ -59,7 +59,7 @@ function recentDateKeys(days: number): Set<string> {
 
 function belongsToOwner(item: FeedbackCenterState['items'][number], owner: 'a' | 'b'): boolean {
   if (item.owner !== owner) return false;
-  if (item.sourceStatus === 'manual_review') return true;
+  if (item.sourceStatus === 'manual_review') return false;
   const code = String(item.candidateCode || '').trim().toUpperCase();
   if (owner === 'a' && code.startsWith('XYBB')) return false;
   if (owner === 'b' && code.startsWith('XYMMF')) return false;
