@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Users, CalendarCheck, FileUp, FileText, Loader2, MessageSquareText } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
@@ -9,7 +10,6 @@ import { EditRecommendationModal } from './EditRecommendationModal';
 import { RepushModal, type RepushArgs } from './RepushModal';
 import { OfferModal, type OfferFormValues } from './OfferModal';
 import { DailyReportModal } from './DailyReportModal';
-import { FeedbackCenterModal } from './FeedbackCenterModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
@@ -20,7 +20,6 @@ import { matchJDByTitle } from '@/lib/recommendation';
 import { exportDailyReportExcel } from '@/lib/daily-report-excel';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
-import type { FeedbackCenterState } from '@/types/feedback-center';
 
 /** 把推荐记录按「天」分组，组与组按时间由近到远排序 */
 function groupByDay(items: RepushItem[]): { key: number; label: string; items: RepushItem[] }[] {
@@ -65,8 +64,6 @@ export function RecommendationCenter() {
   const [repushing, setRepushing] = useState<RepushItem | null>(null);
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
-  const [showFeedbackCenter, setShowFeedbackCenter] = useState(false);
-  const [feedbackCenterState, setFeedbackCenterState] = useState<FeedbackCenterState | null>(null);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
   const [contactRefreshTick, setContactRefreshTick] = useState(0);
@@ -85,30 +82,6 @@ export function RecommendationCenter() {
   }, [jds]);
 
   useEffect(() => setMounted(true), []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetch('/api/feedback-center', { cache: 'no-store' });
-        const data = await response.json();
-        if (!cancelled && response.ok && data.ok) {
-          setFeedbackCenterState({
-            version: 1,
-            generatedAt: data.generatedAt || '',
-            items: Array.isArray(data.items) ? data.items : [],
-          });
-        }
-      } catch {
-        // 弹窗打开时仍会再次读取，预加载失败不打断推荐中心使用。
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [mounted]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setContactRefreshTick((value) => value + 1), 60_000);
@@ -338,12 +311,12 @@ export function RecommendationCenter() {
             </span>
           </h3>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <button
-              onClick={() => setShowFeedbackCenter(true)}
+            <Link
+              href="/repush-pool"
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition-colors"
             >
               <MessageSquareText className="w-4 h-4" />反馈中心
-            </button>
+            </Link>
             {/* 一键看板：把当前推荐人今日数据提交到团队数据看板 */}
             <button
               onClick={() => setReporting(true)}
@@ -453,19 +426,6 @@ export function RecommendationCenter() {
           items={items}
           candidates={candidates}
           onClose={() => setReporting(false)}
-        />
-      )}
-      {showFeedbackCenter && (
-        <FeedbackCenterModal
-          owner={view}
-          initialState={feedbackCenterState}
-          onClose={() => setShowFeedbackCenter(false)}
-          onRepush={(recommendationId) => {
-            const recommendation = items.find((item) => item.id === recommendationId);
-            if (!recommendation) return;
-            setShowFeedbackCenter(false);
-            setRepushing(recommendation);
-          }}
         />
       )}
     </div>

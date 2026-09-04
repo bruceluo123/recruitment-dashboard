@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, FileText, Loader2, Repeat, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { JD } from '@/types/jd';
+import { hasCategory, type JD, type JDCategory } from '@/types/jd';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName } from '@/lib/repush-format';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
@@ -29,6 +29,9 @@ interface RepushModalProps {
   item: RepushItem;
   existingItems: RepushItem[];
   jds: JD[];
+  initialCategory?: JDCategory;
+  excludeRecommended?: boolean;
+  resultLimit?: number;
   onClose: () => void;
   onConfirm: (args: RepushArgs) => void;
 }
@@ -100,7 +103,16 @@ function wait(ms: number): Promise<void> {
 }
 
 /** 在推荐中心选择具体 JD，生成文案，并可直接把文案与原简历发送到 TG。 */
-export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: RepushModalProps) {
+export function RepushModal({
+  item,
+  existingItems,
+  jds,
+  initialCategory,
+  excludeRecommended = false,
+  resultLimit = 12,
+  onClose,
+  onConfirm,
+}: RepushModalProps) {
   const [query, setQuery] = useState('');
   const [selectedJdId, setSelectedJdId] = useState('');
   const [copied, setCopied] = useState(false);
@@ -138,6 +150,8 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
     const keyword = query.trim().toLowerCase();
     return jds
       .filter((jd) => jd.status !== 'paused')
+      .filter((jd) => !initialCategory || hasCategory(jd, initialCategory))
+      .filter((jd) => !excludeRecommended || !recommendedTargets.has(targetKey(jd.title, recommendationOrganization(jd), jd.department)))
       .filter((jd) => {
         if (!keyword) return true;
         return [jd.title, jd.organization, jd.serviceUnit, jd.department, jd.odc]
@@ -149,8 +163,18 @@ export function RepushModal({ item, existingItems, jds, onClose, onConfirm }: Re
         if (aUsed !== bUsed) return aUsed ? 1 : -1;
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       })
-      .slice(0, 12);
-  }, [jds, query, recommendedTargets]);
+      .slice(0, resultLimit);
+  }, [excludeRecommended, initialCategory, jds, query, recommendedTargets, resultLimit]);
+
+  useEffect(() => {
+    if (matchingJds.length === 0) {
+      if (selectedJdId) setSelectedJdId('');
+      return;
+    }
+    if (!matchingJds.some((jd) => jd.id === selectedJdId)) {
+      setSelectedJdId(matchingJds[0].id);
+    }
+  }, [matchingJds, selectedJdId]);
 
   const selectedJd = jds.find((jd) => jd.id === selectedJdId) || null;
   const recommendationText = selectedJd ? buildRepushCopy(item, selectedJd) : '';

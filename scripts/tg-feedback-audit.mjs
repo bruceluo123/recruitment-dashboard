@@ -550,7 +550,7 @@ async function runPool(tasks, concurrency) {
 }
 
 function recommendationDate(item) {
-  return toDate(item.uploadedAt || item.updatedAt || item.createdAt);
+  return toDate(item.recommendedAt || item.uploadedAt || item.createdAt || item.updatedAt);
 }
 
 function dedupeRecommendations(items) {
