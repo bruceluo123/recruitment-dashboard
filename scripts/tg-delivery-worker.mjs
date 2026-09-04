@@ -34,6 +34,7 @@ const MAX_BATCHES = 10;
 const POLL_INTERVAL_MS = 2_000;
 const DIALOG_REFRESH_MS = 15 * 60 * 1_000;
 const FETCH_RETRY_DELAYS_MS = [500, 1_500, 3_000];
+const UPLOAD_WORKERS = 4;
 
 function tgEnv(name) {
   return process.env[ACCOUNT === 'b' ? `TG_BB_${name}` : `TG_${name}`] || '';
@@ -197,9 +198,12 @@ async function processRecord(client, dialogs, id) {
         caption: String(delivery.text || '').slice(0, 1000),
         forceDocument: true,
         parseMode: false,
-        workers: 1,
+        workers: UPLOAD_WORKERS,
       });
       sent += 1;
+      record.sent = sent;
+      record.updatedAt = new Date().toISOString();
+      await saveRecord(record);
     }
     record.status = 'sent';
     record.sent = sent;

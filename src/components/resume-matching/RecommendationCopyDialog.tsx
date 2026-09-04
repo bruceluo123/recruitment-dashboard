@@ -158,6 +158,7 @@ export function RecommendationCopyDialog({
   };
 
   const followDelivery = async (id: string, expected: number) => {
+    let lastReportedSent = 0;
     for (let attempt = 0; attempt < 180; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       try {
@@ -167,6 +168,10 @@ export function RecommendationCopyDialog({
         if (data.status === 'sent') {
           setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || expected} 份推荐` });
           return;
+        }
+        if (data.status === 'sending' && data.sent > lastReportedSent) {
+          lastReportedSent = data.sent;
+          setDeliveryNotice({ ok: true, text: `已发送 ${data.sent}/${expected}，正在继续发送` });
         }
         if (data.status === 'failed') {
           setDeliveryNotice({ ok: false, text: data.error || 'TG 发送失败' });
@@ -198,7 +203,7 @@ export function RecommendationCopyDialog({
         deliveries: deliveryItems.map((item) => ({ text: item.text, fileName: item.fileName })),
       });
       if (data.queued && data.id) {
-        setDeliveryNotice({ ok: true, text: '正在发送，通常几秒内完成' });
+        setDeliveryNotice({ ok: true, text: `已加入发送队列，正在上传 0/${deliveryItems.length}` });
         void followDelivery(data.id, deliveryItems.length);
       } else {
         setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || deliveryItems.length} 份推荐` });
