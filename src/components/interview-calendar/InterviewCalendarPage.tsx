@@ -37,6 +37,7 @@ function currentRecruitmentMonth(ref = new Date()): string {
 
 function recruitmentMonthRange(monthValue: string): { start: string; end: string } {
   const [year, month] = monthValue.split('-').map(Number);
+  if (!year || !month) return recruitmentMonthRange(currentRecruitmentMonth());
   return {
     start: inputDate(new Date(year, month - 2, 26)),
     end: inputDate(new Date(year, month - 1, 25)),
@@ -459,7 +460,7 @@ export function InterviewCalendarPage() {
               {reportPreset === 'month' && (
                 <label className="block">
                   <span className="mb-1 block text-[11px] text-gray-500">招聘月份</span>
-                  <input type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-indigo-300" />
+                  <input type="month" value={reportMonth} onChange={(event) => { if (event.target.value) setReportMonth(event.target.value); }} className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-indigo-300" />
                 </label>
               )}
               <div className="pb-1 text-xs text-gray-500">
