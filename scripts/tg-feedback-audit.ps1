@@ -4,7 +4,8 @@ param(
   [string]$To = '',
   [ValidateSet('a', 'b', 'all')]
   [string]$Account = 'all',
-  [switch]$NoSync
+  [switch]$NoSync,
+  [switch]$ReuseOcr
 )
 
 Set-Location -LiteralPath 'D:\projects\recruitment-dashboard'
@@ -70,6 +71,7 @@ foreach ($targetAccount in $accounts) {
     if ($From) { $arguments += @('--from', $From) }
     if ($To) { $arguments += @('--to', $To) }
     if (-not $NoSync) { $arguments += '--sync' }
+    if ($ReuseOcr) { $arguments += '--reuse-ocr' }
     & node @arguments 2>&1 | ForEach-Object {
       $line = [string]$_
       Write-Output $line

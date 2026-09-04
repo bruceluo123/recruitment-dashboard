@@ -7,7 +7,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 
 const ROOT = process.cwd();
 const ENV_PATH = path.join(ROOT, '.env.local');
-const PROMPT_VERSION = 'feedback-audit-v4';
+const PROMPT_VERSION = 'feedback-audit-v5';
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
 
 function loadEnv() {
@@ -73,6 +73,12 @@ function normalizeCode(value) {
   if (!match) return '';
   const digits = match[2].replace(/O/gi, '0');
   return `XY${match[1].toUpperCase()}${digits.padStart(5, '0')}`;
+}
+
+function codeBelongsToOwner(code, owner) {
+  const normalized = normalizeCode(code);
+  if (!normalized) return true;
+  return owner === 'b' ? normalized.startsWith('XYBB') : normalized.startsWith('XYMMF');
 }
 
 function shanghaiDateKey(date) {
@@ -416,6 +422,49 @@ async function recognizeScreenshot(buffer, extension, context) {
   throw lastError;
 }
 
+function isPotentialRecruitingText(text, context, recommendations) {
+  const current = clean(text);
+  if (!current) return false;
+  const recruitingSignal = /(候选人|简历|面试|初筛|复试|终面|约面|通过|没过|未过|不合适|不匹配|不考虑|淘汰|拒绝|推进|待反馈|反馈|薪资|期望|到岗|入职|改期|缺席|失联|offer|岗位|部门|编制)/i;
+  if (recruitingSignal.test(current) || normalizeCode(current)) return true;
+  if (recommendations.some((rec) => candidateNameMentioned(current, rec.candidateName))) return true;
+  const shortReply = current.length <= 24 && /(可以|不行|要|不要|行|收到|好的|等等|待定|约|过|不过|继续|暂停|放弃)/i.test(current);
+  if (!shortReply) return false;
+  const nearby = clean(context);
+  return recruitingSignal.test(nearby)
+    || recommendations.some((rec) => candidateNameMentioned(nearby, rec.candidateName));
+}
+
+async function recognizeTextMessage(text, context) {
+  const prompt = `你是招聘聊天反馈审计助手。只判断“当前消息”本身是否包含对候选人或岗位流程有意义的信息；上下文只用于补齐“他、她、这个人、这个岗位”等指代，不能把上下文中的结论错误算成当前消息。\n\n规则：\n1. 当前消息与招聘反馈无关时，items 返回空数组。\n2. 当前消息涉及多位候选人或多个岗位时，逐条输出 items。\n3. 身份优先级：候选人编码、明确姓名、附件名、紧邻上下文中的唯一候选人。无法唯一确认时留空，不能猜。\n4. 未通过、不合适、不推进、淘汰、拒绝等 result=failed；约面或给出面试时间 result=scheduled；明确通过或进入下一轮 result=passed；等待或催反馈 result=pending；薪资、到岗、意向、改期等 result=other。\n5. evidence 只摘录当前消息中支持判断的短句，confidence 为 0 到 1。只返回 JSON。\n\nJSON 格式：\n{"screenType":"feedback|schedule|chat|other","rawText":"当前消息原文","items":[{"candidateCode":"","candidateName":"","jobTitle":"","organization":"","interviewStage":"","result":"passed|failed|scheduled|pending|no_feedback|other|unknown","feedbackSummary":"","evidence":"","confidence":0.0}]}\n\n当前消息：\n${clean(text)}\n\n聊天上下文：\n${context || '无'}`;
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(90_000),
+        body: JSON.stringify({
+          model: VISION_MODEL,
+          temperature: 0,
+          thinking: { type: 'disabled' },
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`DeepSeek text audit failed: ${response.status} ${clean(body?.error?.message)}`);
+      return sanitizeVisionResult(extractJson(body?.choices?.[0]?.message?.content));
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await sleep(1_000 * attempt);
+    }
+  }
+  throw lastError;
+}
+
 function enrichVisionItem(item, record) {
   const singleItem = record.items.length === 1;
   const directText = clean(`${singleItem ? record.rawText : ''} ${item.feedbackSummary} ${item.evidence}`);
@@ -556,7 +605,12 @@ function recommendationDate(item) {
 function dedupeRecommendations(items) {
   const map = new Map();
   for (const item of items) {
-    const key = `${normalizeCode(item.candidateCode) || normalizeName(item.candidateName)}|${normalize(item.jdTitle)}`;
+    const key = [
+      normalizeCode(item.candidateCode) || normalizeName(item.candidateName),
+      normalize(item.jdTitle),
+      normalize(item.organization),
+      normalize(item.department),
+    ].join('|');
     const previous = map.get(key);
     if (!previous || (recommendationDate(item)?.getTime() || 0) > (recommendationDate(previous)?.getTime() || 0)) map.set(key, item);
   }
@@ -615,6 +669,7 @@ function matchFeedback(item, recommendations, rawText = '') {
       }
       return { ambiguous: codeMatches, score: 0.6, reason: '候选人编码一致，但同一人有多个岗位且截图缺少可区分信息' };
     }
+    return null;
   }
   const name = normalizeName(item.candidateName);
   if (!name) return null;
@@ -661,6 +716,7 @@ const REVIEW_CATEGORY_LABELS = {
   ambiguous_recommendation: '同一人有多个岗位',
   no_recommendation: '没有对应推荐记录',
   low_confidence: '识别置信度较低',
+  owner_conflict: '候选人编码所属人冲突',
   needs_review: '需要人工核对',
 };
 
@@ -699,7 +755,14 @@ function reportRow(rec, extra = {}) {
 function feedbackInboxId(row, sourceStatus, index, owner) {
   if (clean(row.recommendationId)) return clean(row.recommendationId);
   if (clean(row.telegramMessageId || row.messageId)) {
-    return `${owner}:${sourceStatus}:tg:${clean(row.telegramMessageId || row.messageId)}`;
+    return [
+      owner,
+      sourceStatus,
+      'tg',
+      clean(row.telegramMessageId || row.messageId),
+      normalizeCode(row.candidateCode) || normalizeName(row.candidateName) || index,
+      normalize(row.jobTitle) || index,
+    ].join(':');
   }
   return [
     owner,
@@ -742,7 +805,7 @@ function toFeedbackInboxItem(row, sourceStatus, index, generatedAt, owner) {
   };
 }
 
-async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review) {
+async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, ledger) {
   const key = 'recruit:feedback-inbox';
   const generatedAt = meta.generatedAt;
   const imported = [
@@ -792,7 +855,12 @@ async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, int
       || (Array.isArray(previous.timeline) && previous.timeline.length > 0);
     if (!importedIds.has(clean(previous.id)) && hasUserWork) items.push(previous);
   }
-  await kvSet(key, { version: 1, generatedAt, items });
+  const existingLedger = Array.isArray(existing?.ledger) ? existing.ledger : [];
+  const combinedLedger = [
+    ...ledger,
+    ...existingLedger.filter((item) => (item.owner === 'b' ? 'b' : 'a') !== owner),
+  ];
+  await kvSet(key, { version: 1, generatedAt, items, ledger: combinedLedger });
   return items.length;
 }
 
@@ -1002,9 +1070,18 @@ async function main() {
   await client.disconnect();
   console.log(`__TG_SESSION_RELEASED__:${owner}`);
 
+  const [repushRaw, candidatesRaw] = await Promise.all([kvGet('recruit:repush'), kvGet('recruit:candidates')]);
+  const allRecommendations = parseStored(repushRaw, []);
+  const candidates = parseStored(candidatesRaw, []);
+  const ownerRecommendations = dedupeRecommendations(allRecommendations.filter((item) => item.column === owner));
+  const recommendations = ownerRecommendations.filter((item) => {
+    const date = recommendationDate(item);
+    return date && date >= from && date <= to;
+  });
+
   const tasks = prepared.map((entry, index) => async () => {
-    if (entry.cached) return entry.cached;
-    if (entry.failed) return entry.failed;
+    if (entry.cached) return { ...entry.cached, sourceType: 'image' };
+    if (entry.failed) return { ...entry.failed, sourceType: 'image' };
     const sourceMessage = entry.message || imageEntries[index].message;
     if (!entry.buffer) {
       return {
@@ -1016,6 +1093,7 @@ async function main() {
         context: clean(entry.context),
         rawText: '',
         items: [],
+        sourceType: 'image',
         error: clean(entry.error || 'Telegram screenshot download failed'),
       };
     }
@@ -1032,6 +1110,7 @@ async function main() {
         context: entry.context,
         rawText: '',
         items: [],
+        sourceType: 'image',
         error: clean(error?.message || error),
       };
     }
@@ -1042,34 +1121,79 @@ async function main() {
       feedbackAt: shanghaiDateTime(messageDate(sourceMessage)),
       imagePath: entry.imagePath,
       context: entry.context,
+      sourceType: 'image',
       ...result,
     };
     fs.writeFileSync(entry.cachePath, JSON.stringify(record, null, 2));
     return record;
   });
-  const recognized = await runPool(tasks, Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
-
-  const [repushRaw, candidatesRaw] = await Promise.all([kvGet('recruit:repush'), kvGet('recruit:candidates')]);
-  const allRecommendations = parseStored(repushRaw, []);
-  const candidates = parseStored(candidatesRaw, []);
-  const ownerRecommendations = dedupeRecommendations(allRecommendations.filter((item) => item.column === owner));
-  const recommendations = ownerRecommendations.filter((item) => {
-    const date = recommendationDate(item);
-    return date && date >= from && date <= to;
+  const recognizedScreenshots = await runPool(tasks, Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
+  const textEntries = messages
+    .map((message, index) => ({ message, index, text: clean(message.message) }))
+    .filter(({ message, text }) => !message.out && !isImageMessage(message) && text);
+  const relevantTextIds = new Set();
+  const textTasks = textEntries.flatMap(({ message, index, text }) => {
+    const context = contextFor(messages, index, accountLabel);
+    if (!isPotentialRecruitingText(text, context, ownerRecommendations)) return [];
+    relevantTextIds.add(String(message.id));
+    return [async () => {
+      const cachePath = path.join(cacheDir, `msg-${message.id}-text.json`);
+      if (!force && fs.existsSync(cachePath)) {
+        const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        if (cached.promptVersion === PROMPT_VERSION || (reuseOcr && (cached.rawText || cached.items?.length))) {
+          return { ...cached, ...sanitizeVisionResult(cached), promptVersion: PROMPT_VERSION, context, sourceType: 'text' };
+        }
+      }
+      try {
+        const result = await recognizeTextMessage(text, context);
+        const record = {
+          promptVersion: PROMPT_VERSION,
+          model: VISION_MODEL,
+          messageId: String(message.id),
+          feedbackAt: shanghaiDateTime(messageDate(message)),
+          imagePath: '',
+          context,
+          sourceType: 'text',
+          ...result,
+        };
+        fs.writeFileSync(cachePath, JSON.stringify(record, null, 2));
+        return record;
+      } catch (error) {
+        return {
+          promptVersion: PROMPT_VERSION,
+          model: VISION_MODEL,
+          messageId: String(message.id),
+          feedbackAt: shanghaiDateTime(messageDate(message)),
+          imagePath: '',
+          context,
+          rawText: text,
+          items: [],
+          sourceType: 'text',
+          error: clean(error?.message || error),
+        };
+      }
+    }];
   });
+  const recognizedTexts = await runPool(textTasks, Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
+  const recognized = [...recognizedScreenshots, ...recognizedTexts];
+  const messageById = new Map(messages.map((message) => [String(message.id), message]));
 
   const screenshotRows = [];
   const review = [];
   const feedbackByRecommendation = new Map();
   for (let index = 0; index < recognized.length; index += 1) {
     const record = recognized[index] || {};
-    const entry = imageEntries[index];
+    const sourceMessage = messageById.get(String(record.messageId));
     const originalItems = Array.isArray(record.items) ? record.items : [];
-    const inferredItem = originalItems.length ? null : inferItemFromRecord(record, ownerRecommendations);
+    const inferredItem = originalItems.length || record.sourceType === 'text'
+      ? null
+      : inferItemFromRecord(record, ownerRecommendations);
     if (record.error && !inferredItem) {
       const row = {
-        messageId: String(entry.message.id), feedbackAt: shanghaiDateTime(messageDate(entry.message)),
+        messageId: String(record.messageId || sourceMessage?.id || ''),
+        feedbackAt: record.feedbackAt || (sourceMessage ? shanghaiDateTime(messageDate(sourceMessage)) : ''),
         imagePath: clean(record.imagePath), context: clean(record.context), error: record.error,
+        sourceType: record.sourceType || 'image',
       };
       screenshotRows.push(row);
       review.push({
@@ -1089,7 +1213,7 @@ async function main() {
       screenshotRows.push({ ...record, result: '无候选人条目' });
       const recruitingSignal = /(候选人|简历|面试|初筛|通过|不通过|不合适|约面|offer|薪资|到岗|岗位|反馈|推进|放弃)/i
         .test(record.rawText || '');
-      if (recruitingSignal) {
+      if (recruitingSignal || relevantTextIds.has(String(record.messageId || ''))) {
         const category = clean(record.rawText) ? 'missing_candidate' : 'ocr_empty';
         review.push({
           ...record,
@@ -1097,8 +1221,8 @@ async function main() {
           category,
           categoryLabel: reviewCategoryLabel(category),
           reason: clean(record.rawText)
-            ? '截图包含招聘沟通，但没有拆出可归档的候选人'
-            : '截图没有提取到可核对文字',
+            ? `${record.sourceType === 'text' ? '文字消息' : '截图'}包含招聘沟通，但没有拆出可归档的候选人`
+            : `${record.sourceType === 'text' ? '文字消息' : '截图'}没有提取到可核对文字`,
         });
       }
       continue;
@@ -1109,6 +1233,15 @@ async function main() {
       const row = { ...workingRecord, ...normalizedItem };
       delete row.items;
       screenshotRows.push(row);
+      if (!codeBelongsToOwner(normalizedItem.candidateCode, owner)) {
+        review.push({
+          ...row,
+          category: 'owner_conflict',
+          categoryLabel: reviewCategoryLabel('owner_conflict'),
+          reason: `候选人编码不属于${accountLabel}，已禁止按姓名回退匹配`,
+        });
+        continue;
+      }
       const matchingText = workingRecord.items.length === 1
         ? workingRecord.rawText
         : clean(`${normalizedItem.feedbackSummary} ${normalizedItem.evidence}`);
@@ -1163,15 +1296,19 @@ async function main() {
     const feedback = feedbackByRecommendation.get(rec.id) || [];
     const candidate = findCandidateForRecommendation(rec, candidates);
     const calendarFailure = candidate?.outcome === 'failed';
-    if (calendarFailure && !interviewFailed.some((item) => item.candidateCode === normalizeCode(rec.candidateCode) && normalize(item.jobTitle) === normalize(rec.jdTitle))) {
-      interviewFailed.push(reportRow(rec, {
-        interviewStage: clean(candidate?.stage),
-        feedbackAt: clean(candidate?.updatedAt || candidate?.interviewDate),
-        feedbackSummary: '面试日历已标记未通过',
-        evidence: '企鹅岛面试日历 outcome=failed',
-        confidence: 1,
-        imagePath: '',
-      }));
+    if (calendarFailure) {
+      const screeningIndex = screeningFailed.findIndex((item) => item.recommendationId === rec.id);
+      if (screeningIndex >= 0) screeningFailed.splice(screeningIndex, 1);
+      if (!interviewFailed.some((item) => item.recommendationId === rec.id)) {
+        interviewFailed.push(reportRow(rec, {
+          interviewStage: clean(candidate?.stage),
+          feedbackAt: clean(candidate?.updatedAt || candidate?.interviewDate),
+          feedbackSummary: '面试日历已标记未通过',
+          evidence: '企鹅岛面试日历 outcome=failed',
+          confidence: 1,
+          imagePath: '',
+        }));
+      }
       continue;
     }
     const terminalFeedback = feedback.some((item) => item.result === 'failed' || item.result === 'passed');
@@ -1215,6 +1352,61 @@ async function main() {
   noFeedback.sort((a, b) => String(b.recommendedAt).localeCompare(String(a.recommendedAt)));
   interviewFailed.sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt)));
   screeningFailed.sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt)));
+  const resolvedByMessage = new Map();
+  for (const [recommendationId, rows] of feedbackByRecommendation.entries()) {
+    for (const row of rows) {
+      const messageId = String(row.messageId || '');
+      if (!messageId) continue;
+      const ids = resolvedByMessage.get(messageId) || [];
+      if (!ids.includes(recommendationId)) ids.push(recommendationId);
+      resolvedByMessage.set(messageId, ids);
+    }
+  }
+  const reviewsByMessage = new Map();
+  for (const row of review) {
+    const messageId = String(row.messageId || '');
+    if (!messageId) continue;
+    const reasons = reviewsByMessage.get(messageId) || [];
+    const reason = clean(row.categoryLabel || row.reason);
+    if (reason && !reasons.includes(reason)) reasons.push(reason);
+    reviewsByMessage.set(messageId, reasons);
+  }
+  const recordsByMessage = new Map(recognized.map((record) => [String(record.messageId || ''), record]));
+  const ledger = messages.map((message) => {
+    const messageId = String(message.id);
+    const record = recordsByMessage.get(messageId);
+    const recommendationIds = resolvedByMessage.get(messageId) || [];
+    const reviewReasons = reviewsByMessage.get(messageId) || [];
+    const sourceType = isImageMessage(message) ? 'image' : clean(message.message) ? 'text' : 'other';
+    let status = 'irrelevant';
+    let note = '未发现需要归档的招聘反馈';
+    if (message.out) {
+      status = 'context_only';
+      note = '本方发送的消息，仅作为识别上下文';
+    } else if (reviewReasons.length) {
+      status = 'manual_review';
+      note = reviewReasons.join('、');
+    } else if (recommendationIds.length) {
+      status = 'resolved';
+      note = `已落实到 ${recommendationIds.length} 条推荐记录`;
+    } else if (record?.error) {
+      status = 'failed';
+      note = clean(record.error);
+    }
+    return {
+      id: `${owner}:tg:${messageId}`,
+      owner,
+      telegramMessageId: messageId,
+      sentAt: shanghaiDateTime(messageDate(message)),
+      direction: message.out ? 'outgoing' : 'incoming',
+      sourceType,
+      status,
+      preview: clean(message.message || record?.rawText || (sourceType === 'image' ? '[反馈截图]' : '[附件]')).slice(0, 240),
+      note,
+      extractedItemCount: Array.isArray(record?.items) ? record.items.length : 0,
+      recommendationIds,
+    };
+  });
   const meta = {
     generatedAt: new Date().toISOString(),
     owner,
@@ -1230,12 +1422,15 @@ async function main() {
     failedCount: interviewFailed.length,
     screeningFailedCount: screeningFailed.length,
     reviewCount: review.length,
+    ledgerCount: ledger.length,
+    resolvedMessageCount: ledger.filter((item) => item.status === 'resolved').length,
+    reviewMessageCount: ledger.filter((item) => item.status === 'manual_review').length,
   };
   const feedbackInboxCount = hasFlag('--sync')
-    ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review)
+    ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, ledger)
     : 0;
   const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, review, screenshotRows);
-  fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, screenshots: screenshotRows }, null, 2));
+  fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review, ledger, screenshots: screenshotRows }, null, 2));
   console.log(JSON.stringify({ ok: true, ...meta, feedbackInboxCount, workbookPath }, null, 2));
 }
 
