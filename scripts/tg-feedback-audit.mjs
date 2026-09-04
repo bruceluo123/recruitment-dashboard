@@ -965,7 +965,9 @@ async function main() {
   const force = hasFlag('--force-ocr');
   const reuseOcr = hasFlag('--reuse-ocr');
 
-  const tasks = imageEntries.map(({ message, index }) => async () => {
+  // Telegram 会话只用于拉取消息和截图。先把需要识别的图片下载到本地，
+  // 随后立即断开，让常驻发送器恢复；耗时的 OCR 不再长期占用同一会话。
+  const prepared = await runPool(imageEntries.map(({ message, index }) => async () => {
     const extension = imageExtension(message);
     const baseName = `msg-${message.id}`;
     const imagePath = path.join(imageDir, `${baseName}${extension}`);
@@ -974,27 +976,60 @@ async function main() {
     if (!force && fs.existsSync(cachePath)) {
       const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
       if (cached.promptVersion === PROMPT_VERSION || (reuseOcr && (cached.rawText || cached.items?.length))) {
-        return {
-          ...cached,
-          ...sanitizeVisionResult(cached),
-          promptVersion: PROMPT_VERSION,
-          context,
-        };
+        return { cached: { ...cached, ...sanitizeVisionResult(cached), promptVersion: PROMPT_VERSION, context } };
       }
     }
-    const buffer = Buffer.from(await client.downloadMedia(message, {}));
-    fs.writeFileSync(imagePath, buffer);
+    try {
+      const buffer = Buffer.from(await client.downloadMedia(message, {}));
+      fs.writeFileSync(imagePath, buffer);
+      return { buffer, extension, imagePath, cachePath, context, message };
+    } catch (error) {
+      return {
+        failed: {
+          promptVersion: PROMPT_VERSION,
+          model: VISION_MODEL,
+          messageId: String(message.id),
+          feedbackAt: shanghaiDateTime(messageDate(message)),
+          imagePath,
+          context,
+          rawText: '',
+          items: [],
+          error: clean(error?.message || error),
+        },
+      };
+    }
+  }), Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
+  await client.disconnect();
+  console.log(`__TG_SESSION_RELEASED__:${owner}`);
+
+  const tasks = prepared.map((entry, index) => async () => {
+    if (entry.cached) return entry.cached;
+    if (entry.failed) return entry.failed;
+    const sourceMessage = entry.message || imageEntries[index].message;
+    if (!entry.buffer) {
+      return {
+        promptVersion: PROMPT_VERSION,
+        model: VISION_MODEL,
+        messageId: String(sourceMessage.id),
+        feedbackAt: shanghaiDateTime(messageDate(sourceMessage)),
+        imagePath: clean(entry.imagePath),
+        context: clean(entry.context),
+        rawText: '',
+        items: [],
+        error: clean(entry.error || 'Telegram screenshot download failed'),
+      };
+    }
     let result;
     try {
-      result = await recognizeScreenshot(buffer, extension, context);
+      result = await recognizeScreenshot(entry.buffer, entry.extension, entry.context);
     } catch (error) {
       return {
         promptVersion: PROMPT_VERSION,
         model: VISION_MODEL,
-        messageId: String(message.id),
-        feedbackAt: shanghaiDateTime(messageDate(message)),
-        imagePath,
-        context,
+        messageId: String(sourceMessage.id),
+        feedbackAt: shanghaiDateTime(messageDate(sourceMessage)),
+        imagePath: entry.imagePath,
+        context: entry.context,
         rawText: '',
         items: [],
         error: clean(error?.message || error),
@@ -1003,17 +1038,16 @@ async function main() {
     const record = {
       promptVersion: PROMPT_VERSION,
       model: VISION_MODEL,
-      messageId: String(message.id),
-      feedbackAt: shanghaiDateTime(messageDate(message)),
-      imagePath,
-      context,
+      messageId: String(sourceMessage.id),
+      feedbackAt: shanghaiDateTime(messageDate(sourceMessage)),
+      imagePath: entry.imagePath,
+      context: entry.context,
       ...result,
     };
-    fs.writeFileSync(cachePath, JSON.stringify(record, null, 2));
+    fs.writeFileSync(entry.cachePath, JSON.stringify(record, null, 2));
     return record;
   });
   const recognized = await runPool(tasks, Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
-  await client.disconnect();
 
   const [repushRaw, candidatesRaw] = await Promise.all([kvGet('recruit:repush'), kvGet('recruit:candidates')]);
   const allRecommendations = parseStored(repushRaw, []);

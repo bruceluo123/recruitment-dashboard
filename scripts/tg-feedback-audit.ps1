@@ -49,7 +49,16 @@ $accounts = if ($Account -eq 'all') { @('a', 'b') } else { @($Account) }
 foreach ($targetAccount in $accounts) {
   $deliveryTask = if ($targetAccount -eq 'b') { 'PenguinIslandTgDeliveryWorkerBobo' } else { 'PenguinIslandTgDeliveryWorker' }
   $restartDelivery = $false
+  $deliveryRestarted = $false
+  $mutex = New-Object System.Threading.Mutex($false, "Global\PenguinIslandTgMaintenance-$targetAccount")
+  $lockAcquired = $false
   try {
+    try { $lockAcquired = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $lockAcquired = $true }
+    if (-not $lockAcquired) {
+      Write-Output "Telegram maintenance for account $targetAccount is already running; feedback audit skipped"
+      continue
+    }
+
     $task = Get-ScheduledTask -TaskName $deliveryTask -ErrorAction SilentlyContinue
     if ($task -and $task.State -eq 'Running') {
       Stop-ScheduledTask -TaskName $deliveryTask
@@ -61,14 +70,23 @@ foreach ($targetAccount in $accounts) {
     if ($From) { $arguments += @('--from', $From) }
     if ($To) { $arguments += @('--to', $To) }
     if (-not $NoSync) { $arguments += '--sync' }
-    & node @arguments
+    & node @arguments 2>&1 | ForEach-Object {
+      $line = [string]$_
+      Write-Output $line
+      if ($line -eq "__TG_SESSION_RELEASED__:$targetAccount" -and $restartDelivery -and -not $deliveryRestarted) {
+        Start-ScheduledTask -TaskName $deliveryTask
+        $deliveryRestarted = $true
+      }
+    }
     if ($LASTEXITCODE -ne 0 -and $exitCode -eq 0) {
       $exitCode = $LASTEXITCODE
     }
   } finally {
-    if ($restartDelivery) {
+    if ($restartDelivery -and -not $deliveryRestarted) {
       Start-ScheduledTask -TaskName $deliveryTask
     }
+    if ($lockAcquired) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
   }
 }
 
