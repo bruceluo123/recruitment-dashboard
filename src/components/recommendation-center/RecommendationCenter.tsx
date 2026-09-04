@@ -232,7 +232,13 @@ export function RecommendationCenter() {
     const offerAppliedAt = new Date().toISOString();
     const name = offering.candidateName || offering.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
     const linkedCandidate = candidates.find((candidate) => candidate.id === offering.candidateId)
-      || candidates.find((candidate) => (candidate.owner || 'a') === offering.column && candidate.name === name && candidate.jdTitle === (offering.jdTitle || ''));
+      || candidates.find((candidate) => (
+        (candidate.owner || 'a') === offering.column
+        && candidate.name === name
+        && candidate.jdTitle === (offering.jdTitle || '')
+        && (!offering.organization || (candidate.organization || '') === offering.organization)
+        && (!offering.department || (candidate.department || '') === offering.department)
+      ));
     const jd = offering.jdTitle ? matchJDByTitle(offering.jdTitle, jds) : null;
     const probationSalary = values.probationSalary.trim();
     const regularSalary = values.regularSalary.trim();
@@ -240,15 +246,20 @@ export function RecommendationCenter() {
     const partial = {
       stage: 'offer' as const,
       owner: offering.column,
+      candidateCode: offering.candidateCode || linkedCandidate?.candidateCode,
       score: Number(values.score) || 0,
       interviewer: values.interviewer.trim() || undefined,
       onboardDate: values.onboardDate ? new Date(`${values.onboardDate}T00:00:00`).toISOString() : undefined,
       probationSalary: probationSalary || undefined,
       regularSalary: regularSalary || undefined,
+      probationMonths: values.probationMonths.trim() || undefined,
+      jobLevel: values.jobLevel || undefined,
       salary: salary || undefined,
       offerAppliedAt,
       organization: offering.organization || linkedCandidate?.organization || jd?.organization?.trim() || undefined,
       department: offering.department || linkedCandidate?.department || jd?.department?.trim() || undefined,
+      workMode: linkedCandidate?.workMode || (jd?.location?.trim() && !/remote|远程|居家/i.test(jd.location) ? '到岗' : '远程'),
+      recommendationSource: offering.source || linkedCandidate?.recommendationSource || 'intake',
     };
 
     if (linkedCandidate) {

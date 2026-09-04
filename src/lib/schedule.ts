@@ -2,9 +2,10 @@
 // 推荐中心与本周推荐两个页面共用，避免逻辑重复。
 
 import type { JD } from '@/types/jd';
-import type { Candidate } from '@/types/interview';
+import type { Candidate, InterviewEvent } from '@/types/interview';
 import type { RepushItem, InterviewRound } from '@/store/repush-store';
 import { matchJDByTitle } from './recommendation';
+import { generateId } from './utils';
 
 // 轮次 → 看板阶段。看板只有一面/二面/Offer 三列，三面归入二面列，轮次另存于推荐记录。
 const ROUND_TO_STAGE: Record<InterviewRound, Candidate['stage']> = {
@@ -36,6 +37,8 @@ export function reconcileScheduledRecommendations(items: RepushItem[], candidate
         (candidate.owner || 'a') === item.column
         && candidate.name === name
         && candidate.jdTitle === (item.jdTitle || '')
+        && (!item.organization || (candidate.organization || '') === item.organization)
+        && (!item.department || (candidate.department || '') === item.department)
       ));
 
     if (!linkedCandidate?.interviewDate) return item;
@@ -70,18 +73,53 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
   const jdTitle = item.jdTitle || '';
   const jd = jdTitle ? matchJDByTitle(jdTitle, jds) : null;
   const isoAt = new Date(interviewAt).toISOString();
+  const scheduledAt = new Date().toISOString();
+  const organization = item.organization || jd?.organization?.trim() || undefined;
+  const department = item.department || jd?.department?.trim() || undefined;
 
   const linkedCandidate = candidates.find((candidate) => candidate.id === item.candidateId)
-    || candidates.find((candidate) => (candidate.owner || 'a') === item.column && candidate.name === name && candidate.jdTitle === jdTitle);
+    || candidates.find((candidate) => (
+      (candidate.owner || 'a') === item.column
+      && candidate.name === name
+      && candidate.jdTitle === jdTitle
+      && (!organization || (candidate.organization || '') === organization)
+      && (!department || (candidate.department || '') === department)
+    ));
+  const legacyHistory: InterviewEvent[] = linkedCandidate?.interviewDate && !linkedCandidate.interviewHistory?.length
+    ? [{
+      id: `legacy-${linkedCandidate.id}`,
+      round: linkedCandidate.interviewRound || (linkedCandidate.stage === 'interview-1' ? '一面' : '二面'),
+      interviewDate: linkedCandidate.interviewDate,
+      scheduledAt: linkedCandidate.interviewScheduledAt || linkedCandidate.appliedAt,
+      interviewer: linkedCandidate.interviewer,
+    }]
+    : [];
+  const history = [...(linkedCandidate?.interviewHistory || legacyHistory)]
+    .filter((event) => !(
+      (event.recommendationId === item.id && event.round === round)
+      || (!event.recommendationId && linkedCandidate?.interviewRound === round)
+    ));
+  history.push({
+    id: generateId(),
+    recommendationId: item.id,
+    round,
+    interviewDate: isoAt,
+    scheduledAt,
+    interviewer: interviewer.trim() || linkedCandidate?.interviewer || undefined,
+  });
   const partial: Partial<Candidate> = {
     owner: item.column,
+    candidateCode: item.candidateCode || linkedCandidate?.candidateCode,
     stage: ROUND_TO_STAGE[round],
     interviewRound: round,
+    interviewHistory: history,
     interviewDate: isoAt,
-    interviewScheduledAt: new Date().toISOString(),
+    interviewScheduledAt: scheduledAt,
     interviewer: interviewer.trim() || linkedCandidate?.interviewer || undefined,
-    organization: item.organization || linkedCandidate?.organization || jd?.organization?.trim() || undefined,
-    department: item.department || linkedCandidate?.department || jd?.department?.trim() || undefined,
+    organization: organization || linkedCandidate?.organization,
+    department: department || linkedCandidate?.department,
+    workMode: linkedCandidate?.workMode || (jd?.location?.trim() && !/remote|远程|居家/i.test(jd.location) ? '到岗' : '远程'),
+    recommendationSource: item.source || linkedCandidate?.recommendationSource || 'intake',
   };
 
   let candidateId = linkedCandidate?.id;

@@ -3,6 +3,8 @@
 // 2) parseInterviewReport：把同样格式的文本反解析为候选人草稿（用于粘贴导入）
 
 import type { Candidate, CandidateStatus } from '@/types/interview';
+import type { InterviewEvent, InterviewRound } from '@/types/interview';
+import { getOfferGrade } from '@/lib/offer-compensation';
 
 // 列顺序固定，导出与导入共用同一套表头
 const HEADERS = ['日期', '时间', '姓名', '岗位', '编制', '部门', '面试官', '阶段'] as const;
@@ -73,6 +75,168 @@ export function buildScheduleTable(candidates: Candidate[]): string {
       return [c.name, c.jdTitle, PROGRESS_LABELS[c.stage], time, '', '', dept, '', ''].join('\t');
     })
     .join('\n');
+}
+
+export interface RecruitmentReportRange {
+  start: string;
+  end: string;
+}
+
+export interface RecruitmentReportRow {
+  key: string;
+  candidateIds: string[];
+  name: string;
+  jdTitle: string;
+  stage: InterviewRound;
+  interviewDates: string;
+  status: '通过' | 'pass';
+  salaryPlan: string;
+  department: string;
+  onboardDate: string;
+  workMode: string;
+  jobLevel: string;
+  score: string;
+  source: string;
+  sortAt: number;
+}
+
+export const RECRUITMENT_REPORT_HEADERS = [
+  '候选人', '岗位', '面试阶段', '面试日期', '面试状态', 'Offer薪资',
+  '部门', '入职日期', '远程', '等级', '分数', '来源',
+] as const;
+
+function localDateKey(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function roundRank(round: InterviewRound): number {
+  return round === '三面' ? 3 : round === '二面' ? 2 : 1;
+}
+
+function candidateEvents(candidate: Candidate): InterviewEvent[] {
+  if (candidate.interviewHistory?.length) return candidate.interviewHistory;
+  if (!candidate.interviewDate) return [];
+  return [{
+    id: `legacy-${candidate.id}`,
+    round: candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : '二面'),
+    interviewDate: candidate.interviewDate,
+    scheduledAt: candidate.interviewScheduledAt || candidate.appliedAt,
+    interviewer: candidate.interviewer,
+  }];
+}
+
+function reportIdentity(candidate: Candidate): string {
+  const person = candidate.candidateCode || candidate.talentId || candidate.resumeId || candidate.name.trim().toLowerCase();
+  return [
+    candidate.owner || 'a',
+    person,
+    candidate.jdTitle.trim().toLowerCase(),
+    (candidate.organization || '').trim().toLowerCase(),
+    (candidate.department || '').trim().toLowerCase(),
+  ].join('|');
+}
+
+function formatInterviewDay(event: InterviewEvent): string {
+  const date = new Date(event.interviewDate);
+  if (Number.isNaN(date.getTime())) return event.interviewDate;
+  return `${date.getMonth() + 1}.${date.getDate()}${event.round}`;
+}
+
+function formatOnboardDay(iso?: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][date.getDay()];
+  return `${date.getMonth() + 1}.${date.getDate()}${weekday}`;
+}
+
+function salaryPlan(candidate: Candidate): string {
+  return [
+    candidate.probationSalary && `试用期${candidate.probationSalary}`,
+    candidate.regularSalary && `转正${candidate.regularSalary}`,
+    candidate.probationMonths && `试用期${candidate.probationMonths}个月`,
+  ].filter(Boolean).join('，');
+}
+
+function hasPassed(candidates: Candidate[]): boolean {
+  if (candidates.some((candidate) => candidate.outcome === 'failed' || candidate.outcome === 'withdrawn' || candidate.outcome === 'offer-rejected')) return false;
+  return candidates.some((candidate) => (
+    candidate.stage === 'interview-2'
+    || candidate.stage === 'offer'
+    || candidate.outcome === 'onboarded'
+  ));
+}
+
+/**
+ * 按面试流程的点击日期回溯，并按「同人 + 同岗位 + 同编制/部门」合并。
+ * 淘汰候选人不会被排除；不同部门永远分行。
+ */
+export function buildRecruitmentReportRows(candidates: Candidate[], range: RecruitmentReportRange): RecruitmentReportRow[] {
+  const grouped = new Map<string, { candidates: Candidate[]; events: InterviewEvent[] }>();
+  for (const candidate of candidates) {
+    const events = candidateEvents(candidate).filter((event) => {
+      const key = localDateKey(event.scheduledAt);
+      return key >= range.start && key <= range.end;
+    });
+    if (!events.length) continue;
+    const key = reportIdentity(candidate);
+    const group = grouped.get(key) || { candidates: [], events: [] };
+    group.candidates.push(candidate);
+    group.events.push(...events);
+    grouped.set(key, group);
+  }
+
+  return Array.from(grouped.entries()).map<RecruitmentReportRow>(([key, group]) => {
+    const uniqueEvents = Array.from(new Map(
+      group.events.map((event) => [`${event.round}|${event.interviewDate}`, event]),
+    ).values()).sort((a, b) => new Date(a.interviewDate).getTime() - new Date(b.interviewDate).getTime());
+    const latestCandidate = [...group.candidates].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    const offerCandidate = group.candidates.find((candidate) => candidate.offerAppliedAt)
+      || group.candidates.find((candidate) => candidate.regularSalary || candidate.onboardDate)
+      || latestCandidate;
+    const stage = uniqueEvents.reduce<InterviewRound>(
+      (latest, event) => roundRank(event.round) > roundRank(latest) ? event.round : latest,
+      '一面',
+    );
+    const grade = getOfferGrade(offerCandidate.regularSalary);
+    return {
+      key,
+      candidateIds: group.candidates.map((candidate) => candidate.id),
+      name: latestCandidate.name,
+      jdTitle: latestCandidate.jdTitle,
+      stage,
+      interviewDates: uniqueEvents.map(formatInterviewDay).join('/'),
+      status: hasPassed(group.candidates) ? '通过' : 'pass',
+      salaryPlan: salaryPlan(offerCandidate),
+      department: latestCandidate.department || latestCandidate.organization || '',
+      onboardDate: formatOnboardDay(offerCandidate.onboardDate),
+      workMode: latestCandidate.workMode || '远程',
+      jobLevel: offerCandidate.jobLevel || grade?.level || '',
+      score: offerCandidate.score ? String(offerCandidate.score) : grade ? String(grade.score) : '',
+      source: latestCandidate.recommendationSource === 'repush' ? '转推荐' : '人才库',
+      sortAt: uniqueEvents.length ? new Date(uniqueEvents[0].interviewDate).getTime() : Number.MAX_SAFE_INTEGER,
+    };
+  }).sort((a, b) => a.sortAt - b.sortAt || a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+export function buildRecruitmentReportText(rows: RecruitmentReportRow[], title?: string): string {
+  const body = rows.map((row) => [
+    row.name,
+    row.jdTitle,
+    row.stage,
+    row.interviewDates,
+    row.status,
+    row.salaryPlan,
+    row.department,
+    row.onboardDate,
+    row.workMode,
+    row.jobLevel,
+    row.score,
+    row.source,
+  ].join('\t'));
+  return [title, RECRUITMENT_REPORT_HEADERS.join('\t'), ...body].filter(Boolean).join('\n');
 }
 
 /** 导入草稿：可直接喂给 addCandidate（已含必填默认值） */

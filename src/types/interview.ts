@@ -26,11 +26,26 @@ export const ALL_OUTCOMES: CandidateOutcome[] = ['onboarded', 'offer-rejected', 
 /** 候选人归属的推荐人列：a=麦满分，b=啵啵（与复推池列一致）。未设置时按麦满分处理 */
 export type CandidateOwner = 'a' | 'b';
 
+export type InterviewRound = '一面' | '二面' | '三面';
+
+/** 每次从推荐中心点击「面试」产生一条，避免二面覆盖一面的历史。 */
+export interface InterviewEvent {
+  id: string;
+  recommendationId?: string;
+  round: InterviewRound;
+  interviewDate: string;
+  scheduledAt: string;
+  interviewer?: string;
+}
+
+export type OfferJobLevel = '初级' | '一级' | '二级' | '三级' | '四级' | '五级';
+
 export interface InterviewStage { id: CandidateStatus; name: string; order: number; color: string; }
 
 export interface Candidate {
   id: string;
   name: string;
+  candidateCode?: string; // 候选人唯一编码，优先用于跨模块关联和报表合并
   resumeId: string;
   jdId: string;
   jdTitle: string;
@@ -38,7 +53,8 @@ export interface Candidate {
   organization?: string;   // 编制组织（取自 JD 库）
   department?: string;     // 部门（取自 JD 库）
   stage: CandidateStatus;
-  interviewRound?: '一面' | '二面' | '三面';
+  interviewRound?: InterviewRound;
+  interviewHistory?: InterviewEvent[]; // 所有约面操作历史；二面/改期不覆盖已有记录
   score: number;
   interviewDate?: string;
   interviewScheduledAt?: string; // 最近一次在推进中心确认约面的时间
@@ -50,6 +66,10 @@ export interface Candidate {
   salary?: string;
   probationSalary?: string;
   regularSalary?: string;
+  probationMonths?: string;
+  jobLevel?: OfferJobLevel;
+  workMode?: string;
+  recommendationSource?: 'intake' | 'repush';
   onboardDate?: string;
   outcome?: CandidateOutcome;   // 最终结果；未设置=仍在流程中
   outcomeReason?: string;       // 淘汰/退出原因，供复推决策参考

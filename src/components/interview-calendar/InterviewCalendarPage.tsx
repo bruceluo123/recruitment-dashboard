@@ -6,12 +6,12 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
-import type { Candidate, CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
+import type { CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES } from '@/types/interview';
 import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet, LogOut } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
-import { buildScheduleTable, parseInterviewReport } from '@/lib/interview-report';
+import { buildRecruitmentReportRows, buildRecruitmentReportText, parseInterviewReport } from '@/lib/interview-report';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 function dateKey(iso: string): string {
@@ -26,23 +26,27 @@ function startOfWeek(date: Date): Date {
   return d;
 }
 
-function isThisWeek(iso: string, ref = new Date()): boolean {
-  const d = new Date(iso);
-  const start = startOfWeek(ref).getTime();
-  const end = start + 7 * 24 * 60 * 60 * 1000;
-  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  return day >= start && day < end;
+function inputDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function currentRecruitmentMonth(ref = new Date()): string {
+  const month = new Date(ref.getFullYear(), ref.getMonth() + (ref.getDate() >= 26 ? 1 : 0), 1);
+  return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function recruitmentMonthRange(monthValue: string): { start: string; end: string } {
+  const [year, month] = monthValue.split('-').map(Number);
+  return {
+    start: inputDate(new Date(year, month - 2, 26)),
+    end: inputDate(new Date(year, month - 1, 25)),
+  };
 }
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
   return `${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
-}
-
-function timeLabel(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 export function InterviewCalendarPage() {
@@ -59,6 +63,8 @@ export function InterviewCalendarPage() {
   const [showImport, setShowImport] = useState(false);
   const [showExcelPicker, setShowExcelPicker] = useState(false);
   const [selectedExcelIds, setSelectedExcelIds] = useState<string[]>([]);
+  const [reportPreset, setReportPreset] = useState<'month' | 'week'>('month');
+  const [reportMonth, setReportMonth] = useState(currentRecruitmentMonth);
   const [earlyDepartureId, setEarlyDepartureId] = useState<string | null>(null);
   const [importText, setImportText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -226,17 +232,16 @@ export function InterviewCalendarPage() {
     }
   };
 
-  // Excel看板：选择本周内多天面试，复制为可粘贴 Excel 的进度表
+  // Excel看板：按面试流程点击日期回溯，复制为可直接粘贴 Excel 的制表符文本。
   const openExcelPicker = () => {
-    if (weeklyScheduleCandidates.length === 0) { setCopyMsg('本周暂无约面安排'); return; }
-    setSelectedExcelIds(weeklyScheduleCandidates.map((c) => c.id));
+    setSelectedExcelIds(reportRows.map((row) => row.key));
     setShowExcelPicker(true);
   };
 
   const handleCopyScheduleSelection = async () => {
-    const selectedRows = weeklyScheduleCandidates.filter((c) => selectedExcelIds.includes(c.id));
+    const selectedRows = reportRows.filter((row) => selectedExcelIds.includes(row.key));
     if (selectedRows.length === 0) { setCopyMsg('请先勾选要复制的面试'); return; }
-    const text = buildScheduleTable(selectedRows);
+    const text = buildRecruitmentReportText(selectedRows, reportTitle);
     try {
       await navigator.clipboard.writeText(text);
       setShowExcelPicker(false);
@@ -282,20 +287,35 @@ export function InterviewCalendarPage() {
     () => ownerCandidates.filter((c) => c.outcome !== 'failed'),
     [ownerCandidates],
   );
-  const weeklyScheduleCandidates = useMemo(
-    () => activeOwnerCandidates
-      .filter((c) => c.interviewDate && isThisWeek(c.interviewDate))
-      .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime()),
-    [activeOwnerCandidates],
+  const reportRange = useMemo(() => {
+    if (reportPreset === 'month') return recruitmentMonthRange(reportMonth);
+    const today = new Date();
+    return { start: inputDate(startOfWeek(today)), end: inputDate(today) };
+  }, [reportMonth, reportPreset]);
+  const reportRows = useMemo(
+    () => buildRecruitmentReportRows(ownerCandidates, reportRange),
+    [ownerCandidates, reportRange],
   );
-  const weeklyScheduleDays = useMemo(() => {
-    const groups = new Map<string, Candidate[]>();
-    for (const candidate of weeklyScheduleCandidates) {
-      const key = dateKey(candidate.interviewDate!);
-      groups.set(key, [...(groups.get(key) || []), candidate]);
+  const reportDays = useMemo(() => {
+    const groups = new Map<string, typeof reportRows>();
+    for (const row of reportRows) {
+      const key = dateKey(new Date(row.sortAt).toISOString());
+      groups.set(key, [...(groups.get(key) || []), row]);
     }
     return Array.from(groups.entries());
-  }, [weeklyScheduleCandidates]);
+  }, [reportRows]);
+  const reportTitle = useMemo(() => {
+    const label = reportPreset === 'month'
+      ? `${Number(reportMonth.slice(5))}月招聘情况`
+      : '本周招聘情况';
+    const onboardCount = reportRows.filter((row) => row.onboardDate).length;
+    const totalScore = reportRows.reduce((sum, row) => sum + (Number(row.score) || 0), 0);
+    return `${label}（${onboardCount}位入职，${Number(totalScore.toFixed(2))}分）`;
+  }, [reportMonth, reportPreset, reportRows]);
+
+  useEffect(() => {
+    if (showExcelPicker) setSelectedExcelIds(reportRows.map((row) => row.key));
+  }, [reportRange.start, reportRange.end, showExcelPicker, reportRows]);
 
   // 「当天面试」只筛选面试阶段；Offer 始终保留，避免刚确认的 Offer 被隐藏。
   const boardCandidates = useMemo(() => {
@@ -420,14 +440,39 @@ export function InterviewCalendarPage() {
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <FileSpreadsheet className="w-5 h-5 text-indigo-500" />Excel看板
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">勾选本周要复制的面试记录，可一次性粘贴到 Excel。</p>
+                <p className="text-xs text-gray-500 mt-1">按点击面试流程的日期统计；未通过的人选也会保留。</p>
               </div>
               <button onClick={() => setShowExcelPicker(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
 
+            <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3">
+              <div className="flex rounded-lg border border-indigo-200 bg-white p-0.5 text-xs">
+                <button
+                  onClick={() => setReportPreset('month')}
+                  className={cn('h-8 rounded-md px-3 font-medium', reportPreset === 'month' ? 'bg-indigo-500 text-white' : 'text-gray-500 hover:bg-indigo-50')}
+                >招聘月</button>
+                <button
+                  onClick={() => setReportPreset('week')}
+                  className={cn('h-8 rounded-md px-3 font-medium', reportPreset === 'week' ? 'bg-indigo-500 text-white' : 'text-gray-500 hover:bg-indigo-50')}
+                >本周至今</button>
+              </div>
+              {reportPreset === 'month' && (
+                <label className="block">
+                  <span className="mb-1 block text-[11px] text-gray-500">招聘月份</span>
+                  <input type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-indigo-300" />
+                </label>
+              )}
+              <div className="pb-1 text-xs text-gray-500">
+                统计范围：<span className="font-medium text-gray-700">{reportRange.start} 至 {reportRange.end}</span>
+              </div>
+            </div>
+
             <div className="max-h-[56vh] overflow-y-auto pr-1 space-y-4">
-              {weeklyScheduleDays.map(([day, rows]) => {
-                const dayIds = rows.map((row) => row.id);
+              {reportRows.length === 0 && (
+                <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">该统计范围内暂无约面记录</div>
+              )}
+              {reportDays.map(([day, rows]) => {
+                const dayIds = rows.map((row) => row.key);
                 const allChecked = dayIds.every((id) => selectedExcelIds.includes(id));
                 return (
                   <div key={day} className="border border-gray-200 rounded-xl overflow-hidden">
@@ -439,27 +484,28 @@ export function InterviewCalendarPage() {
                         <span className={cn('w-4 h-4 rounded border flex items-center justify-center', allChecked ? 'bg-indigo-500 border-indigo-500' : 'bg-white border-gray-300')}>
                           {allChecked && <Check className="w-3 h-3 text-white" />}
                         </span>
-                        {dayLabel(rows[0].interviewDate!)}
+                        {dayLabel(new Date(rows[0].sortAt).toISOString())}
                       </button>
                       <span className="text-xs text-gray-400">{rows.length} 条</span>
                     </div>
                     <div className="divide-y divide-gray-100">
-                      {rows.map((candidate) => {
-                        const checked = selectedExcelIds.includes(candidate.id);
+                      {rows.map((row) => {
+                        const checked = selectedExcelIds.includes(row.key);
                         return (
-                          <label key={candidate.id} className="flex items-center gap-3 px-4 py-3 hover:bg-indigo-50/50 cursor-pointer">
+                          <label key={row.key} className="flex items-center gap-3 px-4 py-3 hover:bg-indigo-50/50 cursor-pointer">
                             <input
                               type="checkbox"
                               checked={checked}
-                              onChange={() => setSelectedExcelIds((ids) => checked ? ids.filter((id) => id !== candidate.id) : [...ids, candidate.id])}
+                              onChange={() => setSelectedExcelIds((ids) => checked ? ids.filter((id) => id !== row.key) : [...ids, row.key])}
                               className="w-4 h-4 accent-indigo-500"
                             />
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 text-sm font-medium text-gray-800">
-                                <span>{timeLabel(candidate.interviewDate!)}</span>
-                                <span className="truncate">{candidate.name}</span>
+                                <span className={cn('rounded px-1.5 py-0.5 text-[11px]', row.status === '通过' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500')}>{row.status}</span>
+                                <span className="truncate">{row.name}</span>
+                                <span className="shrink-0 text-xs text-indigo-500">{row.stage}</span>
                               </div>
-                              <div className="text-xs text-gray-500 truncate mt-0.5">{candidate.jdTitle}</div>
+                              <div className="text-xs text-gray-500 truncate mt-0.5">{row.jdTitle} · {row.interviewDates}</div>
                             </div>
                           </label>
                         );
@@ -472,10 +518,10 @@ export function InterviewCalendarPage() {
 
             <div className="mt-5 flex items-center justify-between gap-3">
               <button
-                onClick={() => setSelectedExcelIds(weeklyScheduleCandidates.map((c) => c.id))}
+                onClick={() => setSelectedExcelIds(reportRows.map((row) => row.key))}
                 className="h-10 px-4 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100"
               >
-                全选本周
+                全选本期
               </button>
               <div className="flex items-center gap-2">
                 <button onClick={() => setShowExcelPicker(false)} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
