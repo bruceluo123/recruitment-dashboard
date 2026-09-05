@@ -17,10 +17,12 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate
   const augustOffers = sortCandidatesByDate(
     offerCandidates.filter((candidate) => isAugustPerformanceOffer(candidate.onboardDate)),
     (candidate) => candidate.onboardDate,
+    true,
   );
   const septemberOffers = sortCandidatesByDate(
     offerCandidates.filter((candidate) => !isAugustPerformanceOffer(candidate.onboardDate)),
     (candidate) => candidate.onboardDate,
+    true,
   );
 
   return (
@@ -40,18 +42,18 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate
         <>
           <StageKanbanColumn
             stage={offerStage}
-            title="8月 Offer"
-            subtitle="7/26-8/25"
-            candidates={augustOffers}
+            title="9月 Offer"
+            subtitle="8/26起"
+            candidates={septemberOffers}
             onCandidateClick={onCandidateClick}
             onFailCandidate={onFailCandidate}
             onEarlyDeparture={onEarlyDeparture}
           />
           <StageKanbanColumn
             stage={offerStage}
-            title="9月 Offer"
-            subtitle="8/26起"
-            candidates={septemberOffers}
+            title="8月 Offer"
+            subtitle="7/26-8/25"
+            candidates={augustOffers}
             onCandidateClick={onCandidateClick}
             onFailCandidate={onFailCandidate}
             onEarlyDeparture={onEarlyDeparture}
@@ -68,8 +70,18 @@ function isAugustPerformanceOffer(onboardDate: string | undefined): boolean {
   return date >= '2026-07-26' && date <= '2026-08-25';
 }
 
-function sortCandidatesByDate(candidates: Candidate[], getDate: (c: Candidate) => string | undefined): Candidate[] {
-  return [...candidates].sort((a, b) => toTime(getDate(a)) - toTime(getDate(b)));
+function sortCandidatesByDate(
+  candidates: Candidate[],
+  getDate: (c: Candidate) => string | undefined,
+  newestFirst = false,
+): Candidate[] {
+  return [...candidates].sort((a, b) => {
+    const aTime = toTime(getDate(a));
+    const bTime = toTime(getDate(b));
+    if (aTime === Number.MAX_SAFE_INTEGER) return bTime === Number.MAX_SAFE_INTEGER ? 0 : 1;
+    if (bTime === Number.MAX_SAFE_INTEGER) return -1;
+    return newestFirst ? bTime - aTime : aTime - bTime;
+  });
 }
 
 function toTime(dateStr: string | undefined): number {
