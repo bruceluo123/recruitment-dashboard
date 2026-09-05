@@ -63,8 +63,13 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
   const isCollapsedCandidateGroup = Boolean(candidateGroupCount && candidateGroupCount > 1 && !candidateGroupExpanded);
-  const candidateTitle = isCollapsedCandidateGroup ? (item.candidateName?.trim() || base) : base;
-  const representativeJob = item.jdTitle?.trim() || item.department?.trim() || item.organization?.trim();
+  const jobTitle = item.jdTitle?.trim();
+  const candidateTitle = item.candidateName?.trim()
+    || (jobTitle && base.includes(jobTitle)
+      ? base.slice(0, base.lastIndexOf(jobTitle)).replace(/[-_\s]+$/, '').trim()
+      : base);
+  const displayedJobTitle = jobTitle
+    || (isCollapsedCandidateGroup ? item.department?.trim() || item.organization?.trim() : '');
   const groupDepartments = isCollapsedCandidateGroup
     ? Array.from(new Set((candidateGroupItems || []).map((groupItem) => groupItem.department || groupItem.organization).filter(Boolean)))
     : [];
@@ -185,13 +190,21 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
           {item.candidateCode && (
             <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium shrink-0">{item.candidateCode}</span>
           )}
-          <span
-            className="max-w-[min(460px,45vw)] truncate text-sm font-semibold text-gray-800"
-            title={isCollapsedCandidateGroup && representativeJob ? `${candidateTitle} · ${representativeJob}` : candidateTitle}
-          >
-            {candidateTitle}
-            {isCollapsedCandidateGroup && representativeJob && (
-              <span className="font-medium text-slate-500"> · {representativeJob}</span>
+          <span className="inline-flex min-w-0 max-w-full items-center gap-2 sm:max-w-[min(560px,52vw)]">
+            <span className="shrink-0 text-sm font-bold text-slate-900" title={candidateTitle}>
+              {candidateTitle}
+            </span>
+            {displayedJobTitle && (
+              <>
+                <span className="h-4 w-px shrink-0 bg-slate-200" aria-hidden="true" />
+                <span
+                  className="inline-flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-slate-800"
+                  title={displayedJobTitle}
+                >
+                  <BriefcaseBusiness className="h-3.5 w-3.5 shrink-0 text-indigo-500" aria-hidden="true" />
+                  <span className="truncate">{displayedJobTitle}</span>
+                </span>
+              </>
             )}
           </span>
           {showGroupFeedbackSummary && groupFeedbackCounts ? (
@@ -288,7 +301,7 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
           className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium text-indigo-500 bg-white border border-dashed border-indigo-200 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-70 transition-colors"
         >
           {lookingUpContact ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Phone className="w-3.5 h-3.5" />}
-          补联系方式
+          补
         </button>
       )}
 
