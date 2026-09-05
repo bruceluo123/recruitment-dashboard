@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronUp, Repeat, FileText, X, BriefcaseBusiness, Loader2 } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronRight, ChevronUp, Repeat, FileText, X, BriefcaseBusiness, Loader2 } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 import type { FeedbackCenterItem } from '@/types/feedback-center';
@@ -29,6 +29,9 @@ function feedbackMeta(item?: FeedbackCenterItem): { label: '未反馈' | '未通
 interface RecommendationBarProps {
   item: RepushItem;
   feedbackItem?: FeedbackCenterItem;
+  candidateGroupCount?: number;
+  candidateGroupExpanded?: boolean;
+  onToggleCandidateGroup?: () => void;
   onSchedule: (item: RepushItem) => void;
   onEdit: (item: RepushItem) => void;
   onRepush: (item: RepushItem) => void;
@@ -39,7 +42,7 @@ interface RecommendationBarProps {
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, feedbackItem, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, feedbackItem, candidateGroupCount, candidateGroupExpanded, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -137,6 +140,21 @@ export function RecommendationBar({ item, feedbackItem, onSchedule, onEdit, onRe
       {/* 主信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
+          {candidateGroupCount && candidateGroupCount > 1 && onToggleCandidateGroup && (
+            <button
+              type="button"
+              aria-expanded={candidateGroupExpanded}
+              onClick={onToggleCandidateGroup}
+              title={candidateGroupExpanded ? '收起该候选人的岗位' : `展开查看 ${candidateGroupCount} 个岗位`}
+              className={`inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset transition-colors ${candidateGroupExpanded
+                ? 'bg-indigo-50 text-indigo-600 ring-indigo-200'
+                : 'bg-slate-50 text-slate-500 ring-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:ring-indigo-200'
+              }`}
+            >
+              {candidateGroupExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {candidateGroupCount}个岗位
+            </button>
+          )}
           {item.candidateCode && (
             <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium shrink-0">{item.candidateCode}</span>
           )}

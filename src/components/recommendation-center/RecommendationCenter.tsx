@@ -53,6 +53,22 @@ function groupByDay(items: RepushItem[]): { key: number; label: string; items: R
     }));
 }
 
+function groupByCandidate(items: RepushItem[]): { key: string; items: RepushItem[] }[] {
+  const groups = new Map<string, RepushItem[]>();
+  for (const item of items) {
+    const candidateCode = item.candidateCode?.trim().toUpperCase();
+    const key = candidateCode
+      ? `code:${candidateCode}`
+      : item.candidateId
+        ? `candidate:${item.candidateId}`
+        : `item:${item.id}`;
+    const matches = groups.get(key) || [];
+    matches.push(item);
+    groups.set(key, matches);
+  }
+  return Array.from(groups.entries()).map(([key, groupedItems]) => ({ key, items: groupedItems }));
+}
+
 export function RecommendationCenter() {
   const [mounted, setMounted] = useState(false);
   const items = useRepushStore((s) => s.items);
@@ -79,6 +95,7 @@ export function RecommendationCenter() {
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackCenterItem[]>([]);
+  const [expandedCandidateGroups, setExpandedCandidateGroups] = useState<Set<string>>(() => new Set());
   const [contactRefreshTick, setContactRefreshTick] = useState(0);
   const attemptedContactLookups = useRef(new Set<string>());
   const contactRefreshGeneration = useRef(-1);
@@ -249,7 +266,19 @@ export function RecommendationCenter() {
 
   const viewItems = items.filter((it) => it.column === view);
   const filteredItems = filterRecommendations(viewItems, filters);
-  const groups = groupByDay(filteredItems);
+  const groups = groupByDay(filteredItems).map((group) => ({
+    ...group,
+    candidateGroups: groupByCandidate(group.items),
+  }));
+
+  const toggleCandidateGroup = (key: string) => {
+    setExpandedCandidateGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   const scheduledCount = viewItems.filter((it) => it.interviewStatus === 'scheduled').length;
   const hasFilter = Object.values(filters).some((v) => v.trim());
 
@@ -438,25 +467,37 @@ export function RecommendationCenter() {
                   <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
                     <CalendarCheck className="w-3.5 h-3.5 text-gray-300" />{g.label}
                   </span>
-                  <span className="text-xs text-gray-300">{g.items.length} 人</span>
+                  <span className="text-xs text-gray-300">{g.candidateGroups.length} 人</span>
                   <div className="flex-1 h-px bg-gray-100" />
                 </div>
                 <div className="space-y-2">
-                  {g.items.map((it) => (
-                    <RecommendationBar
-                      key={it.id}
-                      item={it}
-                      feedbackItem={feedbackByRecommendation.get(it.id)}
-                      onSchedule={setScheduling}
-                      onEdit={setEditing}
-                      onRepush={setRepushing}
-                      onOffer={setOffering}
-                      offerRecorded={candidates.some((candidate) => candidate.id === it.candidateId && candidate.stage === 'offer')}
-                      interviewFailed={candidates.some((candidate) => candidate.id === it.candidateId && candidate.outcome === 'failed')}
-                      onRemove={removeItem}
-                      onUpdateContact={updateRecommendationContact}
-                    />
-                  ))}
+                  {g.candidateGroups.map((candidateGroup) => {
+                    const groupKey = `${g.key}:${candidateGroup.key}`;
+                    const expanded = expandedCandidateGroups.has(groupKey);
+                    const visibleItems = expanded ? candidateGroup.items : candidateGroup.items.slice(0, 1);
+                    return (
+                      <div key={groupKey} className="space-y-2">
+                        {visibleItems.map((it, index) => (
+                          <RecommendationBar
+                            key={it.id}
+                            item={it}
+                            feedbackItem={feedbackByRecommendation.get(it.id)}
+                            candidateGroupCount={index === 0 ? candidateGroup.items.length : undefined}
+                            candidateGroupExpanded={expanded}
+                            onToggleCandidateGroup={() => toggleCandidateGroup(groupKey)}
+                            onSchedule={setScheduling}
+                            onEdit={setEditing}
+                            onRepush={setRepushing}
+                            onOffer={setOffering}
+                            offerRecorded={candidates.some((candidate) => candidate.id === it.candidateId && candidate.stage === 'offer')}
+                            interviewFailed={candidates.some((candidate) => candidate.id === it.candidateId && candidate.outcome === 'failed')}
+                            onRemove={removeItem}
+                            onUpdateContact={updateRecommendationContact}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
