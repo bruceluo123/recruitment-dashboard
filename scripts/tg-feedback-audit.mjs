@@ -7,8 +7,9 @@ import { StringSession } from 'telegram/sessions/index.js';
 
 const ROOT = process.cwd();
 const ENV_PATH = path.join(ROOT, '.env.local');
-const PROMPT_VERSION = 'feedback-audit-v7';
+const PROMPT_VERSION = 'feedback-audit-v8';
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
+const STANDARD_FORMAT_GUIDANCE = '标准反馈格式为“部门或组织＋候选人姓名＋截图”。例如截图紧邻“效能中心 Andy”时，先锁定 organization=效能中心、candidateName=Andy，再从截图或引用推荐语中提取岗位和反馈结论并精确对应；“恒睿 eli”同理。';
 
 function loadEnv() {
   if (!fs.existsSync(ENV_PATH)) return;
@@ -390,6 +391,18 @@ function recommendationReference(text, recommendations) {
   return null;
 }
 
+function standardIdentityLabel(text, recommendations) {
+  const source = clean(text);
+  const organization = detectedOrganization(source);
+  if (!source || !organization) return null;
+  const candidateNames = [...new Map(recommendations
+    .filter((rec) => candidateNameMentioned(source, rec.candidateName))
+    .map((rec) => [normalizeName(rec.candidateName), clean(rec.candidateName)]))
+    .values()];
+  if (candidateNames.length !== 1) return null;
+  return { candidateName: candidateNames[0], organization };
+}
+
 function referenceContextFor(messages, index, accountLabel, recommendations) {
   const current = messages[index];
   const byId = new Map(messages.map((message) => [String(message.id), message]));
@@ -412,7 +425,10 @@ function referenceContextFor(messages, index, accountLabel, recommendations) {
   }
 
   const currentText = clean(current.message);
-  if (currentText && recommendationReference(currentText, recommendations)) {
+  if (currentText && (
+    recommendationReference(currentText, recommendations)
+    || standardIdentityLabel(currentText, recommendations)
+  )) {
     return formatContextMessage(current, accountLabel, '当前身份标签');
   }
 
@@ -422,7 +438,10 @@ function referenceContextFor(messages, index, accountLabel, recommendations) {
     if (messageDate(next).getTime() - currentTime > 5 * 60 * 1000) break;
     if (next.out !== current.out) continue;
     const nextText = clean(next.message);
-    if (nextText && recommendationReference(nextText, recommendations)) {
+    if (nextText && (
+      recommendationReference(nextText, recommendations)
+      || standardIdentityLabel(nextText, recommendations)
+    )) {
       return formatContextMessage(next, accountLabel, '紧随其后的身份标签');
     }
   }
@@ -514,7 +533,7 @@ async function recognizeScreenshot(buffer, extension, context, referenceContext)
           messages: [{
             role: 'user',
             content: [
-              { type: 'text', text: prompt },
+              { type: 'text', text: `${prompt}\n\n${STANDARD_FORMAT_GUIDANCE}` },
               { type: 'image_url', image_url: { url: `data:${mime};base64,${buffer.toString('base64')}` } },
             ],
           }],
@@ -562,7 +581,7 @@ async function recognizeTextMessage(text, context, referenceContext) {
           model: VISION_MODEL,
           temperature: 0,
           thinking: { type: 'disabled' },
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: `${prompt}\n\n${STANDARD_FORMAT_GUIDANCE}` }],
         }),
       });
       const body = await response.json().catch(() => ({}));
@@ -627,6 +646,7 @@ function inferIdentityFromContext(item, record, recommendations) {
   const directText = record.items?.length === 1 ? record.rawText : itemText;
   const referenceText = clean(record.referenceContext);
   const referencedRecommendation = recommendationReference(referenceText, recommendations);
+  const standardIdentity = standardIdentityLabel(`${referenceText} ${relatedContext}`, recommendations);
   if (referencedRecommendation) {
     const referencedCode = normalizeCode(referencedRecommendation.candidateCode);
     const referencedName = normalizeName(referencedRecommendation.candidateName);
@@ -651,7 +671,15 @@ function inferIdentityFromContext(item, record, recommendations) {
     return {
       ...item,
       jobTitle: item.jobTitle || structured.jobTitle,
-      organization: item.organization || structured.organization,
+      organization: item.organization || standardIdentity?.organization || structured.organization,
+    };
+  }
+  if (!hasItemIdentity && standardIdentity) {
+    return {
+      ...item,
+      candidateName: standardIdentity.candidateName,
+      jobTitle: item.jobTitle || structured.jobTitle,
+      organization: item.organization || standardIdentity.organization,
     };
   }
   if (structured.candidateCode || structured.candidateName) {

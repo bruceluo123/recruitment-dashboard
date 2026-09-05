@@ -10,12 +10,10 @@ if (-not (Test-Path -LiteralPath $auditScript)) {
 
 $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$auditScript`" -Days 7"
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory $projectRoot
-$triggers = @(
-  New-ScheduledTaskTrigger -Daily -At '09:10'
-  New-ScheduledTaskTrigger -Daily -At '12:10'
-  New-ScheduledTaskTrigger -Daily -At '15:10'
-  New-ScheduledTaskTrigger -Daily -At '18:10'
-)
+$triggers = 0..11 | ForEach-Object {
+  $runAt = (Get-Date).Date.AddMinutes(10).AddHours($_ * 2)
+  New-ScheduledTaskTrigger -Daily -At $runAt
+}
 $settingsParams = @{
   AllowStartIfOnBatteries = $true
   DontStopIfGoingOnBatteries = $true
@@ -30,7 +28,7 @@ $taskParams = @{
   Action = $action
   Trigger = $triggers
   Settings = $settings
-  Description = 'Penguin Island feedback OCR audit and follow-up inbox sync.'
+  Description = 'Penguin Island feedback OCR audit and chat sync every 2 hours.'
   Force = $true
 }
 Register-ScheduledTask @taskParams | Out-Null
