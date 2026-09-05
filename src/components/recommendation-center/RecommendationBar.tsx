@@ -145,7 +145,7 @@ export function RecommendationBar({ item, feedbackItem, onSchedule, onEdit, onRe
             className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${feedback.className}`}
             title={feedbackTitle}
           >
-            反馈 · {feedback.label}
+            {feedback.label}
           </span>
           {item.interviewRound && (
             <span className="px-1.5 py-0.5 rounded-md bg-green-50 text-green-600 text-[11px] font-medium shrink-0">{item.interviewRound}</span>
