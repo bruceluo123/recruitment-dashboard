@@ -484,6 +484,9 @@ export function RecommendationCenter() {
                             feedbackItem={feedbackByRecommendation.get(it.id)}
                             candidateGroupCount={index === 0 ? candidateGroup.items.length : undefined}
                             candidateGroupExpanded={expanded}
+                            candidateGroupFeedbackItems={index === 0
+                              ? candidateGroup.items.map((groupItem) => feedbackByRecommendation.get(groupItem.id))
+                              : undefined}
                             onToggleCandidateGroup={() => toggleCandidateGroup(groupKey)}
                             onSchedule={setScheduling}
                             onEdit={setEditing}

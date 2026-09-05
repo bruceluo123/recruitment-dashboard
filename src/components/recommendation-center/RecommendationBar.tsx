@@ -5,7 +5,15 @@ import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 import type { FeedbackCenterItem } from '@/types/feedback-center';
 
-function feedbackMeta(item?: FeedbackCenterItem): { label: '未反馈' | '未通过' | '通过'; className: string } {
+type FeedbackLabel = '未反馈' | '未通过' | '通过';
+
+const FEEDBACK_META: Record<FeedbackLabel, { label: FeedbackLabel; className: string }> = {
+  未反馈: { label: '未反馈', className: 'bg-amber-50 text-amber-700 ring-amber-200' },
+  未通过: { label: '未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' },
+  通过: { label: '通过', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+};
+
+function feedbackMeta(item?: FeedbackCenterItem): { label: FeedbackLabel; className: string } {
   const status = item?.confirmedStatus;
   if (
     status === 'interview_failed'
@@ -14,16 +22,16 @@ function feedbackMeta(item?: FeedbackCenterItem): { label: '未反馈' | '未通
     || item?.sourceStatus === 'interview_failed'
     || item?.sourceStatus === 'screening_failed'
   ) {
-    return { label: '未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
+    return FEEDBACK_META.未通过;
   }
   if (
     status === 'interview_passed'
     || status === 'interview_pending'
     || item?.sourceStatus === 'scheduled'
   ) {
-    return { label: '通过', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
+    return FEEDBACK_META.通过;
   }
-  return { label: '未反馈', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
+  return FEEDBACK_META.未反馈;
 }
 
 interface RecommendationBarProps {
@@ -31,6 +39,7 @@ interface RecommendationBarProps {
   feedbackItem?: FeedbackCenterItem;
   candidateGroupCount?: number;
   candidateGroupExpanded?: boolean;
+  candidateGroupFeedbackItems?: (FeedbackCenterItem | undefined)[];
   onToggleCandidateGroup?: () => void;
   onSchedule: (item: RepushItem) => void;
   onEdit: (item: RepushItem) => void;
@@ -42,7 +51,7 @@ interface RecommendationBarProps {
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, feedbackItem, candidateGroupCount, candidateGroupExpanded, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, feedbackItem, candidateGroupCount, candidateGroupExpanded, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -53,6 +62,11 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
   const feedback = feedbackMeta(feedbackItem);
+  const groupFeedbackCounts = candidateGroupFeedbackItems?.reduce<Record<FeedbackLabel, number>>((counts, groupFeedbackItem) => {
+    counts[feedbackMeta(groupFeedbackItem).label] += 1;
+    return counts;
+  }, { 未反馈: 0, 未通过: 0, 通过: 0 });
+  const showGroupFeedbackSummary = Boolean(candidateGroupCount && candidateGroupCount > 1 && !candidateGroupExpanded && groupFeedbackCounts);
   const feedbackTitle = feedbackItem?.sourceSummary
     || feedbackItem?.auditConclusion
     || '反馈中心暂未识别到这条推荐的明确反馈';
@@ -159,12 +173,24 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
             <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium shrink-0">{item.candidateCode}</span>
           )}
           <span className="text-sm font-semibold text-gray-800 truncate">{base}</span>
-          <span
-            className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${feedback.className}`}
-            title={feedbackTitle}
-          >
-            {feedback.label}
-          </span>
+          {showGroupFeedbackSummary && groupFeedbackCounts ? (
+            (['通过', '未通过', '未反馈'] as const).map((label) => groupFeedbackCounts[label] > 0 && (
+              <span
+                key={label}
+                className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${FEEDBACK_META[label].className}`}
+                title={`${groupFeedbackCounts[label]} 个岗位${label}`}
+              >
+                {groupFeedbackCounts[label]}{label}
+              </span>
+            ))
+          ) : (
+            <span
+              className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${feedback.className}`}
+              title={feedbackTitle}
+            >
+              {feedback.label}
+            </span>
+          )}
           {item.interviewRound && (
             <span className="px-1.5 py-0.5 rounded-md bg-green-50 text-green-600 text-[11px] font-medium shrink-0">{item.interviewRound}</span>
           )}
