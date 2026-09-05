@@ -2,7 +2,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronRight, ChevronUp, Repeat, FileText, X, BriefcaseBusiness, Loader2 } from 'lucide-react';
 import type { RepushItem } from '@/store/repush-store';
-import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
+import { displayName, formatOrgDept } from '@/lib/repush-format';
 import type { FeedbackCenterItem } from '@/types/feedback-center';
 
 type FeedbackLabel = '未反馈' | '未通过' | '通过';
@@ -39,6 +39,7 @@ interface RecommendationBarProps {
   feedbackItem?: FeedbackCenterItem;
   candidateGroupCount?: number;
   candidateGroupExpanded?: boolean;
+  candidateGroupItems?: RepushItem[];
   candidateGroupFeedbackItems?: (FeedbackCenterItem | undefined)[];
   onToggleCandidateGroup?: () => void;
   onSchedule: (item: RepushItem) => void;
@@ -51,7 +52,7 @@ interface RecommendationBarProps {
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, feedbackItem, candidateGroupCount, candidateGroupExpanded, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, feedbackItem, candidateGroupCount, candidateGroupExpanded, candidateGroupItems, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -61,12 +62,24 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
   const [contactHint, setContactHint] = useState('');
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
+  const isCollapsedCandidateGroup = Boolean(candidateGroupCount && candidateGroupCount > 1 && !candidateGroupExpanded);
+  const candidateTitle = isCollapsedCandidateGroup ? (item.candidateName?.trim() || base) : base;
+  const representativeJob = item.jdTitle?.trim() || item.department?.trim() || item.organization?.trim();
+  const groupDepartments = isCollapsedCandidateGroup
+    ? Array.from(new Set((candidateGroupItems || []).map((groupItem) => groupItem.department || groupItem.organization).filter(Boolean)))
+    : [];
+  const groupDepartmentSummary = groupDepartments.length > 2
+    ? `${groupDepartments.slice(0, 2).join('、')}等${groupDepartments.length}个部门`
+    : groupDepartments.join('、');
+  const groupHandlers = isCollapsedCandidateGroup
+    ? Array.from(new Set((candidateGroupItems || []).map((groupItem) => groupItem.contactPerson?.trim()).filter(Boolean)))
+    : [];
   const feedback = feedbackMeta(feedbackItem);
   const groupFeedbackCounts = candidateGroupFeedbackItems?.reduce<Record<FeedbackLabel, number>>((counts, groupFeedbackItem) => {
     counts[feedbackMeta(groupFeedbackItem).label] += 1;
     return counts;
   }, { 未反馈: 0, 未通过: 0, 通过: 0 });
-  const showGroupFeedbackSummary = Boolean(candidateGroupCount && candidateGroupCount > 1 && !candidateGroupExpanded && groupFeedbackCounts);
+  const showGroupFeedbackSummary = Boolean(isCollapsedCandidateGroup && groupFeedbackCounts);
   const feedbackTitle = feedbackItem?.sourceSummary
     || feedbackItem?.auditConclusion
     || '反馈中心暂未识别到这条推荐的明确反馈';
@@ -150,7 +163,7 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
 
   return (
     <div className="group rounded-lg border border-slate-200/80 bg-white hover:border-blue-200 hover:shadow-[0_5px_16px_rgba(15,23,42,0.06)] transition-all">
-      <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:gap-4">
+      <div className="flex flex-col gap-2 px-4 py-2.5 lg:flex-row lg:items-center lg:gap-3">
       {/* 主信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -172,7 +185,15 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
           {item.candidateCode && (
             <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium shrink-0">{item.candidateCode}</span>
           )}
-          <span className="text-sm font-semibold text-gray-800 truncate">{base}</span>
+          <span
+            className="max-w-[min(460px,45vw)] truncate text-sm font-semibold text-gray-800"
+            title={isCollapsedCandidateGroup && representativeJob ? `${candidateTitle} · ${representativeJob}` : candidateTitle}
+          >
+            {candidateTitle}
+            {isCollapsedCandidateGroup && representativeJob && (
+              <span className="font-medium text-slate-500"> · {representativeJob}</span>
+            )}
+          </span>
           {showGroupFeedbackSummary && groupFeedbackCounts ? (
             (['通过', '未通过', '未反馈'] as const).map((label) => groupFeedbackCounts[label] > 0 && (
               <span
@@ -180,7 +201,7 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
                 className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${FEEDBACK_META[label].className}`}
                 title={`${groupFeedbackCounts[label]} 个岗位${label}`}
               >
-                {groupFeedbackCounts[label]}{label}
+                {label} {groupFeedbackCounts[label]}
               </span>
             ))
           ) : (
@@ -191,17 +212,28 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
               {feedback.label}
             </span>
           )}
-          {item.interviewRound && (
+          {!isCollapsedCandidateGroup && item.interviewRound && (
             <span className="px-1.5 py-0.5 rounded-md bg-green-50 text-green-600 text-[11px] font-medium shrink-0">{item.interviewRound}</span>
           )}
-          {interviewFailed && (
+          {!isCollapsedCandidateGroup && interviewFailed && (
             <span className="px-1.5 py-0.5 rounded-md bg-red-50 text-red-500 text-[11px] font-medium shrink-0">未通过</span>
           )}
         </div>
-        <div className="mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-xs text-gray-400">
-          {orgDept && <span className="text-indigo-500">{orgDept}</span>}
-          {item.contactPerson && <span className="flex items-center gap-0.5"><UserCog className="w-3 h-3" />对接 {item.contactPerson}</span>}
-          <span className="text-gray-400">{formatRecommendTime(item.uploadedAt)}</span>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400">
+          {isCollapsedCandidateGroup ? (
+            groupDepartmentSummary && <span className="text-indigo-500">涉及 {groupDepartmentSummary}</span>
+          ) : (
+            orgDept && <span className="text-indigo-500">{orgDept}</span>
+          )}
+          {isCollapsedCandidateGroup ? (
+            groupHandlers.length > 0 && (
+              <span className="flex items-center gap-0.5">
+                <UserCog className="h-3 w-3" />{groupHandlers.length === 1 ? `对接 ${groupHandlers[0]}` : `${groupHandlers.length}位对接人`}
+              </span>
+            )
+          ) : (
+            item.contactPerson && <span className="flex items-center gap-0.5"><UserCog className="h-3 w-3" />对接 {item.contactPerson}</span>
+          )}
         </div>
       </div>
 
@@ -284,7 +316,7 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
             {showHighlights ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         )}
-        {interviewFailed ? (
+        {!isCollapsedCandidateGroup && (interviewFailed ? (
           <span className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-red-200 bg-red-50 text-red-500" title="面试未通过">
             <CircleX className="w-3.5 h-3.5" />未通过
           </span>
@@ -306,31 +338,31 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
             <CalendarPlus className="w-3.5 h-3.5" />
             面试
           </button>
-        )}
-        <button
+        ))}
+        {!isCollapsedCandidateGroup && <button
           onClick={() => onOffer(item)}
           className={`flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border transition-colors ${offerRecorded ? 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100'}`}
           title={offerRecorded ? '查看或修改 Offer 信息' : '记录 Offer 信息'}
         >
           <BriefcaseBusiness className="w-3.5 h-3.5" />
           {offerRecorded ? '已Offer' : 'Offer'}
-        </button>
-        <button
+        </button>}
+        {!isCollapsedCandidateGroup && <button
           onClick={() => onRepush(item)}
           className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-violet-200 bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors"
           title="复推到其他岗位（新建一条推荐）"
         >
           <Repeat className="w-3.5 h-3.5" />
           复推
-        </button>
-        <button
+        </button>}
+        {!isCollapsedCandidateGroup && <button
           onClick={() => onEdit(item)}
           className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"
           title="编辑"
         >
           <Pencil className="w-4 h-4" />
-        </button>
-        {confirming ? (
+        </button>}
+        {!isCollapsedCandidateGroup && (confirming ? (
           <div className="flex items-center gap-1">
             <button onClick={() => { onRemove(item.id); setConfirming(false); }} className="px-2 h-8 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600">确认删除</button>
             <button onClick={() => setConfirming(false)} className="px-2 h-8 rounded-lg text-xs text-gray-500 hover:bg-gray-100">取消</button>
@@ -343,7 +375,7 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
           >
             <Trash2 className="w-4 h-4" />
           </button>
-        )}
+        ))}
       </div>
       </div>
 

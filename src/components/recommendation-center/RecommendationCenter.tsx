@@ -470,13 +470,16 @@ export function RecommendationCenter() {
                   <span className="text-xs text-gray-300">{g.candidateGroups.length} 人</span>
                   <div className="flex-1 h-px bg-gray-100" />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {g.candidateGroups.map((candidateGroup) => {
                     const groupKey = `${g.key}:${candidateGroup.key}`;
                     const expanded = expandedCandidateGroups.has(groupKey);
                     const visibleItems = expanded ? candidateGroup.items : candidateGroup.items.slice(0, 1);
                     return (
-                      <div key={groupKey} className="space-y-2">
+                      <div
+                        key={groupKey}
+                        className={cn('space-y-1.5 transition-all', expanded && candidateGroup.items.length > 1 && 'border-l-2 border-indigo-100 pl-2')}
+                      >
                         {visibleItems.map((it, index) => (
                           <RecommendationBar
                             key={it.id}
@@ -484,6 +487,7 @@ export function RecommendationCenter() {
                             feedbackItem={feedbackByRecommendation.get(it.id)}
                             candidateGroupCount={index === 0 ? candidateGroup.items.length : undefined}
                             candidateGroupExpanded={expanded}
+                            candidateGroupItems={index === 0 ? candidateGroup.items : undefined}
                             candidateGroupFeedbackItems={index === 0
                               ? candidateGroup.items.map((groupItem) => feedbackByRecommendation.get(groupItem.id))
                               : undefined}
