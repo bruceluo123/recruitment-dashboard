@@ -410,29 +410,106 @@ export function parseSalary(s: string): { min: number; max: number; currency: st
   if (!s) return { min: 0, max: 0, currency: 'K' };
   try {
     const cleaned = String(s).replace(/[,，\s]/g, '');
-    // Try various formats: "15K-25K", "15k-25k", "15000-25000", "1.5万-2.5万"
-    let match = cleaned.match(/(\d+\.?\d*)\s*[-~至到]\s*(\d+\.?\d*)\s*([kKw万])?/i);
+    const unitPattern = '(k|w|万|千|u|usdt|usd)?';
+    const unitFactor = (unit: string | undefined, value: number) => {
+      if (unit === '万' || unit?.toLowerCase() === 'w') return 10;
+      if (!unit && value > 100) return 0.001;
+      return 1;
+    };
+
+    // Try various formats: "15K-25K", "15-25K", "15000-25000", "1.5万-2.5万", "3000U-5000U"
+    let match = cleaned.match(new RegExp(`^(\\d+\\.?\\d*)${unitPattern}[-~至到](\\d+\\.?\\d*)${unitPattern}(?:\\/月|每月)?$`, 'i'));
     if (match) {
-      let mult = 1;
-      if (match[3]?.toLowerCase() === '万') mult = 10;
-      else if (match[3]?.toLowerCase() === 'k') mult = 1;
-      // If no K/W suffix and values > 100, treat as raw numbers (e.g. "15000")
-      else if (!match[3] && parseInt(match[1]) > 100) mult = 0.001; // convert to K
-      const min = Math.min(parseFloat(match[1]) * mult, 999);
-      const max = Math.min(parseFloat(match[2]) * mult, 999);
-      return { min: Math.max(0, Math.round(min)), max: Math.max(Math.round(min), Math.round(max)), currency: 'K' };
+      const rawMin = parseFloat(match[1]);
+      const rawMax = parseFloat(match[3]);
+      const minUnit = match[2] || match[4];
+      const maxUnit = match[4] || match[2];
+      const isUsd = [minUnit, maxUnit].some((unit) => /^(u|usdt|usd)$/i.test(unit || ''));
+      const min = isUsd ? rawMin : rawMin * unitFactor(minUnit, rawMin);
+      const max = isUsd ? rawMax : rawMax * unitFactor(maxUnit, rawMax);
+      const lower = Math.max(0, Math.round(Math.min(min, max)));
+      const upper = Math.max(lower, Math.round(Math.max(min, max)));
+      return { min: lower, max: upper, currency: isUsd ? 'U' : 'K' };
     }
-    // Single number: "15K" or "15000"
-    match = cleaned.match(/^(\d+\.?\d*)\s*([kKw万])?$/i);
+    // Single number: "15K", "2万", "15000" or "3000U"
+    match = cleaned.match(/^(\d+\.?\d*)(k|w|万|千|u|usdt|usd)?(?:\/月|每月)?$/i);
     if (match) {
-      let mult = 1;
-      if (match[2]?.toLowerCase() === '万') mult = 10;
-      else if (!match[2] && parseInt(match[1]) > 100) mult = 0.001;
-      const val = Math.round(parseFloat(match[1]) * mult);
-      return { min: val, max: val, currency: 'K' };
+      const rawValue = parseFloat(match[1]);
+      const unit = match[2];
+      const isUsd = /^(u|usdt|usd)$/i.test(unit || '');
+      const value = isUsd ? rawValue : rawValue * unitFactor(unit, rawValue);
+      const normalized = Math.max(0, Math.round(value));
+      return { min: normalized, max: normalized, currency: isUsd ? 'U' : 'K' };
     }
   } catch { /* */ }
   return { min: 0, max: 0, currency: 'K' };
+}
+
+const PRIORITY_AS_SALARY_RE = /^P\s*[0-3](?:\s*[^0-9]{0,20})?$/i;
+
+/** Keep genuine salary text while rejecting values shifted from another source column. */
+export function sanitizeJDSalaryText(value?: string | null): string | undefined {
+  const raw = String(value || '').trim();
+  if (!raw || PRIORITY_AS_SALARY_RE.test(raw)) return undefined;
+  if (/^(面议|open|negotiable)$/i.test(raw)) return raw;
+
+  const compact = raw.replace(/[,，\s]/g, '');
+  const hasRange = /\d+(?:\.\d+)?[-~至到]\d+(?:\.\d+)?/.test(compact);
+  const hasSalaryUnit = /(k|w|万|千|u|usdt|usd|rmb|cny|人民币|元|¥|￥|gbp|eur|月薪|年薪|薪资)/i.test(raw);
+  const numeric = Number(compact);
+  if (!hasRange && !hasSalaryUnit && !(Number.isFinite(numeric) && numeric >= 1000)) return undefined;
+  return raw;
+}
+
+export function normalizeJDSalary(value?: string | null): {
+  salaryRange: { min: number; max: number; currency: string };
+  salaryText?: string;
+} {
+  const salaryText = sanitizeJDSalaryText(value);
+  if (!salaryText) return { salaryRange: { min: 0, max: 0, currency: 'K' } };
+  if (/^(面议|open|negotiable)$/i.test(salaryText)) {
+    return { salaryRange: { min: 0, max: 0, currency: 'K' }, salaryText };
+  }
+
+  const salaryRange = parseSalary(salaryText);
+  const compact = salaryText.replace(/[,，\s]/g, '');
+  const isSimpleSalary = /^\d+(?:\.\d+)?(?:[-~至到]\d+(?:\.\d+)?)?(?:k|w|万|千|u)?$/i.test(compact);
+  return { salaryRange, salaryText: isSimpleSalary ? undefined : salaryText };
+}
+
+function isCompactSalaryCandidate(value: string): boolean {
+  const raw = value.trim();
+  if (!raw || raw.length > 80 || /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(raw)) return false;
+
+  const salaryText = sanitizeJDSalaryText(raw);
+  if (!salaryText) return false;
+  if (/^(面议|open|negotiable)$/i.test(salaryText)) return true;
+
+  const compact = salaryText.replace(/[,，\s]/g, '');
+  const unit = '(?:k|w|万|千|u|usdt|usd|rmb|cny|人民币|元|¥|￥|gbp|eur)';
+  const rangeMatch = compact.match(
+    new RegExp(`^(\\d+(?:\\.\\d+)?)(${unit})?[-~至到](\\d+(?:\\.\\d+)?)(${unit})?(?:\\/月|每月)?$`, 'i'),
+  );
+  if (rangeMatch) {
+    const [, min, minUnit, max, maxUnit] = rangeMatch;
+    return Boolean(minUnit || maxUnit) || (Number(min) >= 1000 && Number(max) >= 1000);
+  }
+
+  if (new RegExp(`^\\d+(?:\\.\\d+)?${unit}(?:\\/月|每月)?$`, 'i').test(compact)) return true;
+  return Number(compact) >= 1000;
+}
+
+export function resolveJDSalaryFromRow(
+  row: Record<string, unknown>,
+  preferredValue?: string | null,
+): ReturnType<typeof normalizeJDSalary> {
+  const preferred = sanitizeJDSalaryText(preferredValue);
+  if (preferred) return normalizeJDSalary(preferred);
+
+  const fallback = Object.values(row)
+    .map((value) => String(value ?? '').trim())
+    .find(isCompactSalaryCandidate);
+  return normalizeJDSalary(fallback);
 }
 
 // ─── Dedup identity key ───
@@ -614,8 +691,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
   }
   const split = splitJDBySection(allText.join('\n'));
 
-  const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
-  const hasExtra = !!rawSalary && !isNegotiable && !/^[\d.]+[-~至到][\d.]+[kKw万Uu]?$/i.test(rawSalary.replace(/[,，\s]/g, ''));
+  const normalizedSalary = resolveJDSalaryFromRow(row, rawSalary);
 
   const now = new Date().toISOString();
   return {
@@ -635,8 +711,8 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     categories: classifyJD(title, split.responsibilities, split.requirements),
     responsibilities: stripContactMeta(split.responsibilities),
     requirements: stripContactMeta(split.requirements),
-    salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
-    salaryText: (isNegotiable || hasExtra) ? rawSalary : undefined,
+    salaryRange: normalizedSalary.salaryRange,
+    salaryText: normalizedSalary.salaryText,
     location: location || 'remote',
     status: 'active',
     createdAt: now,

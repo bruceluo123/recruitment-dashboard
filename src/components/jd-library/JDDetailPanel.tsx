@@ -10,7 +10,7 @@ import { useCompanyStore } from '@/store/company-store';
 import { hasResearch } from '@/types/company';
 import { TalentQueryDialog } from '@/components/talent-pool/TalentQueryDialog';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
-import { normalizeJDCount } from '@/lib/jd-parse-core';
+import { normalizeJDCount, normalizeJDSalary, sanitizeJDSalaryText } from '@/lib/jd-parse-core';
 
 interface JDDetailPanelProps { jd: JD | null; isOpen: boolean; onClose: () => void; }
 
@@ -65,7 +65,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       title: jd.title,
       department: jd.department,
       location: jd.location || 'remote',
-      salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min}K-${jd.salaryRange.max}K` : ''),
+      salary: sanitizeJDSalaryText(jd.salaryText) || (jd.salaryRange.min ? `${jd.salaryRange.min}K-${jd.salaryRange.max}K` : ''),
       categories: jd.categories.length > 0 ? jd.categories : ['operations'], status: jd.status,
       responsibilities: jd.responsibilities.join('；'),
       requirements: jd.requirements.join('；'),
@@ -78,25 +78,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   const saveEdit = () => {
     if (!form.title.trim()) return;
     const salaryText = form.salary.trim();
-    // Try to parse structured range (15K-25K, 3000-5000U, 15-20k etc.)
-    const cleaned = salaryText.replace(/[,\s，]/g, '');
-    const rangeMatch = cleaned.match(/^(\d+\.?\d*)[-~至到](\d+\.?\d*)([a-zA-Z\u4e00-\u9fa5]*)$/);
-    let salaryRange = jd.salaryRange;
-    if (rangeMatch) {
-      const unit = rangeMatch[3].toUpperCase() || 'K';
-      if (unit === 'U' || unit === 'USD') {
-        salaryRange = { min: parseFloat(rangeMatch[1]), max: parseFloat(rangeMatch[2]), currency: 'U' };
-      } else {
-        // If raw numbers > 100, treat as actual salary (e.g. 3000-5000)
-        const rawMin = parseFloat(rangeMatch[1]);
-        const rawMax = parseFloat(rangeMatch[2]);
-        if (!rangeMatch[3] && rawMin > 100) {
-          salaryRange = { min: Math.round(rawMin / 1000), max: Math.round(rawMax / 1000), currency: 'K' };
-        } else {
-          salaryRange = { min: Math.round(rawMin), max: Math.round(rawMax), currency: 'K' };
-        }
-      }
-    }
+    const normalizedSalary = normalizeJDSalary(salaryText);
     updateJD(jd.id, {
       title: form.title.trim(),
       department: form.department.trim(),
@@ -104,8 +86,8 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
       categories: form.categories.length > 0 ? form.categories : ['operations'],
       responsibilities: form.responsibilities.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
       requirements: form.requirements.split(/[；;。\n\r]+/).map((s) => s.trim()).filter(Boolean),
-      salaryRange,
-      salaryText: salaryText || undefined,
+      salaryRange: normalizedSalary.salaryRange,
+      salaryText: normalizedSalary.salaryText,
       status: form.status,
       headcount: normalizeJDCount(form.headcount) || undefined,
       gap: normalizeJDCount(form.gap) || undefined,
@@ -114,7 +96,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
   };
 
   const handleCopy = async () => {
-    const salaryStr = jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '');
+    const salaryStr = sanitizeJDSalaryText(jd.salaryText) || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '');
     const sections = [
       jd.responsibilities.length
         ? `岗位职责：\n${jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n')}`
@@ -137,7 +119,7 @@ export function JDDetailPanel({ jd, isOpen, onClose }: JDDetailPanelProps) {
 
 岗位：${jd.title}
 部门：${jd.department || '不限'}
-薪资：${jd.salaryText || formatSalary(jd.salaryRange)}
+薪资：${sanitizeJDSalaryText(jd.salaryText) || formatSalary(jd.salaryRange)}
 ${jd.responsibilities.length ? '职责：\n' + jd.responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}
 ${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 1}. ${r}`).join('\n') : ''}
 
@@ -163,7 +145,7 @@ ${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 
   };
 
   const handleDownloadWord = () => {
-    const salaryStr = jd.salaryText || formatSalary(jd.salaryRange);
+    const salaryStr = sanitizeJDSalaryText(jd.salaryText) || formatSalary(jd.salaryRange);
     const content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${jd.title}</title></head><body><h1>${jd.title}</h1><p><strong>部门：</strong>${jd.department} &nbsp; <strong>地点：</strong>${jd.location || '不限'} &nbsp; <strong>薪资：</strong>${salaryStr}</p><h2>岗位职责</h2><ol>${jd.responsibilities.map((r) => `<li>${r}</li>`).join('')}</ol><h2>岗位要求</h2><ol>${jd.requirements.map((r) => `<li>${r}</li>`).join('')}</ol></body></html>`;
     const blob = new Blob([content], { type: 'application/msword' });
     const a = document.createElement('a');
@@ -276,7 +258,7 @@ ${jd.requirements.length ? '要求：\n' + jd.requirements.map((r, i) => `${i + 
               <>
                 <InfoTile icon={Briefcase} label="服务单位" value={jd.serviceUnit || jd.department || '-'} />
                 <InfoTile icon={MapPin} label="地点" value={jd.location || 'remote'} />
-                <InfoTile icon={AlertCircle} label="薪资" value={jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')} />
+                <InfoTile icon={AlertCircle} label="薪资" value={sanitizeJDSalaryText(jd.salaryText) || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')} />
               </>
             )}
             <InfoTile icon={Clock} label="更新" value={formatDate(jd.updatedAt)} />

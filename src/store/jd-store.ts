@@ -21,8 +21,9 @@ import {
   normalizeJDCount,
   normalizeJDSections,
   normalizeExcelRows,
-  parseSalary,
+  resolveJDSalaryFromRow,
   rowToColumnJD,
+  sanitizeJDSalaryText,
   splitOrgDept,
   stripContactMeta,
 } from '@/lib/jd-parse-core';
@@ -296,13 +297,12 @@ export const useJDStore = create<JDStore>()(
                 const title = rawTitleCell || (ai.title || '').trim();
                 if (!title) { result.failed++; result.errors.push(`第${j + 1}行: 缺少岗位名称`); continue; }
                 const department = (deptCol ? String(row[deptCol] || '').trim() : '') || orgSplit.dept || serviceUnit || ai.department || organization;
-                const rawSalary = salaryCol ? String(row[salaryCol] || '').trim() : ai.salary || '';
+                const rawSalary = (salaryCol ? String(row[salaryCol] || '').trim() : '') || ai.salary || '';
                 const location = ai.location || (locCol ? String(row[locCol] || '').trim() : 'remote');
                 const responsibilities = Array.isArray(ai.responsibilities) ? ai.responsibilities : [];
                 const requirements = Array.isArray(ai.requirements) ? ai.requirements : [];
 
-                const isNegotiable = /面议|open|negotiable/i.test(rawSalary);
-                const hasExtra = rawSalary && !isNegotiable && !/^[\d.]+[-~至到][\d.]+[kKw万Uu]?$/i.test(rawSalary.replace(/[,，\s]/g, ''));
+                const normalizedSalary = resolveJDSalaryFromRow(row, rawSalary);
 
                 batch.push({
                   id: generateId(),
@@ -321,8 +321,8 @@ export const useJDStore = create<JDStore>()(
                   categories: classifyJD(title, responsibilities, requirements),
                   responsibilities: stripContactMeta(responsibilities),
                   requirements: stripContactMeta(requirements),
-                  salaryRange: isNegotiable ? { min: 0, max: 0, currency: 'K' } : parseSalary(rawSalary),
-                  salaryText: (isNegotiable || hasExtra) ? rawSalary : undefined,
+                  salaryRange: normalizedSalary.salaryRange,
+                  salaryText: normalizedSalary.salaryText,
                   location: location || 'remote',
                   status: 'active',
                   createdAt: new Date().toISOString(),
@@ -554,7 +554,7 @@ function jdToExportRow(jd: JD): Record<string, string> {
     serviceUnit: jd.serviceUnit || jd.department || '',
     odc: jd.odc || '',
     requester: jd.requester || '',
-    salary: jd.salaryText || (jd.salaryRange.min ? `${jd.salaryRange.min} - ${jd.salaryRange.max}${jd.salaryRange.currency}` : ''),
+    salary: sanitizeJDSalaryText(jd.salaryText) || (jd.salaryRange.min ? `${jd.salaryRange.min} - ${jd.salaryRange.max}${jd.salaryRange.currency}` : ''),
     status: JD_STATUS_LABELS[jd.status],
     location: jd.location || 'remote',
     department: jd.department || '',

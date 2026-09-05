@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { JD } from '@/types/jd';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS } from '@/types/jd';
 import { formatSalary } from '@/lib/utils';
+import { sanitizeJDSalaryText } from '@/lib/jd-parse-core';
 import { Check, Copy, X } from 'lucide-react';
 
 // JD 详情预览卡（左侧滑出）。原本在 ImportDiffDialog 与 WeeklyAddedDialog 中各复制一份，
@@ -11,9 +12,10 @@ interface JdPreviewCardProps { jd: JD; onClose: () => void; }
 
 export function JdPreviewCard({ jd, onClose }: JdPreviewCardProps) {
   const [copied, setCopied] = useState(false);
+  const salaryText = sanitizeJDSalaryText(jd.salaryText);
 
   const handleCopy = async () => {
-    const salary = jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '');
+    const salary = salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '');
     const sections = [
       jd.responsibilities.length
         ? `岗位职责：\n${jd.responsibilities.map((item, index) => `${index + 1}. ${item}`).join('\n')}`
@@ -61,9 +63,9 @@ export function JdPreviewCard({ jd, onClose }: JdPreviewCardProps) {
           {(jd.serviceUnit || jd.department) && <span>📍 {jd.serviceUnit || jd.department}</span>}
           {jd.headcount && <span>HC: <span className="font-medium text-gray-700">{jd.headcount}</span></span>}
           {jd.gap && jd.gap !== '0' && <span className="text-red-500 font-medium">缺口: {jd.gap}</span>}
-          {(jd.salaryText || (jd.salaryRange.min > 0)) && (
+          {(salaryText || (jd.salaryRange.min > 0)) && (
             <span className="text-green-600 font-medium">
-              {jd.salaryText || `${jd.salaryRange.min}K-${jd.salaryRange.max}K`}
+              {salaryText || `${jd.salaryRange.min}K-${jd.salaryRange.max}K`}
             </span>
           )}
         </div>

@@ -5,7 +5,7 @@ import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, type JD } from '@/types/jd';
 import { ChevronRight, Trash2, Copy, Check, Filter } from 'lucide-react';
 import { ColumnFilter } from '@/components/ui/ColumnFilter';
 import { groupPriorityLabel } from '@/lib/group-priority';
-import { normalizeJDCount } from '@/lib/jd-parse-core';
+import { normalizeJDCount, sanitizeJDSalaryText } from '@/lib/jd-parse-core';
 
 interface JDTableProps {
   jds: JD[];
@@ -200,7 +200,9 @@ function JDTableImpl({
                 );
               })()}
               <td className={cn('py-3 px-4', !batchMode && 'cursor-pointer')} onClick={() => batchMode ? onToggleSelect?.(jd.id) : onSelect(jd.id)}>
-                <span className="text-sm text-green-600 font-medium whitespace-nowrap">{jd.salaryText || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')}</span>
+                <span className="text-sm text-green-600 font-medium whitespace-nowrap">
+                  {sanitizeJDSalaryText(jd.salaryText) || (jd.salaryRange.min ? formatSalary(jd.salaryRange) : '-')}
+                </span>
               </td>
               <td className="py-3 px-4">
                 <div className="flex items-center gap-1">
