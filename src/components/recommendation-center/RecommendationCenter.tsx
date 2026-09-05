@@ -21,6 +21,17 @@ import { getOfferGrade } from '@/lib/offer-compensation';
 import { exportDailyReportExcel } from '@/lib/daily-report-excel';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
+import type { FeedbackCenterItem } from '@/types/feedback-center';
+
+function normalizeFeedbackKey(value?: string): string {
+  return String(value || '').trim().toLowerCase().replace(/[\s/·・()（）\-_—–]+/g, '');
+}
+
+function feedbackTargetKey(item: Pick<RepushItem, 'candidateCode' | 'jdTitle' | 'organization' | 'department'>): string {
+  const code = String(item.candidateCode || '').trim().toUpperCase();
+  if (!code || !item.jdTitle || (!item.organization && !item.department)) return '';
+  return [code, item.jdTitle, item.organization, item.department].map(normalizeFeedbackKey).join('|');
+}
 
 /** 把推荐记录按「天」分组，组与组按时间由近到远排序 */
 function groupByDay(items: RepushItem[]): { key: number; label: string; items: RepushItem[] }[] {
@@ -67,6 +78,7 @@ export function RecommendationCenter() {
   const [reporting, setReporting] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
+  const [feedbackItems, setFeedbackItems] = useState<FeedbackCenterItem[]>([]);
   const [contactRefreshTick, setContactRefreshTick] = useState(0);
   const attemptedContactLookups = useRef(new Set<string>());
   const contactRefreshGeneration = useRef(-1);
@@ -83,6 +95,60 @@ export function RecommendationCenter() {
   }, [jds]);
 
   useEffect(() => setMounted(true), []);
+
+  // 推荐中心只读取反馈中心已经生成的 7 天摘要，不触发 OCR 重算。
+  // 每次切换推荐人只发一个请求，接口本身继续执行麦满分/啵啵隔离。
+  useEffect(() => {
+    if (!mounted) return;
+    const controller = new AbortController();
+    setFeedbackItems([]);
+    void fetch(`/api/feedback-center?owner=${view}&days=7`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('反馈摘要读取失败');
+        return response.json();
+      })
+      .then((data) => {
+        if (!controller.signal.aborted) setFeedbackItems(Array.isArray(data.items) ? data.items : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFeedbackItems([]);
+      });
+    return () => controller.abort();
+  }, [mounted, view]);
+
+  const feedbackByRecommendation = useMemo(() => {
+    const result = new Map<string, FeedbackCenterItem>();
+    const fallback = new Map<string, FeedbackCenterItem[]>();
+
+    for (const feedback of feedbackItems) {
+      if (feedback.owner !== view) continue;
+      const recommendationId = String(feedback.recommendationId || feedback.id || '').trim();
+      if (recommendationId) result.set(recommendationId, feedback);
+
+      const key = feedbackTargetKey({
+        candidateCode: feedback.candidateCode,
+        jdTitle: feedback.jobTitle,
+        organization: feedback.organization,
+        department: feedback.department,
+      });
+      if (!key) continue;
+      const matches = fallback.get(key) || [];
+      matches.push(feedback);
+      fallback.set(key, matches);
+    }
+
+    for (const item of items) {
+      if (item.column !== view || result.has(item.id)) continue;
+      const key = feedbackTargetKey(item);
+      const matches = key ? fallback.get(key) : undefined;
+      // 只有候选人编码、岗位、编制和部门唯一一致时才允许兼容旧记录，避免跨岗位串反馈。
+      if (matches?.length === 1) result.set(item.id, matches[0]);
+    }
+    return result;
+  }, [feedbackItems, items, view]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setContactRefreshTick((value) => value + 1), 60_000);
@@ -378,6 +444,7 @@ export function RecommendationCenter() {
                     <RecommendationBar
                       key={it.id}
                       item={it}
+                      feedbackItem={feedbackByRecommendation.get(it.id)}
                       onSchedule={setScheduling}
                       onEdit={setEditing}
                       onRepush={setRepushing}
