@@ -304,24 +304,26 @@ export function RecommendationCenter() {
   };
 
   // 复推：基于原记录新建一条独立推荐（换岗位/编制/部门），原记录保持不变
-  const confirmRepush = (args: RepushArgs) => {
-    if (!repushing) return;
-    addRecommendation({
-      column: repushing.column,
-      candidateCode: repushing.candidateCode,
-      candidateName: repushing.candidateName || displayName(repushing),
-      jdTitle: args.jdTitle || undefined,
-      contact: repushing.contact,
-      contactPerson: args.contactPerson || undefined,
-      rawText: args.recommendationText,
-      organization: args.organization || undefined,
-      department: args.department || undefined,
-      highlights: repushing.highlights,
-      resumeUrl: repushing.resumeUrl,
-      resumeFileName: repushing.resumeFileName,
-      source: 'repush',
-      repushSourceId: repushing.id,
-    });
+  const confirmRepush = (selections: RepushArgs[]) => {
+    if (!repushing || selections.length === 0) return;
+    for (const args of selections) {
+      addRecommendation({
+        column: repushing.column,
+        candidateCode: repushing.candidateCode,
+        candidateName: repushing.candidateName || displayName(repushing),
+        jdTitle: args.jdTitle || undefined,
+        contact: repushing.contact,
+        contactPerson: args.contactPerson || undefined,
+        rawText: args.recommendationText,
+        organization: args.organization || undefined,
+        department: args.department || undefined,
+        highlights: repushing.highlights,
+        resumeUrl: repushing.resumeUrl,
+        resumeFileName: repushing.resumeFileName,
+        source: 'repush',
+        repushSourceId: repushing.id,
+      });
+    }
     setRepushing(null);
   };
 

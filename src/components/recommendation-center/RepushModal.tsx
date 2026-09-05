@@ -33,7 +33,7 @@ interface RepushModalProps {
   excludeRecommended?: boolean;
   resultLimit?: number;
   onClose: () => void;
-  onConfirm: (args: RepushArgs) => void;
+  onConfirm: (args: RepushArgs[]) => void;
 }
 
 function clean(value?: string): string {
@@ -114,7 +114,8 @@ export function RepushModal({
   onConfirm,
 }: RepushModalProps) {
   const [query, setQuery] = useState('');
-  const [selectedJdId, setSelectedJdId] = useState('');
+  const [selectedJdIds, setSelectedJdIds] = useState<string[]>([]);
+  const [hasAutoSelected, setHasAutoSelected] = useState(false);
   const [copied, setCopied] = useState(false);
   const [recipient, setRecipient] = useState('@ojisamer');
   const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
@@ -167,18 +168,30 @@ export function RepushModal({
   }, [excludeRecommended, initialCategory, jds, query, recommendedTargets, resultLimit]);
 
   useEffect(() => {
-    if (matchingJds.length === 0) {
-      if (selectedJdId) setSelectedJdId('');
+    if (hasAutoSelected || matchingJds.length === 0) return;
+    setSelectedJdIds([matchingJds[0].id]);
+    setHasAutoSelected(true);
+  }, [hasAutoSelected, matchingJds]);
+
+  const selectedJds = selectedJdIds
+    .map((id) => jds.find((jd) => jd.id === id))
+    .filter((jd): jd is JD => Boolean(jd));
+  const recommendationTexts = selectedJds.map((jd) => ({ jd, text: buildRepushCopy(item, jd) }));
+  const recommendationText = recommendationTexts.map(({ text }) => text).join('\n\n──────────\n\n');
+  const hasResume = Boolean(item.resumeUrl);
+
+  const toggleJd = (jdId: string) => {
+    setCopied(false);
+    setSendError('');
+    if (!selectedJdIds.includes(jdId) && selectedJdIds.length >= 10) {
+      setSendError('一次最多选择 10 个岗位');
       return;
     }
-    if (!matchingJds.some((jd) => jd.id === selectedJdId)) {
-      setSelectedJdId(matchingJds[0].id);
-    }
-  }, [matchingJds, selectedJdId]);
-
-  const selectedJd = jds.find((jd) => jd.id === selectedJdId) || null;
-  const recommendationText = selectedJd ? buildRepushCopy(item, selectedJd) : '';
-  const hasResume = Boolean(item.resumeUrl);
+    setSelectedJdIds((current) => {
+      if (current.includes(jdId)) return current.filter((id) => id !== jdId);
+      return [...current, jdId];
+    });
+  };
 
   const handleCopy = async () => {
     if (!recommendationText) return;
@@ -188,14 +201,14 @@ export function RepushModal({
   };
 
   const confirmRepush = () => {
-    if (!selectedJd) return;
-    onConfirm({
-      jdTitle: selectedJd.title,
-      organization: recommendationOrganization(selectedJd),
-      department: clean(selectedJd.department),
-      contactPerson: clean(selectedJd.odc),
-      recommendationText,
-    });
+    if (selectedJds.length === 0) return;
+    onConfirm(recommendationTexts.map(({ jd, text }) => ({
+      jdTitle: jd.title,
+      organization: recommendationOrganization(jd),
+      department: clean(jd.department),
+      contactPerson: clean(jd.odc),
+      recommendationText: text,
+    })));
     onClose();
   };
 
@@ -227,7 +240,7 @@ export function RepushModal({
   };
 
   const handleSendAndRepush = async () => {
-    if (!selectedJd || !item.resumeUrl || !recipient.trim() || sending) return;
+    if (selectedJds.length === 0 || !item.resumeUrl || !recipient.trim() || sending) return;
     setSending(true);
     setSendError('');
     try {
@@ -239,10 +252,10 @@ export function RepushModal({
         sender: item.column,
         target: recipient.trim(),
         fileUrl: item.resumeUrl,
-        deliveries: [{
-          text: recommendationText,
-          fileName: buildDeliveryFileName(item, selectedJd),
-        }],
+        deliveries: recommendationTexts.map(({ jd, text }) => ({
+          text,
+          fileName: buildDeliveryFileName(item, jd),
+        })),
       });
       confirmRepush();
     } catch (error) {
@@ -262,7 +275,7 @@ export function RepushModal({
               指定岗位复推
             </h3>
             <p className="mt-1 pl-10 text-xs text-slate-400">
-              {displayName(item)} · 选择具体岗位后生成推荐文案，可连同原简历直接发送
+              {displayName(item)} · 可多选目标岗位，分别生成推荐文案并连同原简历发送
             </p>
           </div>
           <button type="button" onClick={onClose} disabled={sending} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed" title="关闭"><X className="h-5 w-5" /></button>
@@ -270,7 +283,10 @@ export function RepushModal({
 
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[360px_minmax(0,1fr)]">
           <div className="flex min-h-[360px] flex-col border-b border-slate-100 bg-slate-50/60 p-4 md:min-h-0 md:border-b-0 md:border-r">
-            <label className="mb-2 text-xs font-medium text-slate-500">搜索目标岗位、编制或部门</label>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label className="text-xs font-medium text-slate-500">搜索目标岗位、编制或部门</label>
+              <span className="text-xs font-semibold text-violet-600">已选 {selectedJds.length}/10</span>
+            </div>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -285,12 +301,13 @@ export function RepushModal({
               {matchingJds.map((jd) => {
                 const organization = recommendationOrganization(jd);
                 const alreadyRecommended = recommendedTargets.has(targetKey(jd.title, organization, jd.department));
-                const active = selectedJdId === jd.id;
+                const active = selectedJdIds.includes(jd.id);
                 return (
                   <button
                     type="button"
                     key={jd.id}
-                    onClick={() => { setSelectedJdId(jd.id); setCopied(false); setSendError(''); }}
+                    aria-pressed={active}
+                    onClick={() => toggleJd(jd.id)}
                     className={cn(
                       'w-full rounded-lg border px-3 py-2.5 text-left transition-colors',
                       active ? 'border-violet-300 bg-white shadow-sm ring-2 ring-violet-100' : 'border-transparent bg-white/70 hover:border-slate-200 hover:bg-white',
@@ -298,7 +315,15 @@ export function RepushModal({
                   >
                     <span className="flex items-start justify-between gap-2">
                       <span className="line-clamp-2 text-sm font-medium text-slate-800">{jd.title}</span>
-                      {alreadyRecommended && <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">已推荐</span>}
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        {alreadyRecommended && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">已推荐</span>}
+                        <span className={cn(
+                          'flex h-5 w-5 items-center justify-center rounded-md border transition-colors',
+                          active ? 'border-violet-500 bg-violet-500 text-white' : 'border-slate-300 bg-white text-transparent',
+                        )}>
+                          <Check className="h-3.5 w-3.5" />
+                        </span>
+                      </span>
                     </span>
                     <span className="mt-1 block truncate text-xs text-slate-400">{organization || '未填写编制/单位'}{jd.department ? ` · ${jd.department}` : ''}</span>
                     <span className="mt-1 block text-[11px] text-emerald-600">{jd.salaryText || `${jd.salaryRange.min || 0}-${jd.salaryRange.max || 0}${jd.salaryRange.currency || ''}`}</span>
@@ -310,16 +335,18 @@ export function RepushModal({
           </div>
 
           <div className="flex min-h-[380px] flex-col p-5 md:min-h-0">
-            {selectedJd ? (
+            {selectedJds.length > 0 ? (
               <>
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 text-xs font-medium text-violet-600"><FileText className="h-4 w-4" />已生成推荐文案</p>
-                    <h4 className="mt-1 truncate text-base font-semibold text-slate-900">{selectedJd.title}</h4>
-                    <p className="mt-1 text-xs text-slate-400">{recommendationOrganization(selectedJd) || '未填写编制/单位'}{selectedJd.department ? ` · ${selectedJd.department}` : ''}</p>
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-violet-600"><FileText className="h-4 w-4" />已生成 {selectedJds.length} 份推荐文案</p>
+                    <h4 className="mt-1 text-base font-semibold text-slate-900">已选 {selectedJds.length} 个岗位</h4>
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-400" title={selectedJds.map((jd) => jd.title).join('、')}>
+                      {selectedJds.map((jd) => jd.title).join('、')}
+                    </p>
                   </div>
                   <button type="button" onClick={handleCopy} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium', copied ? 'bg-emerald-50 text-emerald-600' : 'bg-violet-50 text-violet-600 hover:bg-violet-100')}>
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? '已复制' : '复制文案'}
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? '已复制' : '复制全部文案'}
                   </button>
                 </div>
                 <textarea readOnly value={recommendationText} onFocus={(event) => event.currentTarget.select()} className="min-h-[280px] flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100" />
@@ -327,7 +354,7 @@ export function RepushModal({
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center text-center text-slate-400">
                 <FileText className="mb-3 h-9 w-9 text-slate-300" />
-                <p className="text-sm font-medium text-slate-500">先从左侧选择一个具体岗位</p>
+                <p className="text-sm font-medium text-slate-500">从左侧选择一个或多个岗位</p>
                 <p className="mt-1 text-xs">系统会自动带入目标编制、服务单位和对接 BP</p>
               </div>
             )}
@@ -357,17 +384,17 @@ export function RepushModal({
               ) : !hasResume ? (
                 <p className="mt-1.5 text-xs text-amber-600">这条历史记录没有可发送的原简历文件，可复制文案或仅确认复推。</p>
               ) : (
-                <p className="mt-1.5 text-xs text-slate-400">将发送文案和重命名后的原简历；默认收件人是 @ojisamer。</p>
+                <p className="mt-1.5 text-xs text-slate-400">将按所选岗位分别发送文案和重命名后的原简历；一次最多 10 个，默认收件人是 @ojisamer。</p>
               )}
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2 self-end">
               <button type="button" onClick={onClose} disabled={sending} className="h-10 rounded-lg px-3 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed">取消</button>
-              <button type="button" onClick={confirmRepush} disabled={!selectedJd || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
-                <Repeat className="h-4 w-4" />仅确认复推
+              <button type="button" onClick={confirmRepush} disabled={selectedJds.length === 0 || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
+                <Repeat className="h-4 w-4" />仅确认复推{selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}
               </button>
-              <button type="button" onClick={handleSendAndRepush} disabled={!selectedJd || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
+              <button type="button" onClick={handleSendAndRepush} disabled={selectedJds.length === 0 || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {sending ? '正在发送' : '发送并复推'}
+                {sending ? `正在发送 ${selectedJds.length} 个岗位` : `发送并复推${selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}`}
               </button>
             </div>
           </div>

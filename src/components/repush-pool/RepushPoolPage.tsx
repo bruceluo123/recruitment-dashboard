@@ -437,25 +437,27 @@ export function RepushPoolPage() {
     }
   };
 
-  const confirmRepush = (args: RepushArgs) => {
-    if (!repushing?.repushItem) return;
+  const confirmRepush = (selections: RepushArgs[]) => {
+    if (!repushing?.repushItem || selections.length === 0) return;
     const source = repushing.repushItem;
-    addRecommendation({
-      column: source.column,
-      candidateCode: source.candidateCode,
-      candidateName: source.candidateName || repushing.candidateName,
-      jdTitle: args.jdTitle,
-      contact: source.contact,
-      contactPerson: args.contactPerson,
-      rawText: args.recommendationText,
-      organization: args.organization,
-      department: args.department,
-      highlights: source.highlights,
-      resumeUrl: source.resumeUrl,
-      resumeFileName: source.resumeFileName,
-      source: 'repush',
-      repushSourceId: source.id,
-    });
+    for (const args of selections) {
+      addRecommendation({
+        column: source.column,
+        candidateCode: source.candidateCode,
+        candidateName: source.candidateName || repushing.candidateName,
+        jdTitle: args.jdTitle,
+        contact: source.contact,
+        contactPerson: args.contactPerson,
+        rawText: args.recommendationText,
+        organization: args.organization,
+        department: args.department,
+        highlights: source.highlights,
+        resumeUrl: source.resumeUrl,
+        resumeFileName: source.resumeFileName,
+        source: 'repush',
+        repushSourceId: source.id,
+      });
+    }
     setRepushing(null);
   };
 
