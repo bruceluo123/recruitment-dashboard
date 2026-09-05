@@ -102,7 +102,7 @@ export function RecommendationCenter() {
     if (!mounted) return;
     const controller = new AbortController();
     setFeedbackItems([]);
-    void fetch(`/api/feedback-center?owner=${view}&days=7`, {
+    void fetch(`/api/feedback-center?owner=${view}&scope=all`, {
       cache: 'no-store',
       signal: controller.signal,
     })

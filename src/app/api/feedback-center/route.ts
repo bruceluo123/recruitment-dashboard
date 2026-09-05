@@ -86,6 +86,7 @@ export async function GET(request: NextRequest) {
   const detail = params.get('detail') === '1';
   const ledger = params.get('ledger') === '1';
   const force = params.get('refresh') === '1';
+  const allItems = params.get('scope') === 'all';
   const days = Math.min(31, Math.max(1, Number.parseInt(params.get('days') || '7', 10) || 7));
   const ids = new Set(params.getAll('id').map((id) => id.trim()).filter(Boolean));
   const state = await readState(force);
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
   }
   const items = state.items
     .filter((item) => belongsToOwner(item, owner))
-    .filter((item) => dateKeys.has(String(item.recommendedAt || item.feedbackAt || '').slice(0, 10)))
+    .filter((item) => allItems || dateKeys.has(String(item.recommendedAt || item.feedbackAt || '').slice(0, 10)))
     .filter((item) => ids.size === 0 || ids.has(item.id))
     .map((item) => detail ? item : summaryItem(item));
 

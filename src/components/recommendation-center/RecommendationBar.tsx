@@ -5,35 +5,25 @@ import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatRecommendTime, formatOrgDept } from '@/lib/repush-format';
 import type { FeedbackCenterItem } from '@/types/feedback-center';
 
-function feedbackMeta(item: FeedbackCenterItem): { label: string; className: string } {
-  if (item.confirmedStatus === 'interview_passed') {
-    return { label: '面试通过', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
+function feedbackMeta(item?: FeedbackCenterItem): { label: '未反馈' | '未通过' | '通过'; className: string } {
+  const status = item?.confirmedStatus;
+  if (
+    status === 'interview_failed'
+    || status === 'screening_failed'
+    || status === 'closed'
+    || item?.sourceStatus === 'interview_failed'
+    || item?.sourceStatus === 'screening_failed'
+  ) {
+    return { label: '未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
   }
-  if (item.confirmedStatus === 'interview_failed') {
-    return { label: '面试未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
+  if (
+    status === 'interview_passed'
+    || status === 'interview_pending'
+    || item?.sourceStatus === 'scheduled'
+  ) {
+    return { label: '通过', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
   }
-  if (item.confirmedStatus === 'screening_failed') {
-    return { label: '初筛未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
-  }
-  if (item.confirmedStatus === 'interview_pending') {
-    return { label: '面试待反馈', className: 'bg-blue-50 text-blue-700 ring-blue-200' };
-  }
-  if (item.confirmedStatus === 'closed') {
-    return { label: '已关闭', className: 'bg-slate-100 text-slate-600 ring-slate-200' };
-  }
-  if (item.confirmedStatus === 'pending') {
-    return { label: '待反馈', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
-  }
-  if (item.sourceStatus === 'scheduled') {
-    return { label: '初筛通过 · 已约面', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
-  }
-  if (item.sourceStatus === 'interview_failed') {
-    return { label: '面试未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
-  }
-  if (item.sourceStatus === 'screening_failed') {
-    return { label: '初筛未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
-  }
-  return { label: '待反馈', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
+  return { label: '未反馈', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
 }
 
 interface RecommendationBarProps {
@@ -59,8 +49,10 @@ export function RecommendationBar({ item, feedbackItem, onSchedule, onEdit, onRe
   const [contactHint, setContactHint] = useState('');
   const base = displayName(item);
   const orgDept = formatOrgDept(item.organization, item.department);
-  const feedback = feedbackItem ? feedbackMeta(feedbackItem) : null;
-  const feedbackTitle = feedbackItem?.sourceSummary || feedbackItem?.auditConclusion || '来自反馈中心的最近识别结果';
+  const feedback = feedbackMeta(feedbackItem);
+  const feedbackTitle = feedbackItem?.sourceSummary
+    || feedbackItem?.auditConclusion
+    || '反馈中心暂未识别到这条推荐的明确反馈';
   const scheduleLabel = item.interviewRound === '一面'
     ? '约二面'
     : item.interviewRound === '二面'
@@ -149,14 +141,12 @@ export function RecommendationBar({ item, feedbackItem, onSchedule, onEdit, onRe
             <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium shrink-0">{item.candidateCode}</span>
           )}
           <span className="text-sm font-semibold text-gray-800 truncate">{base}</span>
-          {feedback && (
-            <span
-              className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${feedback.className}`}
-              title={feedbackTitle}
-            >
-              {feedback.label}
-            </span>
-          )}
+          <span
+            className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${feedback.className}`}
+            title={feedbackTitle}
+          >
+            反馈 · {feedback.label}
+          </span>
           {item.interviewRound && (
             <span className="px-1.5 py-0.5 rounded-md bg-green-50 text-green-600 text-[11px] font-medium shrink-0">{item.interviewRound}</span>
           )}
