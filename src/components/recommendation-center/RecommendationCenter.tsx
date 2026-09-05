@@ -309,6 +309,7 @@ export function RecommendationCenter() {
     const jd = offering.jdTitle ? matchJDByTitle(offering.jdTitle, jds) : null;
     const probationSalary = values.probationSalary.trim();
     const regularSalary = values.regularSalary.trim();
+    const onboardDate = values.onboardDate ? new Date(values.onboardDate).toISOString() : undefined;
     const grade = getOfferGrade(regularSalary);
     const salary = [probationSalary && `试用期 ${probationSalary}`, regularSalary && `转正 ${regularSalary}`].filter(Boolean).join(' / ');
     const partial = {
@@ -319,6 +320,7 @@ export function RecommendationCenter() {
       probationSalary: probationSalary || undefined,
       regularSalary: regularSalary || undefined,
       probationMonths: '2',
+      onboardDate,
       jobLevel: grade?.level,
       salary: salary || undefined,
       offerAppliedAt,

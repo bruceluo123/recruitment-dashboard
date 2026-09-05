@@ -10,6 +10,7 @@ import { getOfferGrade } from '@/lib/offer-compensation';
 export interface OfferFormValues {
   probationSalary: string;
   regularSalary: string;
+  onboardDate: string;
 }
 
 interface OfferModalProps {
@@ -23,6 +24,7 @@ export function OfferModal({ item, candidate, onClose, onConfirm }: OfferModalPr
   const [form, setForm] = useState<OfferFormValues>({
     probationSalary: candidate?.probationSalary || '',
     regularSalary: candidate?.regularSalary || '',
+    onboardDate: candidate?.onboardDate?.slice(0, 10) || '',
   });
 
   useEscapeClose(onClose, true);
@@ -53,6 +55,17 @@ export function OfferModal({ item, candidate, onClose, onConfirm }: OfferModalPr
           </Field>
           <Field label="转正薪资">
             <input value={form.regularSalary} onChange={(event) => patch({ regularSalary: event.target.value })} placeholder="如 30000 或 30K" className={inputClass} />
+          </Field>
+        </div>
+
+        <div className="mt-4">
+          <Field label="入职日期（可选）">
+            <input
+              type="date"
+              value={form.onboardDate}
+              onChange={(event) => patch({ onboardDate: event.target.value })}
+              className={inputClass}
+            />
           </Field>
         </div>
 
