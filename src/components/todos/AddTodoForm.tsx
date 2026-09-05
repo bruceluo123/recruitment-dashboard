@@ -86,9 +86,9 @@ export function AddTodoForm({ defaultOwner, ownerNames, onAdd }: AddTodoFormProp
           </div>
         </div>
 
-        {/* 截止日 */}
+        {/* 提醒日 */}
         <div className="flex items-center gap-1.5">
-          <span className="text-gray-400">截止日</span>
+          <span className="text-gray-400">提醒日</span>
           <input
             type="date"
             value={dueDate}

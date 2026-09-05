@@ -1,4 +1,4 @@
-// 待办事项类型：麦满分/啵啵两人共用一张表，按时间线展示未来重要事项。
+// 待办事项类型：麦满分/啵啵两人共用一张表，未完成事项持续保留。
 
 import type { RepushColumnId } from '@/store/repush-store';
 
@@ -23,7 +23,7 @@ export interface TodoItem {
   id: string;
   owner: TodoOwner;
   title: string;
-  dueDate?: string;            // 截止日（YYYY-MM-DD，只到日期；无日期则归入「无日期」组）
+  dueDate?: string;            // 提醒日期（YYYY-MM-DD，仅作备注，不产生逾期状态）
   priority: TodoPriority;
   category: TodoCategory;
   note?: string;

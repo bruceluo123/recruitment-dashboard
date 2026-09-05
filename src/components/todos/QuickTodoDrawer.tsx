@@ -13,7 +13,8 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { bucketOf, sortInBucket, todayDateInput } from '@/lib/todo-format';
+import { formatDueDate, sortInBucket, todayDateInput } from '@/lib/todo-format';
+import { parseDueDateFromText } from '@/lib/todo-date';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { usePrefStore } from '@/store/pref-store';
 import { useRepushStore } from '@/store/repush-store';
@@ -56,29 +57,18 @@ export function QuickTodoDrawer() {
   const columnNames = useRepushStore((state) => state.columnNames);
 
   const today = todayDateInput();
+  const parsedTitleDate = title.trim() ? parseDueDateFromText(title) : null;
   const visibleTodos = useMemo(
     () => todos.filter((todo) => todo.owner === activeOwner || todo.owner === 'both'),
     [activeOwner, todos],
   );
   const actionable = useMemo(
-    () => sortInBucket(visibleTodos.filter((todo) => {
-      if (todo.done) return false;
-      const bucket = bucketOf(todo.dueDate);
-      return bucket === 'overdue' || bucket === 'today' || bucket === 'noDate';
-    })),
+    () => sortInBucket(visibleTodos.filter((todo) => !todo.done)),
     [visibleTodos],
   );
   const doneToday = useMemo(
     () => visibleTodos.filter((todo) => completedToday(todo, today)).slice().reverse(),
     [today, visibleTodos],
-  );
-  const upcomingCount = useMemo(
-    () => visibleTodos.filter((todo) => {
-      if (todo.done) return false;
-      const bucket = bucketOf(todo.dueDate);
-      return bucket !== 'overdue' && bucket !== 'today' && bucket !== 'noDate';
-    }).length,
-    [visibleTodos],
   );
   const actionableGroups = useMemo(
     () => TODO_PRIMARY_CATEGORIES.map((groupCategory) => ({
@@ -110,17 +100,14 @@ export function QuickTodoDrawer() {
   if (!mounted) return null;
 
   const ownerName = columnNames[activeOwner];
-  const totalToday = actionable.length + doneToday.length;
-  const progress = totalToday > 0 ? Math.round((doneToday.length / totalToday) * 100) : 0;
-
   const handleAdd = (event: FormEvent) => {
     event.preventDefault();
     const nextTitle = title.trim();
     if (!nextTitle) return;
     addTodo({
       owner: activeOwner,
-      title: nextTitle,
-      dueDate: today,
+      title: parsedTitleDate?.rest.trim() || nextTitle,
+      dueDate: parsedTitleDate?.date,
       priority: 'normal',
       category,
     });
@@ -182,12 +169,12 @@ export function QuickTodoDrawer() {
           'fixed right-0 z-40 flex h-12 touch-none cursor-ns-resize select-none items-center gap-2 rounded-l-lg border border-r-0 border-blue-500 bg-blue-600 px-3 text-sm font-semibold text-white shadow-lg shadow-blue-200/70 transition-[background-color,box-shadow,transform,opacity] hover:bg-blue-700 active:cursor-grabbing focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2',
           open && 'pointer-events-none translate-x-full opacity-0',
         )}
-        aria-label={`打开今日待办，${actionable.length} 项未完成`}
+        aria-label={`打开待办，${actionable.length} 项未完成`}
         title="点击展开，上下拖动调整位置"
       >
         <GripVertical className="-ml-1 h-4 w-4 text-blue-200" />
         <ListTodo className="h-4 w-4" />
-        <span>今日待办</span>
+        <span>待办</span>
         <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-white px-1.5 text-xs font-bold text-blue-700">
           {actionable.length}
         </span>
@@ -199,7 +186,7 @@ export function QuickTodoDrawer() {
           open ? 'translate-x-0' : 'pointer-events-none translate-x-full',
         )}
         aria-hidden={!open}
-        aria-label="今日待办快捷面板"
+        aria-label="待办快捷面板"
       >
         <header className="border-b border-slate-200 px-5 pb-4 pt-5">
           <div className="flex items-start justify-between gap-4">
@@ -209,8 +196,8 @@ export function QuickTodoDrawer() {
                   <ListTodo className="h-5 w-5" />
                 </span>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">今日待办</h2>
-                  <p className="text-xs text-slate-500">{ownerName} · {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</p>
+                  <h2 className="text-lg font-bold text-slate-900">待办</h2>
+                  <p className="text-xs text-slate-500">{ownerName} · 未完成事项持续保留</p>
                 </div>
               </div>
             </div>
@@ -218,19 +205,15 @@ export function QuickTodoDrawer() {
               type="button"
               onClick={() => setOpen(false)}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-              aria-label="收起今日待办"
+              aria-label="收起待办"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="mt-5 flex items-center gap-3">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} />
-            </div>
-            <span className="shrink-0 text-xs font-medium text-slate-500">
-              已完成 {doneToday.length}/{totalToday}
-            </span>
+          <div className="mt-5 flex items-center gap-2 text-xs font-medium">
+            <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700">待完成 {actionable.length}</span>
+            <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">今日完成 {doneToday.length}</span>
           </div>
         </header>
 
@@ -275,7 +258,10 @@ export function QuickTodoDrawer() {
             </div>
           </div>
           <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
-            <CalendarDays className="h-3.5 w-3.5" />自动归到今天，需要改日期时进入完整待办
+            <CalendarDays className="h-3.5 w-3.5" />
+            {parsedTitleDate
+              ? <>已识别提醒时间：<span className="font-medium text-indigo-500">{formatDueDate(parsedTitleDate.date)}</span></>
+              : '识别到的时间会显示在待办后，仅作提醒，不会过期'}
           </p>
         </form>
 
@@ -314,7 +300,7 @@ export function QuickTodoDrawer() {
               <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
                 <CheckCircle2 className="h-5 w-5" />
               </span>
-              <p className="text-sm font-semibold text-slate-700">今天已经清空</p>
+              <p className="text-sm font-semibold text-slate-700">待办已清空</p>
               <p className="mt-1 text-xs text-slate-400">有新任务时直接在上方记下来</p>
             </div>
           )}
@@ -346,7 +332,7 @@ export function QuickTodoDrawer() {
 
         <footer className="border-t border-slate-200 bg-slate-50/70 px-5 py-4">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-slate-400">{upcomingCount > 0 ? `另有 ${upcomingCount} 项已安排在之后` : '没有未来待办'}</span>
+            <span className="text-xs text-slate-400">共 {actionable.length} 项待完成</span>
             <Link
               href="/todos"
               onClick={() => setOpen(false)}
@@ -362,13 +348,10 @@ export function QuickTodoDrawer() {
 }
 
 function QuickTodoRow({ todo, ownerName, onToggle }: { todo: TodoItem; ownerName: string; onToggle: (id: string) => void }) {
-  const bucket = bucketOf(todo.dueDate);
-  const overdue = bucket === 'overdue';
-
   return (
     <div className={cn(
       'group flex min-h-14 items-center gap-3 rounded-lg border bg-white px-3 py-2.5 transition-colors',
-      overdue ? 'border-rose-200 bg-rose-50/50' : todo.priority === 'high' ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 hover:border-blue-200',
+      todo.priority === 'high' ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 hover:border-blue-200',
     )}>
       <button
         type="button"
@@ -379,9 +362,12 @@ function QuickTodoRow({ todo, ownerName, onToggle }: { todo: TodoItem; ownerName
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-slate-800">{todo.title}</p>
         <div className="mt-1 flex items-center gap-2 text-[11px]">
-          <span className={cn('font-medium', overdue ? 'text-rose-500' : 'text-slate-400')}>
-            {overdue ? '已逾期' : bucket === 'noDate' ? '待处理' : '今天'}
-          </span>
+          <span className="font-medium text-slate-400">待处理</span>
+          {todo.dueDate && (
+            <span className="inline-flex items-center gap-1 text-indigo-500">
+              <CalendarDays className="h-3 w-3" />{formatDueDate(todo.dueDate)}
+            </span>
+          )}
           {todo.priority === 'high' && <span className="text-amber-600">重要</span>}
           {todo.owner === 'both' && <span className="text-indigo-500">{ownerName}</span>}
         </div>

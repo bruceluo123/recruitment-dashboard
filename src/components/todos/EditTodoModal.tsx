@@ -67,7 +67,7 @@ export function EditTodoModal({ todo, ownerNames, onClose, onSave }: EditTodoMod
                 ))}
               </div>
             </Field>
-            <Field label="截止日">
+            <Field label="提醒日">
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="todo-input cursor-pointer" />
             </Field>
             <Field label="重要程度">
