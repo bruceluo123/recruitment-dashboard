@@ -5,15 +5,15 @@ import type { RepushItem } from '@/store/repush-store';
 import { displayName, formatOrgDept } from '@/lib/repush-format';
 import type { FeedbackCenterItem } from '@/types/feedback-center';
 
-type FeedbackLabel = '未反馈' | '未通过' | '通过';
+export type RecommendationFeedbackLabel = '未反馈' | '未通过' | '通过';
 
-const FEEDBACK_META: Record<FeedbackLabel, { label: FeedbackLabel; className: string }> = {
+const FEEDBACK_META: Record<RecommendationFeedbackLabel, { label: RecommendationFeedbackLabel; className: string }> = {
   未反馈: { label: '未反馈', className: 'bg-amber-50 text-amber-700 ring-amber-200' },
   未通过: { label: '未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' },
   通过: { label: '通过', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
 };
 
-function feedbackMeta(item?: FeedbackCenterItem): { label: FeedbackLabel; className: string } {
+export function recommendationFeedbackLabel(item?: FeedbackCenterItem): RecommendationFeedbackLabel {
   const status = item?.confirmedStatus;
   if (
     status === 'interview_failed'
@@ -22,16 +22,20 @@ function feedbackMeta(item?: FeedbackCenterItem): { label: FeedbackLabel; classN
     || item?.sourceStatus === 'interview_failed'
     || item?.sourceStatus === 'screening_failed'
   ) {
-    return FEEDBACK_META.未通过;
+    return '未通过';
   }
   if (
     status === 'interview_passed'
     || status === 'interview_pending'
     || item?.sourceStatus === 'scheduled'
   ) {
-    return FEEDBACK_META.通过;
+    return '通过';
   }
-  return FEEDBACK_META.未反馈;
+  return '未反馈';
+}
+
+function feedbackMeta(item?: FeedbackCenterItem): { label: RecommendationFeedbackLabel; className: string } {
+  return FEEDBACK_META[recommendationFeedbackLabel(item)];
 }
 
 interface RecommendationBarProps {
@@ -80,7 +84,7 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
     ? Array.from(new Set((candidateGroupItems || []).map((groupItem) => groupItem.contactPerson?.trim()).filter(Boolean)))
     : [];
   const feedback = feedbackMeta(feedbackItem);
-  const groupFeedbackCounts = candidateGroupFeedbackItems?.reduce<Record<FeedbackLabel, number>>((counts, groupFeedbackItem) => {
+  const groupFeedbackCounts = candidateGroupFeedbackItems?.reduce<Record<RecommendationFeedbackLabel, number>>((counts, groupFeedbackItem) => {
     counts[feedbackMeta(groupFeedbackItem).label] += 1;
     return counts;
   }, { 未反馈: 0, 未通过: 0, 通过: 0 });

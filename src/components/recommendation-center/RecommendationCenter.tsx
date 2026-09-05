@@ -1,11 +1,11 @@
 'use client';
-import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Users, CalendarCheck, FileUp, FileText, Loader2, MessageSquareText } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
-import { RecommendationBar } from './RecommendationBar';
+import { RecommendationBar, recommendationFeedbackLabel } from './RecommendationBar';
+import { UnfeedbackModal } from './UnfeedbackModal';
 import { EditRecommendationModal } from './EditRecommendationModal';
 import { RepushModal, type RepushArgs } from './RepushModal';
 import { OfferModal, type OfferFormValues } from './OfferModal';
@@ -92,6 +92,7 @@ export function RecommendationCenter() {
   const [repushing, setRepushing] = useState<RepushItem | null>(null);
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
+  const [showingUnfeedback, setShowingUnfeedback] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackCenterItem[]>([]);
@@ -265,6 +266,7 @@ export function RecommendationCenter() {
   if (!mounted) return null;
 
   const viewItems = items.filter((it) => it.column === view);
+  const unfeedbackItems = viewItems.filter((item) => recommendationFeedbackLabel(feedbackByRecommendation.get(item.id)) === '未反馈');
   const filteredItems = filterRecommendations(viewItems, filters);
   const groups = groupByDay(filteredItems).map((group) => ({
     ...group,
@@ -419,12 +421,13 @@ export function RecommendationCenter() {
             </span>
           </h3>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <Link
-              href="/repush-pool"
+            <button
+              type="button"
+              onClick={() => setShowingUnfeedback(true)}
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition-colors"
             >
-              <MessageSquareText className="w-4 h-4" />反馈中心
-            </Link>
+              <MessageSquareText className="w-4 h-4" />未反馈
+            </button>
             {/* 一键看板：把当前推荐人今日数据提交到团队数据看板 */}
             <button
               onClick={() => setReporting(true)}
@@ -554,6 +557,13 @@ export function RecommendationCenter() {
           items={items}
           candidates={candidates}
           onClose={() => setReporting(false)}
+        />
+      )}
+      {showingUnfeedback && (
+        <UnfeedbackModal
+          ownerName={columnNames[view]}
+          items={unfeedbackItems}
+          onClose={() => setShowingUnfeedback(false)}
         />
       )}
     </div>
