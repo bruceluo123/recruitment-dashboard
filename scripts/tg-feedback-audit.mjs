@@ -76,6 +76,39 @@ function candidateNamesMatch(left, right) {
   return a === b || (Math.min(a.length, b.length) >= 3 && (a.includes(b) || b.includes(a)));
 }
 
+function editDistance(left, right) {
+  const a = normalizeName(left);
+  const b = normalizeName(right);
+  if (!a) return b.length;
+  if (!b) return a.length;
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= a.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= b.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (a[leftIndex - 1] === b[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[b.length];
+}
+
+function candidateLabelScore(text, candidateName) {
+  if (candidateNameMentioned(text, candidateName)) return 1;
+  const expected = normalizeName(candidateName);
+  if (!/^[a-z0-9]+$/.test(expected) || expected.length < 5) return 0;
+  const tokens = String(text || '').toLowerCase().match(/[a-z][a-z0-9.'_-]{3,}/g) || [];
+  return tokens.reduce((best, token) => {
+    const actual = normalizeName(token);
+    if (actual.length < 5 || Math.abs(actual.length - expected.length) > 2) return best;
+    const score = 1 - editDistance(actual, expected) / Math.max(actual.length, expected.length);
+    return Math.max(best, score);
+  }, 0);
+}
+
 function normalizeCode(value) {
   const match = String(value || '').match(/XY\s*(MMF|BB)\s*([0-9O]{1,6})/i);
   if (!match) return '';
@@ -395,12 +428,21 @@ function standardIdentityLabel(text, recommendations) {
   const source = clean(text);
   const organization = detectedOrganization(source);
   if (!source || !organization) return null;
-  const candidateNames = [...new Map(recommendations
-    .filter((rec) => candidateNameMentioned(source, rec.candidateName))
-    .map((rec) => [normalizeName(rec.candidateName), clean(rec.candidateName)]))
-    .values()];
-  if (candidateNames.length !== 1) return null;
-  return { candidateName: candidateNames[0], organization };
+  const ranked = [...new Map(recommendations
+    .filter((rec) => organizationSimilarity(organization, `${rec.organization} ${rec.department}`) > 0)
+    .map((rec) => {
+      const score = candidateLabelScore(source, rec.candidateName);
+      return [normalizeName(rec.candidateName), {
+        candidateCode: normalizeCode(rec.candidateCode),
+        candidateName: clean(rec.candidateName),
+        score,
+      }];
+    }))
+    .values()]
+    .filter((candidate) => candidate.score >= 0.82)
+    .sort((a, b) => b.score - a.score || a.candidateName.localeCompare(b.candidateName));
+  if (!ranked.length || (ranked[1] && ranked[0].score - ranked[1].score < 0.08)) return null;
+  return { candidateCode: ranked[0].candidateCode, candidateName: ranked[0].candidateName, organization };
 }
 
 function referenceContextFor(messages, index, accountLabel, recommendations) {
@@ -646,7 +688,16 @@ function inferIdentityFromContext(item, record, recommendations) {
   const directText = record.items?.length === 1 ? record.rawText : itemText;
   const referenceText = clean(record.referenceContext);
   const referencedRecommendation = recommendationReference(referenceText, recommendations);
-  const standardIdentity = standardIdentityLabel(`${referenceText} ${relatedContext}`, recommendations);
+  const referenceIdentity = standardIdentityLabel(referenceText, recommendations);
+  const standardIdentity = referenceIdentity || standardIdentityLabel(relatedContext, recommendations);
+  if (referenceIdentity && record.items?.length === 1) {
+    return {
+      ...item,
+      candidateCode: referenceIdentity.candidateCode,
+      candidateName: referenceIdentity.candidateName,
+      organization: referenceIdentity.organization || item.organization,
+    };
+  }
   if (referencedRecommendation) {
     const referencedCode = normalizeCode(referencedRecommendation.candidateCode);
     const referencedName = normalizeName(referencedRecommendation.candidateName);
