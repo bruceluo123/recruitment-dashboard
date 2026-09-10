@@ -1,7 +1,7 @@
 // Pure JD parsing core — shared by the client store (Excel import) and the
 // server-side Google Sheet sync cron. No React / Zustand / browser-only deps.
 
-import type { JD, JDCategory } from '@/types/jd';
+import type { JD, JDCategory, JDStatus } from '@/types/jd';
 import { parsePriority } from '@/types/jd';
 import { generateId } from '@/lib/utils';
 
@@ -65,6 +65,11 @@ export function normalizeJDCount(value: unknown, fallback = ''): string {
   if (!raw) return fallback;
   const match = raw.match(/^(\d+)(?:\.0+)?$/);
   return match ? String(Number(match[1])) : fallback;
+}
+
+/** 招聘状态只由缺口是否为 0 决定；缺口大于 0 才视为仍在招聘。 */
+export function jdStatusFromGap(gap?: string): JDStatus {
+  return normalizeJDCount(gap) === '0' ? 'paused' : 'active';
 }
 
 function looksLikeHeaderRow(row: string[]): boolean {
@@ -262,7 +267,7 @@ const CATEGORY_KEYWORDS: [JDCategory, RegExp][] = [
   ['frontend', /前端|react|vue|h5|小程序|安卓|android|ios|移动端|flutter|客户端|web\s*sdk/i],
   ['backend', /后端|java|\bgo\b|golang|php|ruby|服务端|python|c\+\+|c#|\.net|后端架构|系统架构|技术架构|springcloud/i],
   ['devops', /运维|devops|k8s|kubernetes|docker|ci.*cd|监控/i],
-  ['testing', /测试|qa|质量|代码审计/i],
+  ['testing', /测试|qa|质量/i],
   // 培训/学习发展（经验萃取、SOP工程化、演武/认证体系等知识管理岗）
   ['training', /培训|讲师|课程开发|教研|学习发展|经验萃取|sop工程化|赋能|带教|培训师|教学设计|演武|认证体系/i],
   ['product', /产品经理|产品总监|产品负责人|产品助理|产品调优|产品定价|专案产品|平台产品/i],
@@ -309,13 +314,15 @@ function detectPrimaryTitleCategory(title: string): JDCategory | null {
   if (/\bseo\b|搜索引擎优化|百度优化/i.test(role)) return 'seo';
   if (/客服|客户服务|售后|技术支持/i.test(role)) return 'customer-service';
   if (/品牌运营/i.test(role)) return 'marketing';
+  // “代码审计”是代码安全/后端工程能力，不是财务审计或普通测试岗位。
+  if (/代码(?:安全)?审计|code\s*audit/i.test(role)) return 'backend';
 
   if (/\bhr(?:bp|d|m)?\b|人力|招聘|薪酬|员工关系|组织发展|人事|\bssc\b|绩效|社保|考勤|\bcoe\b/i.test(role)) return 'hr';
   if (/财务|会计|出纳|审计|税务|财税/i.test(role)) return 'finance';
   if (/行政|前台|秘书|档案|资料员|督导|签证|移民|数字游民|(?:项目|技术|hr)助理/i.test(role)) return 'administration';
   if (/培训|讲师|课程|教研|学习发展|经验萃取|业务萃取|sop工程|赋能|带教|演武|认证体系/i.test(role)) return 'training';
 
-  if (/测试|\bqa\b|质量工程|代码审计/i.test(role)) return 'testing';
+  if (/测试|\bqa\b|质量工程/i.test(role)) return 'testing';
   if (/运维|devops|sre|k8s|kubernetes/i.test(role)) return 'devops';
   if (/舆情收集|采集工程师|爬虫|数据(?:分析师|工程师|负责人|开发|架构师|专家)|数仓|etl|商业分析/i.test(role)) return 'data';
   if (/算法|algorithm|推荐系统|nlp|机器学习|深度学习|计算机视觉/i.test(role)) return 'algorithm';
@@ -357,7 +364,10 @@ export function detectCategories(text: string): JDCategory[] {
 function detectExplicitCategories(text: string): JDCategory[] {
   const result: JDCategory[] = [];
   for (const [cat, re] of CATEGORY_KEYWORDS) {
-    if (re.test(text) && !result.includes(cat)) result.push(cat);
+    const evidence = cat === 'finance'
+      ? text.replace(/代码(?:安全)?(?:审计|审查)|code\s*audit/gi, '')
+      : text;
+    if (re.test(evidence) && !result.includes(cat)) result.push(cat);
   }
   return result;
 }
@@ -368,8 +378,11 @@ function scoreCategoriesByBody(text: string): Array<[JDCategory, number]> {
   const order = CATEGORY_KEYWORDS.map(([c]) => c);
   const scored: Array<[JDCategory, number]> = [];
   for (const [cat, re] of CATEGORY_KEYWORDS) {
+    const evidence = cat === 'finance'
+      ? t.replace(/代码(?:安全)?(?:审计|审查)|code\s*audit/gi, '')
+      : t;
     const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
-    const m = t.match(g);
+    const m = evidence.match(g);
     if (m && m.length) scored.push([cat, m.length]);
   }
   return scored.sort((a, b) => b[1] - a[1] || order.indexOf(a[0]) - order.indexOf(b[0]));
@@ -545,7 +558,16 @@ function normalizeJDKey(value: string): string {
 }
 
 export function mergeUniqueJDs(existing: JD[], incoming: JD[]): { jds: JD[]; skipped: number } {
-  const seen = new Set(existing.map(getJDKey));
+  // 旧版本曾可能把同一批岗位重复写进本地缓存。这里先清理 existing，
+  // 否则仅对 incoming 查重无法修复已经存在的重复行（移动端最明显）。
+  const seen = new Set<string>();
+  const base: JD[] = [];
+  for (const jd of existing) {
+    const key = getJDKey(jd);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    base.push(jd);
+  }
   const unique: JD[] = [];
   // 重复记录里若带「加急」标记，则把标记合并回已有岗位——
   // 这样无需清空即可重新粘贴加急清单来点亮对应岗位。
@@ -567,7 +589,7 @@ export function mergeUniqueJDs(existing: JD[], incoming: JD[]): { jds: JD[]; ski
 
   const needsBackfill = expediteKeys.size > 0 || requesterByKey.size > 0;
   const merged = needsBackfill
-    ? existing.map((jd) => {
+    ? base.map((jd) => {
         const key = getJDKey(jd);
         let next = jd;
         if (expediteKeys.has(key) && !jd.expedited) next = { ...next, expedited: true };
@@ -575,7 +597,7 @@ export function mergeUniqueJDs(existing: JD[], incoming: JD[]): { jds: JD[]; ski
         if (requester && !next.requester) next = { ...next, requester };
         return next;
       })
-    : existing;
+    : base;
 
   return { jds: [...merged, ...unique], skipped: incoming.length - unique.length };
 }
@@ -714,7 +736,7 @@ export function rowToColumnJD(row: Record<string, string>, cols: ColumnMap): JD 
     salaryRange: normalizedSalary.salaryRange,
     salaryText: normalizedSalary.salaryText,
     location: location || 'remote',
-    status: 'active',
+    status: jdStatusFromGap(gap),
     createdAt: now,
     updatedAt: now,
   };

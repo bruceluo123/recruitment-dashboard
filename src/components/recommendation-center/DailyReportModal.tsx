@@ -51,6 +51,7 @@ const sumPriority = (rows: JobLine[], priority: string) => rows.reduce((total, r
 const DRAFT_VERSION = 5;
 interface DraftState {
   v: number;
+  recommendExcludesRepush?: boolean;
   recommend: JobLine[]; cv: JobLine[]; screenNew: number;
   cvTotal?: number; recommendTotal?: number; scheduledInt?: number; interviewTotal?: number; offerTotal?: number; onboardTotal?: number;
   scheduled: ScheduledLine[]; interview: InterviewLine[];
@@ -93,6 +94,18 @@ function normalizeAutoRecord(record: RemoteRecord): RemoteRecord {
   };
 }
 
+function applyCurrentRecommendationScope(draft: DraftState | null, auto: RemoteRecord): DraftState | null {
+  if (!draft) return null;
+  const savedTotal = draft.recommendTotal ?? sum(draft.recommend);
+  if (draft.recommendExcludesRepush && !(savedTotal === 0 && auto.recommendTotal > 0)) return draft;
+  return {
+    ...draft,
+    recommendExcludesRepush: true,
+    recommend: auto.recommendDetail,
+    recommendTotal: auto.recommendTotal,
+  };
+}
+
 const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /** 把本系统今日数据组装成看板站日报，可编辑预览后一键提交到团队数据看板。 */
@@ -117,8 +130,12 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const [selectedDate, setSelectedDate] = useState(todayStr);
 
   // 初始化（针对今天）：优先今天已存的未提交草稿，否则用自动初稿。仅执行一次。
+  const initial = useMemo(() => {
+    const auto = computeAutoDraft(todayStr);
+    const saved = applyCurrentRecommendationScope(normalizeDraft(loadDraft(name, todayStr)), auto);
+    return { auto, saved };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const initial = useMemo(() => ({ auto: computeAutoDraft(todayStr), saved: normalizeDraft(loadDraft(name, todayStr)) }), []);
+  }, []);
 
   // 提交所用记录 id：按天各自独立，避免不同日期共用 id 导致相互覆盖。
   const [recordId, setRecordId] = useState<string>(initial.auto.id);
@@ -150,7 +167,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   // 把某一天的数据套用到编辑态：优先该天已存草稿，否则用自动初稿。
   const applyDate = (dateStr: string) => {
     const auto = computeAutoDraft(dateStr);
-    const saved = normalizeDraft(loadDraft(name, dateStr));
+    const saved = applyCurrentRecommendationScope(normalizeDraft(loadDraft(name, dateStr)), auto);
     setRecordId(auto.id);
     setRecommend(saved?.recommend ?? []);
     setCv(saved?.cv ?? []);
@@ -183,6 +200,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   useEffect(() => {
     if (state === 'done' || !dirty) return;
     saveDraft(name, selectedDate, {
+      recommendExcludesRepush: true,
       recommend,
       cv,
       cvTotal,

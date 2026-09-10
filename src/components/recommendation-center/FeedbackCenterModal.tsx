@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { projectFeedbackStatus } from '@/lib/feedback-status';
 import type {
   FeedbackCenterItem,
   FeedbackCenterState,
@@ -45,19 +46,9 @@ const statusOptions: { value: FeedbackConfirmedStatus; label: string }[] = [
 ];
 
 function bucket(item: FeedbackCenterItem): TabId | 'closed' {
-  if (item.sourceStatus === 'scheduled') return 'closed';
-  const status = item.confirmedStatus;
-  if (status) {
-    if (status === 'closed' || status === 'interview_passed') return 'closed';
-    if (status === 'interview_failed') return 'interview_failed';
-    if (status === 'screening_failed') return 'screening_failed';
-    if (status === 'interview_pending') return 'pending';
-    return 'pending';
-  }
-  if (item.sourceStatus === 'interview_failed') return 'interview_failed';
-  if (item.sourceStatus === 'screening_failed') return 'screening_failed';
-  if (item.sourceStatus === 'manual_review') return 'pending';
-  if (item.interviewStatus === '已约面') return 'pending';
+  const status = projectFeedbackStatus(item);
+  if (status === 'screening_failed' || status === 'interview_failed') return status;
+  if (status === 'positive' || status === 'closed') return 'closed';
   return 'pending';
 }
 
@@ -84,13 +75,13 @@ function candidateKey(item: FeedbackCenterItem): string {
 }
 
 function statusLabel(item: FeedbackCenterItem): string {
-  if (item.sourceStatus === 'scheduled') return '已约面';
-  if (item.confirmedStatus === 'interview_pending') return '面试待反馈';
-  if (item.confirmedStatus === 'interview_passed') return '面试通过';
-  if (item.confirmedStatus === 'closed') return '已关闭';
-  const itemBucket = bucket(item);
-  if (itemBucket === 'screening_failed') return '初筛未通过';
-  if (itemBucket === 'interview_failed') return '面试未通过';
+  const status = projectFeedbackStatus(item);
+  if (status === 'positive') return item.confirmedStatus === 'interview_passed' ? '面试通过' : '通过';
+  if (status === 'closed') return '已关闭';
+  if (status === 'screening_failed') return '初筛未通过';
+  if (status === 'interview_failed') return '面试未通过';
+  if (item.confirmedStatus === 'interview_pending' || (!item.confirmedStatus && item.sourceStatus === 'scheduled')) return '面试待反馈';
+  if (!item.confirmedStatus && item.sourceStatus === 'manual_review') return 'OCR 待核对';
   return '待反馈';
 }
 
@@ -318,7 +309,7 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
                     <button type="button" disabled={updating} onClick={() => void update(selectedItem, { action: 'follow_up' })} className="flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
                       <Check className="h-4 w-4" />标记已跟进
                     </button>
-                    {bucket(selectedItem) !== 'pending' && selectedItem.recommendationId && (
+                    {(bucket(selectedItem) === 'screening_failed' || bucket(selectedItem) === 'interview_failed') && selectedItem.recommendationId && (
                       <button type="button" onClick={() => { void update(selectedItem, { action: 'repush' }); onRepush(selectedItem.recommendationId!); }} className="flex h-9 items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 text-sm font-medium text-violet-600 hover:bg-violet-50">
                         <Repeat className="h-4 w-4" />
                         复推其他部门

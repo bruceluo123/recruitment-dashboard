@@ -13,6 +13,7 @@ export interface TalentLinks {
 export interface Talent {
   id: string;
   candidateCode?: string;   // 候选人编码（来自推荐语，复推/人才库共用）
+  candidateIdentityId?: string; // 稳定候选人身份，用于编号和跨模块记录关联
   name: string;             // 姓名（中文或英文）
   jobTitle: string;         // 最近一份岗位 title
   categories: JDCategory[]; // 人选分类（复用 JD 的 28 个分类）

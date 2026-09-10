@@ -13,7 +13,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [sheetUrl, setSheetUrl] = useState('');
   const [pasteText, setPasteText] = useState('');
-  // 覆盖模式：用本次导入替换整个岗位库（适合每天粘贴完整面板做同步）。默认关闭=增量合并。
+  // 覆盖模式：粘贴完整需求面板时默认开启；Excel/链接仍默认增量合并。
   const [replaceMode, setReplaceMode] = useState(false);
   const [result, setResult] = useState<JDImportResult | null>(null);
   const isImporting = useJDStore((s) => s.isImporting);
@@ -99,7 +99,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
             { id: 'paste' as const, label: '粘贴表格', icon: ClipboardPaste },
             { id: 'sheet' as const, label: 'Google 文档', icon: Link },
           ].map((t) => (
-            <button key={t.id} onClick={() => { if (!isImporting) { setTab(t.id); setResult(null); } }}
+            <button key={t.id} onClick={() => { if (!isImporting) { setTab(t.id); setReplaceMode(t.id === 'paste'); setResult(null); } }}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${tab === t.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'} ${isImporting ? 'opacity-50 cursor-not-allowed' : ''}`}>
               <t.icon className="w-4 h-4" />{t.label}
             </button>

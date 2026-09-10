@@ -72,6 +72,7 @@ export function JDMatchDialog({ jd, isOpen, onClose }: JDMatchDialogProps) {
       const text = await parseResumeFile(file);
       const results = await matchResumeToJDs(text, [jd], `jd-detail-${Date.now()}`);
       if (!results.length) throw new Error('该岗位按当前匹配规则暂无可用结果，请确认岗位不是暂停状态且缺口大于 0');
+      if (results[0].assessmentStatus === 'failed') throw new Error(results[0].reasoning || '岗位分析未完成，请重试');
       setResult(results[0]);
     } catch (err) {
       setError((err as Error).message || '匹配失败，请稍后重试');

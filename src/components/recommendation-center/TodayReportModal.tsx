@@ -4,7 +4,7 @@ import { X, Copy, Check } from 'lucide-react';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
 import type { Candidate } from '@/types/interview';
 import {
-  todaysRecommendations,
+  todaysReportRecommendations,
   todaysInterviews,
   aggregateRecommendations,
   isInterviewPassed,
@@ -27,7 +27,7 @@ export function TodayReportModal({ column, name, items, candidates, onClose }: T
   useEscapeClose(onClose);
 
   const input: TodayReportInput = useMemo(() => {
-    const recs = todaysRecommendations(items, ref, column);
+    const recs = todaysReportRecommendations(items, ref, column);
     const recommendDetail = aggregateRecommendations(recs);
     const interviews = todaysInterviews(candidates, ref, column).map((c) => ({
       job: c.jdTitle,

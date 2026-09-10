@@ -7,12 +7,14 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 interface RecommendationCandidateDialogProps {
   jobCount: number;
   codePrefix: string;
+  candidateCode: string;
   initialCandidateText: string;
-  initialCodeSuffix: string;
   initialResumeFile: File | null;
   initialResumeSource: string;
   onClose: () => void;
-  onGenerate: (candidateText: string, codeSuffix: string, resumeFile: File | null, resumeSource: string) => void;
+  error?: string;
+  generating?: boolean;
+  onGenerate: (candidateText: string, resumeFile: File | null, resumeSource: string) => void;
 }
 
 const RESUME_SOURCE_OPTIONS = [
@@ -39,22 +41,19 @@ const CANDIDATE_PLACEHOLDER = `候选人姓名（英文名）：Austin
 预计可到岗时间：即可
 面试是否接受开视频（主要为了验证真人和避免AI辅助面试）：接受`;
 
-function digitsOnly(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 3);
-}
-
 export function RecommendationCandidateDialog({
   jobCount,
   codePrefix,
+  candidateCode,
   initialCandidateText,
-  initialCodeSuffix,
   initialResumeFile,
   initialResumeSource,
+  error,
+  generating = false,
   onClose,
   onGenerate,
 }: RecommendationCandidateDialogProps) {
   const [candidateText, setCandidateText] = useState(initialCandidateText);
-  const [codeSuffix, setCodeSuffix] = useState(initialCodeSuffix);
   const [resumeFile, setResumeFile] = useState<File | null>(initialResumeFile);
   const [resumeSource, setResumeSource] = useState(
     RESUME_SOURCE_OPTIONS.includes(initialResumeSource) ? initialResumeSource : 'boss',
@@ -62,7 +61,6 @@ export function RecommendationCandidateDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   useEscapeClose(onClose);
 
-  const paddedSuffix = codeSuffix ? codeSuffix.padStart(3, '0') : '---';
   const candidatePlaceholder = codePrefix === 'XYBB00'
     ? CANDIDATE_PLACEHOLDER.replace('候选人姓名（英文名）', '候选人姓名')
     : CANDIDATE_PLACEHOLDER;
@@ -94,21 +92,12 @@ export function RecommendationCandidateDialog({
         <div className="space-y-5 overflow-y-auto p-5">
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div>
-            <label htmlFor="candidate-code-suffix" className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+            <span className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
               <Hash className="h-4 w-4 text-indigo-500" />候选人编号
-            </label>
-            <div className="flex h-11 items-center overflow-hidden rounded-lg border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
-              <span className="flex h-full items-center border-r border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-500">{codePrefix}</span>
-              <input
-                id="candidate-code-suffix"
-                value={codeSuffix}
-                onChange={(event) => setCodeSuffix(digitsOnly(event.target.value))}
-                inputMode="numeric"
-                maxLength={3}
-                placeholder="062"
-                className="h-full min-w-0 flex-1 px-3 font-mono text-sm text-slate-900 outline-none"
-              />
-              <span className="pr-3 text-xs text-slate-400">生成：{codePrefix}{paddedSuffix}</span>
+            </span>
+            <div className="flex h-11 items-center rounded-lg border border-slate-200 bg-slate-50 px-3">
+              <span className="font-mono text-sm font-medium text-slate-700">{candidateCode || `${codePrefix}（生成时自动分配）`}</span>
+              <span className="ml-auto text-xs text-emerald-600">服务端唯一编号</span>
             </div>
             </div>
 
@@ -168,16 +157,18 @@ export function RecommendationCandidateDialog({
               className="h-64 w-full resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
             />
           </div>
+          {error && <p role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-4">
-          <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-medium text-slate-500 hover:bg-slate-100">取消</button>
+          <button type="button" onClick={onClose} disabled={generating} className="h-10 rounded-lg px-4 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50">取消</button>
           <button
             type="button"
-            onClick={() => onGenerate(candidateText.trim(), codeSuffix, resumeFile, resumeSource.trim() || 'boss')}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700"
+            onClick={() => onGenerate(candidateText.trim(), resumeFile, resumeSource.trim() || 'boss')}
+            disabled={generating}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
           >
-            <Sparkles className="h-4 w-4" />生成 {jobCount} 份推荐文案
+            <Sparkles className="h-4 w-4" />{generating ? '正在分配编号…' : `生成 ${jobCount} 份推荐文案`}
           </button>
         </div>
       </div>

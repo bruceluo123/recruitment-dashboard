@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guardApi } from '@/lib/api-guard';
-import { kvGet } from '@/lib/kv';
+import { requireOwnerSession } from '@/lib/auth-api';
+import { kvCommandStrict } from '@/lib/kv-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,15 +19,21 @@ function parseCache(value: DialogCache | string | null): DialogCache | null {
 }
 
 export async function GET(request: NextRequest) {
+  const sender = request.nextUrl.searchParams.get('sender') === 'b' ? 'b' : 'a';
+  const unauthorized = await requireOwnerSession(request, sender);
+  if (unauthorized) return unauthorized;
   const blocked = guardApi(request, 'tg-dialogs', 12, 60_000);
   if (blocked) return blocked;
 
-  const sender = request.nextUrl.searchParams.get('sender') === 'b' ? 'b' : 'a';
   const cacheKey = sender === 'b' ? 'recruit:tg-delivery-dialogs-b' : 'recruit:tg-delivery-dialogs';
-  const cache = parseCache(await kvGet<DialogCache | string>(cacheKey));
-  return NextResponse.json({
-    ok: true,
-    items: Array.isArray(cache?.items) ? cache.items : [],
-    updatedAt: cache?.updatedAt || '',
-  });
+  try {
+    const cache = parseCache(await kvCommandStrict<DialogCache | string | null>('GET', cacheKey));
+    return NextResponse.json({
+      ok: true,
+      items: Array.isArray(cache?.items) ? cache.items : [],
+      updatedAt: cache?.updatedAt || '',
+    });
+  } catch {
+    return NextResponse.json({ ok: false, error: 'TG 会话列表读取失败' }, { status: 503 });
+  }
 }

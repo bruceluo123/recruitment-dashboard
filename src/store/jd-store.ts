@@ -11,12 +11,14 @@ import { currentOperatorName } from '@/lib/operator';
 import { useRecycleStore } from '@/store/recycle-store';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
 import { pushImportDiff, pushWeeklyAdded, syncPush } from '@/lib/sync';
+import { diffRecords, type SyncRecord } from '@/lib/record-changes';
 import {
   analyzeColumns,
   classifyJD,
   cleanJDNumbering,
   getJDKey,
   isAllowedTitleHeader,
+  jdStatusFromGap,
   mergeUniqueJDs,
   normalizeJDCount,
   normalizeJDSections,
@@ -172,22 +174,31 @@ export const useJDStore = create<JDStore>()(
         }
         try {
           let dataToBackup = jds;
+          let remoteJds: JD[] = [];
           const remoteRes = await fetch('/api/data?type=jds');
           if (remoteRes.ok) {
             const remote = await remoteRes.json();
-            const remoteJds = Array.isArray(remote?.jds) ? remote.jds as JD[] : [];
+            remoteJds = Array.isArray(remote?.jds) ? remote.jds as JD[] : [];
             dataToBackup = mergeUniqueJDs(remoteJds, jds).jds;
+          } else {
+            throw new Error('云端岗位读取失败，已停止备份');
           }
-          const res = await fetch('/api/data', {
+          const changes = diffRecords(remoteJds as unknown as SyncRecord[], dataToBackup as unknown as SyncRecord[]);
+          if (!changes.length) {
+            alert(`无需备份：云端 ${dataToBackup.length} 条岗位已是最新。`);
+            return;
+          }
+          const res = await fetch('/api/sync/records', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'jds', data: dataToBackup }),
+            body: JSON.stringify({ type: 'jds', mutationId: crypto.randomUUID(), changes }),
           });
           if (res.ok) {
             alert(`备份完成：云端当前共 ${dataToBackup.length} 条岗位。`);
           } else {
+            const result = await res.json().catch(() => ({})) as { error?: string };
             console.error('backupToKV: 写入失败', res.status);
-            alert(`备份失败：云端接口返回 ${res.status}。`);
+            alert(`备份失败：${result.error || `云端接口返回 ${res.status}`}。`);
           }
         } catch (err) {
           console.error('backupToKV failed', err);
@@ -324,7 +335,7 @@ export const useJDStore = create<JDStore>()(
                   salaryRange: normalizedSalary.salaryRange,
                   salaryText: normalizedSalary.salaryText,
                   location: location || 'remote',
-                  status: 'active',
+                  status: jdStatusFromGap(gap),
                   createdAt: new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
                 });
@@ -339,6 +350,11 @@ export const useJDStore = create<JDStore>()(
           // 导入后统一清理一遍职责/要求里的序号前缀（1. 一、 ① 等），无论合并还是覆盖。
           const cleanBatch = batch.map(cleanJDNumbering);
 
+          if (mode === 'replace' && result.failed > 0) {
+            set({ isImporting: false, importProgress: { current: total, total, percent: 100, status: 'done' } });
+            return { ...result, success: 0, errors: [...result.errors, `有 ${result.failed} 行未能解析，已取消覆盖，原岗位库保持不变。请修正后重新导入。`] };
+          }
+
           if (mode === 'replace' && cleanBatch.length === 0) {
             // 安全保护：覆盖模式下解析为 0 条时绝不清空岗位库（避免误粘空内容把库清空）。
             set({ isImporting: false, importProgress: { current: 0, total: 0, percent: 100, status: 'done' } });
@@ -346,18 +362,21 @@ export const useJDStore = create<JDStore>()(
           }
           if (mode === 'replace') {
             // 全量覆盖：用本次粘贴替换整个岗位库（先对本批内部去重，避免同一面板里重复 REQ-Key）。
-            // 一次粘贴 = 新增 + 更新 + 删除：面板里没有的岗位会随覆盖一并移除。
+            // 一次粘贴 = 新增 + 更新；是否暂停只看缺口是否为 0。
             const deduped = mergeUniqueJDs([], cleanBatch);
             // 每日面板只有摘要列（岗位名/薪资/部门/编制），没有职责/要求。
             // 覆盖时若新行缺职责/要求，则沿用库中同一岗位的旧内容，避免覆盖把 JD 详情清空。
-            const oldByKey = new Map(get().jds.map((j) => [getJDKey(j), j]));
+            const prevJds = get().jds;
+            const oldByKey = new Map(prevJds.map((j) => [getJDKey(j), j]));
+            const oldById = new Map(prevJds.map((j) => [j.id, j]));
             // 标题兜底：REQ-Key 变化时仍能认出同一岗位，避免覆盖导入把 createdAt 重置成 now
             // （否则整库每次覆盖都会「全部显示新」）。仅在精确 key 匹配不到时启用。
             const normReclassTitle = (t: string) =>
               t.toLowerCase().replace(/[（(]\s*\d+\s*人\s*[）)]/g, '').replace(/\s+/g, '');
-            const oldByTitle = new Map(get().jds.map((j) => [normReclassTitle(j.title), j] as const));
+            const targetIdentity = (j: JD) => [normReclassTitle(j.title), j.organization || '', j.department || '', j.serviceUnit || ''].join('|');
+            const oldByTitle = new Map(prevJds.map((j) => [targetIdentity(j), j] as const));
             const enriched = deduped.jds.map((jd) => {
-              const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(normReclassTitle(jd.title));
+              const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(targetIdentity(jd));
               const hasResp = jd.responsibilities && jd.responsibilities.length > 0;
               const hasReq = jd.requirements && jd.requirements.length > 0;
               // 补全正文：日报面板常只有摘要列，缺职责/要求时沿用库中同岗位旧内容
@@ -368,24 +387,40 @@ export const useJDStore = create<JDStore>()(
               // 命中已有岗位：保留原始 createdAt（即使只改了 HC/缺口等也不算「新」）；
               // 真正新增（标题/REQ-Key 都匹配不到）：保留 createdAt = now，5 工作日内显示「新」。
               const createdAt = old ? old.createdAt : jd.createdAt;
-              return { ...jd, createdAt, responsibilities, requirements, categories };
+              const status: JDStatus = jdStatusFromGap(jd.gap) === 'paused'
+                ? 'paused'
+                : old?.status === 'urgent' || old?.statusBeforeSyncClose === 'urgent'
+                  ? 'urgent'
+                  : 'active';
+              return {
+                ...jd,
+                id: old?.id || jd.id,
+                createdAt,
+                responsibilities,
+                requirements,
+                categories,
+                status,
+                syncClosedAt: undefined,
+                statusBeforeSyncClose: undefined,
+              };
             });
+            // 覆盖模式以本次完整面板为唯一当前岗位库；面板里不存在的历史岗位直接移出。
+            // 仍会复用本次面板中同一岗位的原 ID，保留当前岗位已有的推荐关联。
+            const importedIds = new Set(enriched.map((j) => j.id));
+            const nextJds = enriched;
             // 计算新增 / 移除 / 异动 diff（在写入前用旧数据对比）
-            const prevJds = get().jds;
-            const newByKey = new Map(enriched.map((j) => [getJDKey(j), j]));
-
             result.added = enriched
-              .filter((j) => !oldByKey.has(getJDKey(j)))
+              .filter((j) => !oldById.has(j.id))
               .map((j) => ({ title: j.title, reqKey: j.reqKey, organization: j.organization, department: j.department, serviceUnit: j.serviceUnit }));
 
             result.removed = prevJds
-              .filter((j) => !newByKey.has(getJDKey(j)))
+              .filter((j) => !importedIds.has(j.id))
               .map((j) => ({ title: j.title, reqKey: j.reqKey, organization: j.organization, department: j.department, serviceUnit: j.serviceUnit }));
 
             result.changed = enriched
-              .filter((j) => oldByKey.has(getJDKey(j)))
+              .filter((j) => oldById.has(j.id))
               .reduce<JDDiffItem[]>((acc, j) => {
-                const old = oldByKey.get(getJDKey(j))!;
+                const old = oldById.get(j.id)!;
                 const diffs: string[] = [];
                 if (old.status !== j.status) diffs.push(`状态 ${JD_STATUS_LABELS[old.status]}→${JD_STATUS_LABELS[j.status]}`);
                 if ((old.headcount ?? '') !== (j.headcount ?? '')) diffs.push(`HC ${old.headcount || '-'}→${j.headcount || '-'}`);
@@ -397,11 +432,11 @@ export const useJDStore = create<JDStore>()(
                 return acc;
               }, []);
 
-            useJDStore.setState({ jds: enriched });
+            useJDStore.setState({ jds: nextJds });
             result.success = enriched.length;
             result.failed = 0;
             result.errors = [];
-            result.replaced = enriched.length;
+            result.replaced = nextJds.length;
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
             // 持久化今日增改，供工具栏"今日增改"按钮调取；同时推送到 KV 供其他用户查看
             const importDiff = { ...result, date: new Date().toISOString() };
@@ -427,16 +462,17 @@ export const useJDStore = create<JDStore>()(
             const existing = get().jds;
             const oldByKey = new Map(existing.map((j) => [getJDKey(j), j]));
             const normTitle = (t: string) => t.toLowerCase().replace(/[（(]\s*\d+\s*人\s*[）)]/g, '').replace(/\s+/g, '');
+            const targetIdentity = (j: JD) => [normTitle(j.title), j.organization || '', j.department || '', j.serviceUnit || ''].join('|');
             const oldByTitle = new Map(
               existing
                 .filter((j) => (j.responsibilities?.length || 0) > 0 || (j.requirements?.length || 0) > 0)
-                .map((j) => [normTitle(j.title), j])
+                .map((j) => [targetIdentity(j), j])
             );
             const enrichedBatch = cleanBatch.map((jd) => {
               const hasResp = (jd.responsibilities?.length || 0) > 0;
               const hasReq = (jd.requirements?.length || 0) > 0;
               if (hasResp && hasReq) return jd;
-              const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(normTitle(jd.title));
+              const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(targetIdentity(jd));
               if (!old) return jd;
               return {
                 ...jd,
@@ -461,7 +497,7 @@ export const useJDStore = create<JDStore>()(
         }
       },
     }),
-    { name: 'recruitai-jd-store', version: 5,
+    { name: 'recruitai-jd-store', version: 6,
       partialize: (state) => {
         // Exclude transient import state — always reset on page reload
         const { isImporting, importCancelled, importProgress, cancelImport, ...rest } = state;
@@ -482,8 +518,7 @@ export const useJDStore = create<JDStore>()(
       migrate: (old: unknown) => {
         const state = old as { jds?: Array<Record<string, unknown>> };
         const jds = state.jds || [];
-        return {
-          jds: jds.map((jd: Record<string, unknown>) => {
+        const normalized = jds.map((jd: Record<string, unknown>) => {
             const fixed = { ...jd };
             // Migrate isActive → status
             if (!fixed.status && fixed.isActive !== undefined) {
@@ -511,7 +546,11 @@ export const useJDStore = create<JDStore>()(
               fixed.requirements = stripContactMeta((fixed.requirements as unknown[]).map(String));
             }
             return normalizeJDSections(fixed as unknown as JD);
-          }),
+          });
+        return {
+          // v6: 清理旧版移动端缓存中已经存在的重复岗位。
+          // 仍按需求 Key 区分真实的独立 HC，只移除同一岗位身份的重复副本。
+          jds: mergeUniqueJDs([], normalized).jds,
         } as unknown as JDStore;
       },
     },

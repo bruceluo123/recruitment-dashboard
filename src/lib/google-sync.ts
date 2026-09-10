@@ -4,8 +4,9 @@
 
 import type { JD } from '@/types/jd';
 import { fetchGoogleExport, fetchGoogleSheetValues } from '@/lib/google-sheet';
-import { analyzeColumns, getJDKey, normalizeExcelRows, rowToColumnJD } from '@/lib/jd-parse-core';
-import { kvGet, kvSet, SYNC_KEYS } from '@/lib/kv';
+import { analyzeColumns, getJDKey, jdStatusFromGap, normalizeExcelRows, rowToColumnJD } from '@/lib/jd-parse-core';
+import { kvGet, SYNC_KEYS } from '@/lib/kv';
+import { kvCommandStrict } from '@/lib/kv-server';
 
 // mock 示例数据 ID 前缀，永不参与自动删除/刷新
 const MOCK_ID_PREFIX = 'jd-00';
@@ -18,6 +19,7 @@ export interface SyncSummary {
   ok: boolean;
   added: number;
   deleted: number;
+  closed?: number;
   updated: number;
   adopted: number;
   kept: number;
@@ -50,9 +52,14 @@ function contentSignature(jd: JD): string {
   });
 }
 
-/** 用源表最新解析结果刷新已有岗位的内容，保留 id/createdAt/status。
+/** 用源表最新解析结果刷新已有岗位的内容，保留 id/createdAt。
  * priority 现在以源表「优先级」列为准，这里用 fresh.priority 覆盖。 */
 function refreshFromSheet(existing: JD, fresh: JD): JD {
+  const status = jdStatusFromGap(fresh.gap) === 'paused'
+    ? 'paused' as const
+    : existing.status === 'urgent' || existing.statusBeforeSyncClose === 'urgent'
+      ? 'urgent' as const
+      : 'active' as const;
   return {
     ...existing,
     title: fresh.title,
@@ -70,19 +77,19 @@ function refreshFromSheet(existing: JD, fresh: JD): JD {
     location: fresh.location,
     odc: fresh.odc,
     requester: fresh.requester,
+    status,
+    syncClosedAt: undefined,
+    statusBeforeSyncClose: undefined,
     source: 'google-sync',
     updatedAt: new Date().toISOString(),
   };
 }
 
-function safeParseArray(raw: string | null): JD[] {
+function parseStoredJDs(raw: string | null): JD[] {
   if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as JD[]) : [];
-  } catch {
-    return [];
-  }
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('岗位库数据格式异常，本轮同步已停止');
+  return parsed as JD[];
 }
 
 /**
@@ -90,10 +97,10 @@ function safeParseArray(raw: string | null): JD[] {
  *  - mock 示例（jd-00*）：永远保持原样，不删不改
  *  - 表格中存在的已有岗位：刷新内容（缺口/优先级/职责/要求等），保留 id/createdAt/status，
  *    并"认领"为 google-sync
- *  - 来源为 google-sync 但已不在表格中：自动删除
+ *  - 来源为 google-sync 但已不在表格中：保留稳定 ID，不改变招聘状态
  *  - 手动添加且不在表格中的岗位：保留为 manual，永不自动删除
  *  - 新增：表格存在、KV 不存在的岗位
- * 仅在有实际变化（新增/删除/刷新/认领）时写回并自增版本号。
+ * 仅在有实际变化（新增/暂停/刷新/认领）时写回并自增版本号。
  */
 export async function runGoogleSync(): Promise<SyncSummary> {
   const sheetUrl = process.env.GOOGLE_SYNC_SHEET_URL || DEFAULT_SHEET_URL;
@@ -136,11 +143,11 @@ export async function runGoogleSync(): Promise<SyncSummary> {
 
   // 4. 读取当前 KV 数据
   const rawJds = await kvGet<string>(SYNC_KEYS.jds);
-  const existing: JD[] = safeParseArray(rawJds);
+  const existing: JD[] = parseStoredJDs(rawJds);
   const existingKeys = new Set(existing.map(getJDKey));
 
   // 5. diff + 刷新
-  let deleted = 0;
+  let closed = 0;
   let adopted = 0;
   let updated = 0;
   const kept: JD[] = [];
@@ -156,7 +163,11 @@ export async function runGoogleSync(): Promise<SyncSummary> {
     if (fresh) {
       const wasAdopted = jd.source !== 'google-sync';
       const refreshed = refreshFromSheet(jd, fresh);
-      const changed = contentSignature(jd) !== contentSignature(refreshed);
+      if (refreshed.status === 'paused' && jd.status !== 'paused') closed++;
+      const changed = contentSignature(jd) !== contentSignature(refreshed)
+        || jd.status !== refreshed.status
+        || jd.syncClosedAt !== refreshed.syncClosedAt
+        || jd.statusBeforeSyncClose !== refreshed.statusBeforeSyncClose;
       if (wasAdopted) adopted++;
       if (changed) {
         updated++;
@@ -167,9 +178,18 @@ export async function runGoogleSync(): Promise<SyncSummary> {
       }
       continue;
     }
-    // 不在表格中
+    // 不在表格中：保留岗位，只按已有缺口修正状态；缺席本身不代表暂停招聘。
     if (jd.source === 'google-sync') {
-      deleted++; // 曾由同步管理、现已从表格移除 → 删除
+      const status = jdStatusFromGap(jd.gap) === 'paused'
+        ? 'paused' as const
+        : jd.status === 'urgent' || jd.statusBeforeSyncClose === 'urgent'
+          ? 'urgent' as const
+          : 'active' as const;
+      const needsRepair = jd.status !== status || Boolean(jd.syncClosedAt || jd.statusBeforeSyncClose);
+      if (needsRepair) updated++;
+      kept.push(needsRepair
+        ? { ...jd, status, syncClosedAt: undefined, statusBeforeSyncClose: undefined, updatedAt: new Date().toISOString() }
+        : jd);
       continue;
     }
     kept.push(jd); // 手动岗位，保留
@@ -179,22 +199,25 @@ export async function runGoogleSync(): Promise<SyncSummary> {
   const merged = [...kept, ...additions];
 
   // 无任何变化则跳过写入，避免无谓地 bump version
-  if (additions.length === 0 && deleted === 0 && adopted === 0 && updated === 0) {
+  if (additions.length === 0 && closed === 0 && adopted === 0 && updated === 0) {
     return { ok: true, added: 0, deleted: 0, updated: 0, adopted: 0, kept: kept.length, total: merged.length };
   }
 
-  // 6. 写回 KV 并自增版本号（触发浏览器端轮询拉取）
-  const wrote = await kvSet(SYNC_KEYS.jds, merged);
-  if (!wrote) throw new Error('写入 KV 失败');
-
-  const rawVer = await kvGet<string>(SYNC_KEYS.version);
-  const version = (parseInt(rawVer || '0') || 0) + 1;
-  await kvSet(SYNC_KEYS.version, version);
+  // 6. 比较读取快照后再原子写入；同步期间有人改动时绝不覆盖，留待下轮重算。
+  const [committed, version] = await kvCommandStrict<[number, number]>('EVAL', `
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then
+  return {0, tonumber(redis.call('GET', KEYS[2]) or '0')}
+end
+redis.call('SET', KEYS[1], ARGV[2])
+local version = redis.call('INCR', KEYS[2])
+return {1, version}`, 2, SYNC_KEYS.jds, SYNC_KEYS.version, rawJds || '', JSON.stringify(merged));
+  if (committed !== 1) throw new Error('岗位库在同步期间已更新，本轮未覆盖；请重新同步');
 
   return {
     ok: true,
     added: additions.length,
-    deleted,
+    deleted: 0,
+    closed,
     updated,
     adopted,
     kept: kept.length,

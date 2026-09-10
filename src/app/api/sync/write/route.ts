@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sameOriginGuard, rateLimit, clientIp } from '@/lib/api-guard';
+import { rateLimit, clientIp } from '@/lib/api-guard';
+import { requireMutationSession } from '@/lib/auth-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,8 +10,6 @@ const TOK = process.env.KV_REST_API_TOKEN || '';
 // 侧信道键白名单：客户端只传符号名，真实 KV 键名只存在于服务端，
 // 与 /api/data 的 6 类主数据键分开管理（那些走 /api/data，这些走这里）。
 const SIDE_KEYS: Record<string, string> = {
-  tombstones: 'recruit:tombstones',
-  version: 'recruit:version',
   'last-import-diff': 'recruit:last-import-diff',
   'weekly-added': 'recruit:weekly-added',
 };
@@ -32,18 +31,8 @@ async function upstash(cmd: string, key: string, body?: string): Promise<string 
   } catch { return null; }
 }
 
-/** 与 /api/data 一致：配了 DATA_WRITE_TOKEN 时校验请求头；未配置时退回同源校验。 */
-function writeGuard(req: NextRequest): NextResponse | null {
-  const expected = process.env.DATA_WRITE_TOKEN;
-  if (expected) {
-    if (req.headers.get('x-app-token') === expected) return null;
-    return NextResponse.json({ error: '未授权' }, { status: 401 });
-  }
-  return sameOriginGuard(req);
-}
-
 export async function POST(req: NextRequest) {
-  const blocked = writeGuard(req);
+  const blocked = await requireMutationSession(req);
   if (blocked) return blocked;
   if (!rateLimit(`sync-write:${clientIp(req)}`, 60, 60_000)) {
     return NextResponse.json({ error: '写入过于频繁' }, { status: 429 });
@@ -53,11 +42,6 @@ export async function POST(req: NextRequest) {
     const realKey = key ? SIDE_KEYS[key] : undefined;
     if (!realKey) return NextResponse.json({ error: `未知键: ${key}` }, { status: 400 });
 
-    if (op === 'incr') {
-      const r = await upstash('incr', realKey);
-      if (r == null) return NextResponse.json({ error: 'incr 失败' }, { status: 500 });
-      return NextResponse.json({ ok: true, value: parseInt(r) || 0 });
-    }
     if (op === 'set') {
       if (typeof value !== 'string') return NextResponse.json({ error: '缺少 value' }, { status: 400 });
       const ok = await upstash('set', realKey, value);

@@ -2,6 +2,7 @@ export type FeedbackSourceStatus =
   | 'no_feedback'
   | 'pending'
   | 'scheduled'
+  | 'passed'
   | 'screening_failed'
   | 'interview_failed'
   | 'manual_review';

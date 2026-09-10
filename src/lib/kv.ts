@@ -1,3 +1,5 @@
+import 'server-only';
+
 // Vercel KV (Upstash Redis) client — shared data layer for multi-user sync
 
 const KV_URL = process.env.KV_REST_API_URL || '';

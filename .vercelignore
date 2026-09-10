@@ -1,0 +1,17 @@
+# Production deploy allowlist. Keep local audits, HR exports, credentials,
+# worker scripts, linked projects, and unrelated workspace files out of Vercel.
+/*
+
+!/.vercelignore
+!/.eslintrc.json
+!/next-env.d.ts
+!/next.config.mjs
+!/package.json
+!/package-lock.json
+!/postcss.config.mjs
+!/tailwind.config.ts
+!/tsconfig.json
+!/vercel.json
+
+!public
+!src

@@ -1,6 +1,10 @@
 // 简历文字提取（PDF / DOC / DOCX / 图片）共享实现：被 /api/resume/parse 与 /api/talent/scan 复用。
 import { extractPdfTextViaGemini } from '@/lib/ocr-gemini';
-import { extractImageTextViaDeepSeek, isSupportedVisionImage } from '@/lib/ocr-deepseek-vision';
+import {
+  extractImageTextViaDeepSeek,
+  extractPdfTextViaDeepSeek,
+  isSupportedVisionImage,
+} from '@/lib/ocr-deepseek-vision';
 
 export interface ExtractOk { text: string; source: string; }
 export interface ExtractErr { error: string; }
@@ -10,11 +14,11 @@ export function isExtractErr(r: ExtractResult): r is ExtractErr {
   return (r as ExtractErr).error !== undefined;
 }
 
-// 存储上限：匹配只需「大概」内容（实际喂 AI 时还会裁到 ~1200 字），
-// 超长正文截断以控制 KV 体积、支撑 2000 份规模。
-const MAX_STORED_CHARS = 8000;
+// 保留完整正文；超大文档明确提示处理，不静默截断项目经历。
+const MAX_STORED_CHARS = 100000;
 function clipForStorage(text: string): string {
-  return text.length > MAX_STORED_CHARS ? text.slice(0, MAX_STORED_CHARS) : text;
+  if (text.length > MAX_STORED_CHARS) throw new Error('简历正文超过 10 万字，请上传精简后的简历');
+  return text;
 }
 
 /** 折叠空白后估算有效正文字数 */
@@ -26,6 +30,23 @@ export function meaningfulLength(text: string): number {
 function isTextLayerSparse(text: string, numPages: number): boolean {
   const pages = Math.max(1, numPages || 1);
   return meaningfulLength(text) < pages * 350;
+}
+
+/**
+ * Gemini 按提示返回的是简历要点摘要，不能再用“每页字数”判断是否完整。
+ * 有足够正文且包含多个简历结构信号，即可用于后续匹配。
+ */
+function isUsableOcrResume(text: string): boolean {
+  if (meaningfulLength(text) < 120) return false;
+  const signals = [
+    /工作|任职|经历|experience|employment/i,
+    /项目|project/i,
+    /技能|技术|skill/i,
+    /教育|学历|院校|大学|education/i,
+    /产品|运营|开发|工程师|经理|设计|销售|市场|财务|人力/i,
+    /\b(?:19|20)\d{2}\b/,
+  ];
+  return signals.filter((pattern) => pattern.test(text)).length >= 2;
 }
 
 function decodeHtmlEntities(text: string): string {
@@ -95,7 +116,10 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
     try {
       const ocrText = await extractPdfTextViaGemini(buffer, geminiKey);
       if (meaningfulLength(ocrText) > meaningfulLength(pdfText)) {
-        return { text: clipForStorage(ocrText), source: 'gemini-ocr' };
+        if (isUsableOcrResume(ocrText)) {
+          return { text: clipForStorage(ocrText), source: 'gemini-ocr' };
+        }
+        ocrError = 'Gemini OCR 返回文字过少或缺少简历结构';
       }
     } catch (e) {
       ocrError = (e as Error).message || 'unknown';
@@ -104,10 +128,26 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
     }
   }
 
-  if (meaningfulLength(pdfText) > 0) return { text: clipForStorage(pdfText), source: 'pdf-text' };
+  if (isTextLayerSparse(pdfText, numPages) && process.env.DEEPSEEK_API_KEY) {
+    try {
+      const ocrText = await extractPdfTextViaDeepSeek(buffer);
+      if (meaningfulLength(ocrText) > Math.max(80, meaningfulLength(pdfText))) {
+        return { text: clipForStorage(ocrText), source: 'deepseek-vision-pdf' };
+      }
+      ocrError = 'DeepSeek OCR 返回文字过少';
+    } catch (e) {
+      ocrError = (e as Error).message || 'unknown';
+      console.error('[resume-text] deepseek pdf ocr failed:', ocrError);
+    }
+  }
 
-  if (!geminiKey) {
-    return { error: '该 PDF 为图片型（扫描件），暂无法识别。请配置 GEMINI_API_KEY 启用图片识别，或上传 DOCX / 粘贴文本' };
+  if (meaningfulLength(pdfText) > 0) {
+    if (isTextLayerSparse(pdfText, numPages)) return { error: 'PDF 文字识别不完整，请重新上传清晰文件或 DOCX 后匹配' };
+    return { text: clipForStorage(pdfText), source: 'pdf-text' };
+  }
+
+  if (!geminiKey && !process.env.DEEPSEEK_API_KEY) {
+    return { error: '该 PDF 为图片型（扫描件），暂无法识别。请配置 GEMINI_API_KEY 或 DEEPSEEK_API_KEY，或上传 DOCX / 粘贴文本' };
   }
   if (pdfParseError && ocrError) {
     const isCorrupted = pdfParseError.toLowerCase().includes('invalid') || pdfParseError.toLowerCase().includes('password');

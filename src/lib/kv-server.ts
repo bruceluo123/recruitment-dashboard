@@ -1,9 +1,24 @@
 // 服务端 Upstash KV 访问（与 /api/data 一致：text/plain 原样存取，避免 JSON 引号问题）。
+import 'server-only';
+
 const KV = process.env.KV_REST_API_URL || '';
 const TOK = process.env.KV_REST_API_TOKEN || '';
 
 export function kvConfigured(): boolean {
   return !!(KV && TOK);
+}
+
+/** Storage failure is not an empty dataset. */
+export async function kvCommandStrict<T>(...command: (string | number)[]): Promise<T> {
+  if (!KV || !TOK) throw new Error('业务存储未配置');
+  const response = await fetch(KV, {
+    method: 'POST', headers: { Authorization: `Bearer ${TOK}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(command), cache: 'no-store', signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error('业务存储暂不可用');
+  const data = await response.json();
+  if (data.error) throw new Error('业务存储操作失败');
+  return data.result as T;
 }
 
 export async function kvGetRaw(key: string): Promise<string | null> {

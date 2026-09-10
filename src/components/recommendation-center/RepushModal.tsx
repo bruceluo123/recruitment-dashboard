@@ -4,17 +4,54 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, FileText, Loader2, Repeat, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { hasCategory, type JD, type JDCategory } from '@/types/jd';
-import type { RepushItem } from '@/store/repush-store';
+import type { RecommendationDeliveryStatus, RepushItem } from '@/store/repush-store';
 import { displayName } from '@/lib/repush-format';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
+import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
 
 export interface RepushArgs {
+  record?: RepushItem;
+  source: 'intake' | 'repush';
+  repushSourceId?: string;
+  applicationId: string;
+  jdId: string;
   jdTitle: string;
   organization: string;
   department: string;
   contactPerson: string;
   recommendationText: string;
+  deliveryId?: string;
+  deliveryIndex?: number;
+  deliveryStatus?: RecommendationDeliveryStatus;
+  deliveryUpdatedAt?: string;
+  telegramMessageId?: string;
+  deliveredAt?: string;
+  uploadedAt?: string;
+  updatedAt?: string;
+}
+
+interface DeliveryResult {
+  index: number;
+  fileName: string;
+  status: 'pending' | 'sending' | 'sent' | 'failed';
+  messageId?: string;
+  error?: string;
+  sentAt?: string;
+}
+
+interface DeliveryStatusResponse {
+  ok?: boolean;
+  id?: string;
+  status?: 'queued' | 'sending' | 'sent' | 'failed' | 'partial_failed';
+  sent?: number;
+  total?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  applications?: Array<{ index: number; applicationId: string; jdId: string }>;
+  records?: RepushItem[];
+  deliveries?: DeliveryResult[];
+  error?: string;
 }
 
 interface TgDialogOption {
@@ -73,7 +110,7 @@ function candidateName(item: RepushItem): string {
   );
 }
 
-function buildRepushCopy(item: RepushItem, jd: JD): string {
+export function buildRepushCopy(item: RepushItem, jd: JD): string {
   const rawText = item.rawText || '';
   return buildRecommendationText(item.column, jd, {
     candidateCode: clean(item.candidateCode),
@@ -92,7 +129,7 @@ function safeFilePart(value: string): string {
   return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim();
 }
 
-function buildDeliveryFileName(item: RepushItem, jd: JD): string {
+export function buildDeliveryFileName(item: RepushItem, jd: JD): string {
   const sourceName = item.resumeFileName || item.fileName;
   const extension = sourceName.match(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i)?.[0].toLowerCase() || '.pdf';
   return `${[candidateName(item), jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
@@ -113,14 +150,24 @@ export function RepushModal({
   onClose,
   onConfirm,
 }: RepushModalProps) {
+  const hasPriorDelivery = isFeedbackEligibleDelivery(item.deliveryStatus)
+    || Boolean(item.telegramMessageId || item.deliveredAt);
+  const recommendationSource = hasPriorDelivery ? 'repush' as const : 'intake' as const;
+  const repushSourceId = hasPriorDelivery ? item.id : undefined;
   const [query, setQuery] = useState('');
   const [selectedJdIds, setSelectedJdIds] = useState<string[]>([]);
-  const [hasAutoSelected, setHasAutoSelected] = useState(false);
+  const [manualBatchId] = useState(() => (
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  ));
   const [copied, setCopied] = useState(false);
   const [recipient, setRecipient] = useState('@ojisamer');
   const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [sendProgress, setSendProgress] = useState('');
+  const [retryAvailable, setRetryAvailable] = useState(false);
   useEscapeClose(onClose);
 
   useEffect(() => {
@@ -167,12 +214,6 @@ export function RepushModal({
       .slice(0, resultLimit);
   }, [excludeRecommended, initialCategory, jds, query, recommendedTargets, resultLimit]);
 
-  useEffect(() => {
-    if (hasAutoSelected || matchingJds.length === 0) return;
-    setSelectedJdIds([matchingJds[0].id]);
-    setHasAutoSelected(true);
-  }, [hasAutoSelected, matchingJds]);
-
   const selectedJds = selectedJdIds
     .map((id) => jds.find((jd) => jd.id === id))
     .filter((jd): jd is JD => Boolean(jd));
@@ -200,16 +241,59 @@ export function RepushModal({
     window.setTimeout(() => setCopied(false), 1600);
   };
 
-  const confirmRepush = () => {
+  const persistRepush = (delivery?: DeliveryStatusResponse, close = true) => {
     if (selectedJds.length === 0) return;
-    onConfirm(recommendationTexts.map(({ jd, text }) => ({
+    const applications = new Map((delivery?.applications || []).map((application) => [application.index, application]));
+    const records = new Map((delivery?.records || []).map((record) => [record.deliveryIndex, record]));
+    const rows: Array<{ recommendation: typeof recommendationTexts[number]; result: DeliveryResult }> = delivery
+      ? (delivery.deliveries || []).flatMap((result) => {
+        const recommendation = recommendationTexts[result.index];
+        return recommendation ? [{ recommendation, result }] : [];
+      })
+      : recommendationTexts.map((recommendation, index) => ({
+        recommendation,
+        result: { index, fileName: buildDeliveryFileName(item, recommendation.jd), status: 'pending' as const },
+      }));
+    onConfirm(rows.map(({ recommendation: { jd, text }, result }) => ({
+      record: records.get(result.index),
+      source: recommendationSource,
+      repushSourceId,
+      applicationId: applications.get(result.index)?.applicationId
+        || (delivery?.id ? `${delivery.id}:${jd.id}` : `manual:${manualBatchId}:${jd.id}`),
+      jdId: jd.id,
       jdTitle: jd.title,
       organization: recommendationOrganization(jd),
       department: clean(jd.department),
       contactPerson: clean(jd.odc),
       recommendationText: text,
+      deliveryId: delivery?.id,
+      deliveryIndex: delivery ? result.index : undefined,
+      deliveryStatus: delivery
+        ? result.status === 'sent' || result.messageId
+          ? 'sent'
+          : result.status === 'failed'
+            ? 'failed'
+            : result.status === 'sending'
+              ? 'sending'
+              : 'queued'
+        : 'manual',
+      deliveryUpdatedAt: delivery?.updatedAt,
+      telegramMessageId: result.messageId || undefined,
+      deliveredAt: result.sentAt || undefined,
+      uploadedAt: delivery?.createdAt,
+      updatedAt: delivery?.createdAt,
     })));
-    onClose();
+    if (close) onClose();
+  };
+
+  const readDelivery = async (requestId: string): Promise<DeliveryStatusResponse | null> => {
+    const response = await fetch(`/api/tg/send?id=${encodeURIComponent(requestId)}`, {
+      cache: 'no-store', signal: AbortSignal.timeout(15_000),
+    });
+    if (response.status === 404) return null;
+    const result = await response.json().catch(() => ({})) as DeliveryStatusResponse;
+    if (!response.ok || !result.ok) throw new Error(result.error || '发送结果暂时无法读取');
+    return { ...result, id: result.id || requestId };
   };
 
   const enqueueDelivery = async (body: object) => {
@@ -243,21 +327,71 @@ export function RepushModal({
     if (selectedJds.length === 0 || !item.resumeUrl || !recipient.trim() || sending) return;
     setSending(true);
     setSendError('');
+    setRetryAvailable(false);
     try {
-      const requestId = typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      await enqueueDelivery({
-        requestId,
+      const payload = {
         sender: item.column,
         target: recipient.trim(),
         fileUrl: item.resumeUrl,
         deliveries: recommendationTexts.map(({ jd, text }) => ({
           text,
           fileName: buildDeliveryFileName(item, jd),
+          application: {
+            jdId: jd.id,
+            candidateCode: item.candidateCode,
+            candidateIdentityId: item.candidateIdentityId,
+            candidateName: item.candidateName || displayName(item),
+            jdTitle: jd.title,
+            contact: item.contact,
+            contactPerson: clean(jd.odc),
+            organization: recommendationOrganization(jd),
+            department: clean(jd.department),
+            highlights: item.highlights,
+            resumeFileName: item.resumeFileName || item.fileName,
+            source: recommendationSource,
+            repushSourceId,
+          },
         })),
-      });
-      confirmRepush();
+      };
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
+      const key = `recruit:repush-delivery:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+      let requestId = localStorage.getItem(key) || '';
+      let retry = false;
+      if (requestId) {
+        const previous = await readDelivery(requestId);
+        if (!previous) {
+          localStorage.removeItem(key);
+          requestId = '';
+        } else if (previous.status === 'sent') {
+          persistRepush(previous);
+          localStorage.removeItem(key);
+          return;
+        } else if (previous.status === 'failed' || previous.status === 'partial_failed') {
+          retry = true;
+        }
+      }
+      requestId ||= crypto.randomUUID();
+      localStorage.setItem(key, requestId);
+      setSendProgress(retry ? '正在重新加入未发送项…' : '正在加入发送队列…');
+      const response = await enqueueDelivery({ ...payload, requestId, retry }) as DeliveryStatusResponse;
+      const enqueued = { ...response, id: response.id || requestId };
+      persistRepush(enqueued, false);
+      let completed: DeliveryStatusResponse | null = null;
+      for (let attempt = 0; attempt < 48; attempt++) {
+        const result = await readDelivery(requestId);
+        if (!result) throw new Error('未找到发送任务，请重新提交');
+        persistRepush(result, false);
+        setSendProgress(result.status === 'queued' ? '已排队，等待发送器处理…' : `已发送 ${result.sent || 0}/${selectedJds.length} 个岗位`);
+        if (result.status === 'sent') { completed = result; break; }
+        if (result.status === 'failed' || result.status === 'partial_failed') {
+          setRetryAvailable(true);
+          throw new Error(`发送中断，已发送 ${result.sent || 0}/${selectedJds.length} 个岗位。${result.error || ''} 再次点击只会重试未发送项。`);
+        }
+        await wait(2500);
+      }
+      if (!completed) throw new Error('发送仍在进行，再次点击会继续查看同一任务，不会重复入队');
+      persistRepush(completed);
+      localStorage.removeItem(key);
     } catch (error) {
       setSendError((error as Error).message || 'TG 发送失败');
     } finally {
@@ -379,6 +513,7 @@ export function RepushModal({
                   {tgDialogs.map((dialog) => <option key={dialog.id} value={dialog.target}>{dialog.title || dialog.username}</option>)}
                 </datalist>
               </div>
+              {sendProgress && <p role="status" className="mt-1.5 text-xs text-violet-600">{sendProgress}</p>}
               {sendError ? (
                 <p className="mt-1.5 text-xs text-red-500">{sendError}</p>
               ) : !hasResume ? (
@@ -389,12 +524,16 @@ export function RepushModal({
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2 self-end">
               <button type="button" onClick={onClose} disabled={sending} className="h-10 rounded-lg px-3 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed">取消</button>
-              <button type="button" onClick={confirmRepush} disabled={selectedJds.length === 0 || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
+              <button type="button" onClick={() => persistRepush()} disabled={selectedJds.length === 0 || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
                 <Repeat className="h-4 w-4" />仅确认复推{selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}
               </button>
               <button type="button" onClick={handleSendAndRepush} disabled={selectedJds.length === 0 || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {sending ? `正在发送 ${selectedJds.length} 个岗位` : `发送并复推${selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}`}
+                {sending
+                  ? `正在发送 ${selectedJds.length} 个岗位`
+                  : retryAvailable
+                    ? '仅重试未发送项'
+                    : `发送并复推${selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}`}
               </button>
             </div>
           </div>

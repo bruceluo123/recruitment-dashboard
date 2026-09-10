@@ -28,18 +28,21 @@ interface ScheduleDeps {
   updateItem: (id: string, partial: Partial<RepushItem>) => void;
 }
 
+export function findRecommendationCandidate(item: RepushItem, candidates: Candidate[]): Candidate | undefined {
+  const norm = (value?: string) => String(value || '').trim().toLowerCase();
+  const name = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+  const matches = candidates.filter((candidate) => (candidate.owner || 'a') === item.column
+    && (item.candidateCode ? norm(candidate.candidateCode) === norm(item.candidateCode) : norm(candidate.name) === norm(name))
+    && norm(candidate.jdTitle) === norm(item.jdTitle)
+    && norm(candidate.organization) === norm(item.organization)
+    && norm(candidate.department) === norm(item.department));
+  return matches.find((candidate) => candidate.id === item.candidateId) || (matches.length === 1 ? matches[0] : undefined);
+}
+
 export function reconcileScheduledRecommendations(items: RepushItem[], candidates: Candidate[]): { items: RepushItem[]; changed: boolean } {
   let changed = false;
   const reconciled = items.map((item) => {
-    const name = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
-    const linkedCandidate = candidates.find((candidate) => candidate.id === item.candidateId)
-      || candidates.find((candidate) => (
-        (candidate.owner || 'a') === item.column
-        && candidate.name === name
-        && candidate.jdTitle === (item.jdTitle || '')
-        && (!item.organization || (candidate.organization || '') === item.organization)
-        && (!item.department || (candidate.department || '') === item.department)
-      ));
+    const linkedCandidate = findRecommendationCandidate(item, candidates);
 
     if (!linkedCandidate?.interviewDate) return item;
     const round: InterviewRound = linkedCandidate.interviewRound
@@ -77,14 +80,7 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
   const organization = item.organization || jd?.organization?.trim() || undefined;
   const department = item.department || jd?.department?.trim() || undefined;
 
-  const linkedCandidate = candidates.find((candidate) => candidate.id === item.candidateId)
-    || candidates.find((candidate) => (
-      (candidate.owner || 'a') === item.column
-      && candidate.name === name
-      && candidate.jdTitle === jdTitle
-      && (!organization || (candidate.organization || '') === organization)
-      && (!department || (candidate.department || '') === department)
-    ));
+  const linkedCandidate = findRecommendationCandidate(item, candidates);
   const legacyHistory: InterviewEvent[] = linkedCandidate?.interviewDate && !linkedCandidate.interviewHistory?.length
     ? [{
       id: `legacy-${linkedCandidate.id}`,
@@ -94,16 +90,20 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
       interviewer: linkedCandidate.interviewer,
     }]
     : [];
-  const history = [...(linkedCandidate?.interviewHistory || legacyHistory)]
-    .filter((event) => !(
-      (event.recommendationId === item.id && event.round === round)
-      || (!event.recommendationId && linkedCandidate?.interviewRound === round)
-    ));
+  const history = [...(linkedCandidate?.interviewHistory || legacyHistory)];
+  const previousEvent = [...history].reverse().find((event) => (
+    (event.recommendationId === item.id && event.round === round)
+    || (!event.recommendationId && linkedCandidate?.interviewRound === round)
+  ));
   history.push({
     id: generateId(),
     recommendationId: item.id,
+    eventType: previousEvent ? 'rescheduled' : 'scheduled',
+    previousEventId: previousEvent?.id,
+    previousInterviewDate: previousEvent?.interviewDate,
     round,
     interviewDate: isoAt,
+    // 每次改期都是独立事件，原约面记录与其统计周期均保留。
     scheduledAt,
     interviewer: interviewer.trim() || linkedCandidate?.interviewer || undefined,
   });

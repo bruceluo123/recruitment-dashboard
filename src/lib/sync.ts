@@ -1,283 +1,317 @@
-// 多用户数据同步 — 混合架构：
-//   读（10秒轮询）：浏览器用「只读 token」直连 Upstash，国内链路快，且只读 token 被盗也无法写/删数据。
-//   写（保存/删除/备份）：全部改走服务端 /api/data 与 /api/sync/write（真正的读写 token 只存在于 Vercel 服务端环境变量，
-//   永不下发到浏览器）。这样浏览器 bundle 里不再包含任何有写权限的凭证。
-// 策略：按 id 合并（merge），而非整数组覆盖，确保「添加永不丢失」；
-// 删除通过墓碑（tombstone）传播，确保删除仍能在多端生效。
+import { diffRecords, recordsEqual, type RecordChange, type SyncRecord } from './record-changes';
 
-// 只读 token：Vercel 项目设置 NEXT_PUBLIC_KV_READONLY_TOKEN（Upstash 控制台可单独生成只读 REST token）。
-// 旧的完整读写 token 仅作过渡兜底 —— 一旦 Vercel 配好只读 token，应删除这行兜底值。
-const KV_URL = process.env.NEXT_PUBLIC_KV_URL || 'https://positive-mongrel-70521.upstash.io';
-const KV_READ_TOKEN = process.env.NEXT_PUBLIC_KV_READONLY_TOKEN || process.env.NEXT_PUBLIC_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
-
-type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
-// readOk：该类型的远端读取是否成功（HTTP 200）。用于区分「合法的空数据」与「读取故障返回空」，
-// 接收端据此决定是否允许用空数组覆盖本地（修复「清空到 0」被永久阻断的问题）。
+export type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
 type ChangeHandler = (type: DataType, data: unknown[], version: number, readOk: boolean) => void;
-
-interface Item { id?: string; updatedAt?: string }
-/** 墓碑：{ [type]: { [id]: 删除时间戳ms } } */
-type Tombstones = Record<string, Record<string, number>>;
-
-const KV_KEYS: Record<DataType, string> = {
-  jds: 'recruit:jds',
-  candidates: 'recruit:candidates',
-  talents: 'recruit:talents',
-  repush: 'recruit:repush',
-  todos: 'recruit:todos',
-  companies: 'recruit:companies',
-};
-const TOMB_KEY = 'recruit:tombstones';
-const TOMB_TTL = 60 * 24 * 60 * 60 * 1000; // 墓碑保留 60 天后清理，避免无限增长
-
-const ALL_TYPES: DataType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies'];
-
-let remoteVersion = 0;
-let tombstones: Tombstones = {};
+interface Mutation {
+  id: string;
+  type: DataType;
+  changes: RecordChange[];
+  createdAt: number;
+  conflicts?: string[];
+  resolution?: 'local';
+}
+const TYPES: DataType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies'];
+const OUTBOX = 'recruit:record-outbox:v1';
+const REPUSH_DELIVERY_FIELDS = new Set([
+  'deliveryId',
+  'deliveryIndex',
+  'deliveryStatus',
+  'deliveryUpdatedAt',
+  'telegramMessageId',
+  'deliveredAt',
+]);
+let pending: Mutation[] = [];
+const observed: Partial<Record<DataType, SyncRecord[]>> = {};
+const remoteApplyDepth: Partial<Record<DataType, number>> = {};
+let remoteVersion = -1;
+let tombstones: Record<string, Record<string, number>> = {};
 let onChange: ChangeHandler | null = null;
-let timer: ReturnType<typeof setInterval> | null = null;
-let pushTimers: Partial<Record<DataType, ReturnType<typeof setTimeout>>> = {};
-
-/** 只读 GET —— 直连 Upstash（只读 token，即便泄漏也无法写/删数据）。 */
-async function kvCmd(cmd: 'get', key: string): Promise<string | null> {
-  try {
-    const url = `${KV_URL}/${cmd}/${encodeURIComponent(key)}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${KV_READ_TOKEN}` } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.result;
-  } catch { return null; }
+let timer: ReturnType<typeof setInterval> | undefined;
+let busy = false, reading = false;
+let refreshQueued = false;
+let requestedTypes = new Set<DataType>();
+let loadedVersions: Partial<Record<DataType, number>> = {};
+let editGeneration = 0;
+let status = '';
+const listeners = new Set<(message: string, conflictCount: number) => void>();
+function conflictCount(): number {
+  return pending.reduce((count, mutation) => count + (mutation.conflicts?.length || 0), 0);
 }
-
-/** 读取单键并报告 HTTP 是否成功，用于区分「合法空」与「读取失败」。 */
-async function kvGet(key: string): Promise<{ ok: boolean; value: string | null }> {
+function announce(message: string) {
+  status = message;
+  const conflicts = conflictCount();
+  listeners.forEach((listener) => listener(message, conflicts));
+}
+export function subscribeSyncStatus(listener: (message: string, conflictCount: number) => void) {
+  listeners.add(listener); listener(status, conflictCount()); return () => { listeners.delete(listener); };
+}
+export function isApplyingRemoteStoreUpdate(type: DataType): boolean {
+  return (remoteApplyDepth[type] || 0) > 0;
+}
+export function applyRemoteStoreUpdate(type: DataType, update: () => unknown[]): void {
+  remoteApplyDepth[type] = (remoteApplyDepth[type] || 0) + 1;
+  editGeneration++;
+  try { observed[type] = update() as SyncRecord[]; }
+  finally { remoteApplyDepth[type] = Math.max(0, (remoteApplyDepth[type] || 1) - 1); }
+}
+function persistMutation(mutation: Mutation) {
+  try { localStorage.setItem(`${OUTBOX}:${mutation.id}`, JSON.stringify(mutation)); }
+  catch { announce('本机存储空间不足，请保持页面打开并重试同步'); }
+}
+async function readKeys(keys: string[]): Promise<Record<string, string | null>> {
+  const params = new URLSearchParams(); keys.forEach((key) => params.append('key', key));
+  const response = await fetch(`/api/sync/read?${params}`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+  if (!response.ok) throw new Error('数据读取失败');
+  return (await response.json()).values;
+}
+function parse(raw: string | null): unknown { return raw ? JSON.parse(raw) : null; }
+export function isTombstoned(type: DataType, id: string) { return !!tombstones[type]?.[id]; }
+async function refresh(force = false) {
+  if (reading) { refreshQueued ||= force; return; }
+  if (!onChange || (!force && document.hidden)) return;
+  reading = true;
+  const generation = editGeneration;
   try {
-    const res = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
-      headers: { Authorization: `Bearer ${KV_READ_TOKEN}` },
-    });
-    if (!res.ok) return { ok: false, value: null };
-    const data = await res.json();
-    return { ok: true, value: (data.result ?? null) as string | null };
-  } catch {
-    return { ok: false, value: null };
+    const head = await readKeys(['version']);
+    const version = Number(head.version || 0);
+    if (!force && version === remoteVersion
+      && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return;
+    const types = Array.from(requestedTypes);
+    if (!types.length) return;
+    const values = await readKeys([...types, 'tombstones']);
+    if (generation !== editGeneration) return;
+    tombstones = parse(values.tombstones) as typeof tombstones || {};
+    for (const type of types) {
+      if (pending.some((mutation) => mutation.type === type)) continue;
+      const rows = values[type] === null ? [] : parse(values[type]);
+      if (!Array.isArray(rows)) throw new Error('数据格式异常');
+      const data = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
+      observed[type] = data;
+      loadedVersions[type] = version;
+      onChange?.(type, data, version, true);
+    }
+    remoteVersion = version;
+    if (!pending.length) announce('');
+  } catch { announce('云端读取失败，已保留当前数据；连接恢复后重试'); }
+  finally {
+    reading = false;
+    const needsRefresh = refreshQueued;
+    refreshQueued = false;
+    if (needsRefresh) void refresh(true);
   }
 }
-
-/** 侧信道写（墓碑/版本号/今日增改/本周新增）—— 经服务端 /api/sync/write，真 token 不下发浏览器。 */
-async function apiSyncWrite(op: 'set' | 'incr', key: string, value?: string): Promise<{ ok: boolean; value?: number }> {
+/** 在生成日报/看板前主动拉取一次当前账号可见的最新云端数据。 */
+export async function refreshSyncedData(): Promise<void> {
+  while (reading) await new Promise((resolve) => setTimeout(resolve, 50));
+  await refresh(true);
+}
+export async function retrySync() {
+  if (busy) return;
+  busy = true;
+  let drainCompleted = false;
   try {
-    const res = await fetch('/api/sync/write', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op, key, value }),
-    });
-    if (!res.ok) return { ok: false };
-    const data = await res.json();
-    return { ok: true, value: typeof data.value === 'number' ? data.value : undefined };
-  } catch { return { ok: false }; }
-}
-
-/** 主数据写（6 类业务数据）—— 经服务端 /api/data，真 token 不下发浏览器。 */
-async function apiDataWrite(type: DataType, data: unknown[]): Promise<boolean> {
-  try {
-    const res = await fetch('/api/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, data }),
-    });
-    return res.ok;
-  } catch { return false; }
-}
-
-/** 原子自增全局版本号（Upstash INCR，服务端执行），杜绝并发写的 get→+1→set 竞态导致漏版本。 */
-async function bumpVersion(): Promise<number> {
-  const r = await apiSyncWrite('incr', 'version');
-  return r.value ?? remoteVersion;
-}
-
-/** 按 id 合并：incoming 在 id 冲突时获胜；保留只存在于 base 的项（添加不丢失） */
-function mergeById(base: unknown[], incoming: unknown[], type?: DataType): unknown[] {
-  const map = new Map<string, unknown>();
-  const noId: unknown[] = [];
-  for (const it of base) {
-    const id = (it as Item)?.id;
-    if (id) map.set(id, it); else noId.push(it);
-  }
-  for (const it of incoming) {
-    const id = (it as Item)?.id;
-    if (id) {
-      const existing = map.get(id) as Item | undefined;
-      if (type === 'repush' && existing) {
-        const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-        const incomingItem = it as Item;
-        const incomingTime = incomingItem.updatedAt ? new Date(incomingItem.updatedAt).getTime() : 0;
-        if (existingTime > incomingTime) continue;
+    while (pending.some((mutation) => !mutation.conflicts?.length)) {
+      const mutationIndex = pending.findIndex((mutation) => !mutation.conflicts?.length);
+      const mutation = pending[mutationIndex];
+      announce(`正在保存 ${pending.filter((item) => !item.conflicts?.length).length} 项修改`);
+      const response = await fetch('/api/sync/records', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: mutation.type,
+          mutationId: mutation.id,
+          changes: mutation.changes,
+          resolution: mutation.resolution,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({})) as { error?: string; conflicts?: string[]; forbidden?: string[] };
+        if (response.status === 403 && Array.isArray(result.forbidden) && result.forbidden.length) {
+          const forbiddenIds = new Set(result.forbidden);
+          const readyChanges = mutation.changes.filter((change) => !forbiddenIds.has(change.id));
+          localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
+          pending.splice(mutationIndex, 1);
+          if (readyChanges.length) {
+            const readyMutation: Mutation = {
+              ...mutation,
+              id: crypto.randomUUID(),
+              changes: readyChanges,
+            };
+            pending.splice(mutationIndex, 0, readyMutation);
+            persistMutation(readyMutation);
+          }
+          editGeneration++;
+          announce('已忽略无权修改的本机记录，正在恢复云端数据');
+          continue;
+        }
+        if (response.status === 409 && Array.isArray(result.conflicts) && result.conflicts.length) {
+          const conflictIds = new Set(result.conflicts);
+          const blockedChanges = mutation.changes.filter((change) => conflictIds.has(change.id));
+          const readyChanges = mutation.changes.filter((change) => !conflictIds.has(change.id));
+          localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
+          pending.splice(mutationIndex, 1);
+          if (readyChanges.length) {
+            const readyMutation: Mutation = {
+              ...mutation,
+              id: crypto.randomUUID(),
+              changes: readyChanges,
+              createdAt: mutation.createdAt,
+              conflicts: undefined,
+            };
+            pending.splice(mutationIndex, 0, readyMutation);
+            persistMutation(readyMutation);
+          }
+          if (blockedChanges.length) {
+            const blockedMutation: Mutation = {
+              ...mutation,
+              id: crypto.randomUUID(),
+              changes: blockedChanges,
+              conflicts: Array.from(conflictIds),
+              createdAt: Math.max(Date.now(), (pending.at(-1)?.createdAt || 0) + 1),
+            };
+            pending.push(blockedMutation);
+            persistMutation(blockedMutation);
+          }
+          editGeneration++;
+          announce('检测到同步冲突，请选择保留本机修改或采用云端版本');
+          continue;
+        }
+        throw new Error(result.error || '保存失败，修改仍保留在本机，请重试');
       }
-      map.set(id, it);
-    } else noId.push(it);
+      localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
+      pending.splice(mutationIndex, 1);
+      editGeneration++;
+    }
+    announce(conflictCount() ? '检测到同步冲突，请选择保留本机修改或采用云端版本' : '');
+    await refresh(true);
+    drainCompleted = true;
+  } catch (error) { announce(error instanceof Error ? error.message : '保存失败，请重试'); }
+  finally {
+    busy = false;
+    if (drainCompleted && pending.some((mutation) => !mutation.conflicts?.length)) void retrySync();
   }
-  return [...Array.from(map.values()), ...noId];
 }
 
-/** 过滤掉被墓碑标记删除的项 */
-function applyTombstones(type: DataType, items: unknown[]): unknown[] {
-  const t = tombstones[type];
-  if (!t) return items;
-  return items.filter((it) => {
-    const id = (it as Item)?.id;
-    return !(id && t[id]);
+function rebaseChanges(type: DataType, current: SyncRecord[], changes: RecordChange[]): RecordChange[] {
+  const currentById = new Map(current.map((record) => [record.id, record]));
+  return changes.flatMap((change): RecordChange[] => {
+    const remote = currentById.get(change.id) || null;
+    if (!change.after) {
+      if (type === 'repush' && remote && (remote.deliveryStatus === 'queued' || remote.deliveryStatus === 'sending')) return [];
+      return remote ? [{ id: change.id, before: remote, after: null }] : [];
+    }
+    if (!change.before) {
+      if (!remote) return [{ id: change.id, before: null, after: change.after }];
+      const after = { ...remote, ...change.after };
+      if (type === 'repush') {
+        for (const key of Array.from(REPUSH_DELIVERY_FIELDS)) {
+          if (remote[key] === undefined) delete after[key];
+          else after[key] = remote[key];
+        }
+      }
+      return recordsEqual(remote, after) ? [] : [{ id: change.id, before: remote, after }];
+    }
+    if (!remote) return [{ id: change.id, before: null, after: change.after }];
+    const after = { ...remote };
+    for (const key of Array.from(new Set([...Object.keys(change.before), ...Object.keys(change.after)]))) {
+      if (key === 'id' || recordsEqual(change.before[key], change.after[key])) continue;
+      if (type === 'repush' && REPUSH_DELIVERY_FIELDS.has(key)) continue;
+      if (change.after[key] === undefined) delete after[key];
+      else after[key] = change.after[key];
+    }
+    return recordsEqual(remote, after) ? [] : [{ id: change.id, before: remote, after }];
   });
 }
 
-/** 某 id 是否已被标记删除（供客户端合并后过滤用） */
-export function isTombstoned(type: DataType, id: string): boolean {
-  return !!tombstones[type]?.[id];
+export async function resolveSyncConflicts(strategy: 'local' | 'remote') {
+  if (busy || !pending.some((mutation) => mutation.conflicts?.length)) return;
+  const blocked = pending.filter((mutation) => mutation.conflicts?.length);
+  if (strategy === 'remote') {
+    for (const mutation of blocked) localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
+    pending = pending.filter((mutation) => !mutation.conflicts?.length);
+  } else {
+    const types = Array.from(new Set(blocked.map((mutation) => mutation.type)));
+    let values: Record<string, string | null>;
+    try { values = await readKeys(types); }
+    catch { announce('云端读取失败，暂时无法处理冲突'); return; }
+    for (const mutation of blocked) {
+      const raw = values[mutation.type];
+      let current: unknown;
+      try { current = raw === null ? [] : parse(raw); }
+      catch { announce('云端数据格式异常，暂时无法处理冲突'); return; }
+      if (!Array.isArray(current)) { announce('云端数据格式异常，暂时无法处理冲突'); return; }
+      const changes = rebaseChanges(mutation.type, current as SyncRecord[], mutation.changes);
+      localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
+      const index = pending.indexOf(mutation);
+      if (!changes.length) pending.splice(index, 1);
+      else {
+        const rebased: Mutation = {
+          ...mutation,
+          id: crypto.randomUUID(),
+          changes,
+          conflicts: undefined,
+          resolution: 'local',
+          createdAt: Date.now(),
+        };
+        pending[index] = rebased;
+        persistMutation(rebased);
+      }
+    }
+  }
+  editGeneration++;
+  announce('正在处理同步冲突');
+  await retrySync();
 }
-
-async function fetchTombstones(): Promise<Tombstones> {
-  const raw = await kvCmd('get', TOMB_KEY);
-  return (safeParse(raw) as Tombstones) || {};
+export function syncPush(type: DataType, data: unknown[], before?: unknown[]) {
+  const baseline = (before || observed[type]) as SyncRecord[] | undefined;
+  if (!baseline) { announce('云端尚未读取完成，请稍后再保存'); return; }
+  const changes = diffRecords(baseline, data as SyncRecord[]);
+  observed[type] = data as SyncRecord[];
+  if (!changes.length) return;
+  editGeneration++;
+  const mutation = { id: crypto.randomUUID(), type, changes, createdAt: Math.max(Date.now(), (pending.at(-1)?.createdAt || 0) + 1) };
+  pending.push(mutation);
+  persistMutation(mutation); void retrySync();
 }
-
-async function fetchRemote(): Promise<{
-  data: Record<DataType, unknown[]>;
-  readOk: Record<DataType, boolean>;
-  version: number;
-} | null> {
+export function startSync(handler: ChangeHandler, initialTypes: DataType[] = TYPES) {
+  stopSync(); onChange = handler;
+  initialTypes.forEach((type) => requestedTypes.add(type));
   try {
-    const [jd, cand, talent, repush, todos, companies, rawVer, rawTomb] = await Promise.all([
-      kvGet(KV_KEYS.jds),
-      kvGet(KV_KEYS.candidates),
-      kvGet(KV_KEYS.talents),
-      kvGet(KV_KEYS.repush),
-      kvGet(KV_KEYS.todos),
-      kvGet(KV_KEYS.companies),
-      kvCmd('get', 'recruit:version'),
-      kvCmd('get', TOMB_KEY),
-    ]);
-    if (!jd.value && !cand.value && !talent.value && !repush.value && !todos.value && !companies.value) return null;
-    tombstones = (safeParse(rawTomb) as Tombstones) || {};
-    return {
-      data: {
-        jds: (safeParse(jd.value) as unknown[]) || [],
-        candidates: (safeParse(cand.value) as unknown[]) || [],
-        talents: (safeParse(talent.value) as unknown[]) || [],
-        repush: (safeParse(repush.value) as unknown[]) || [],
-        todos: (safeParse(todos.value) as unknown[]) || [],
-        companies: (safeParse(companies.value) as unknown[]) || [],
-      },
-      readOk: {
-        jds: jd.ok, candidates: cand.ok, talents: talent.ok,
-        repush: repush.ok, todos: todos.ok, companies: companies.ok,
-      },
-      version: parseInt(rawVer || '0') || 0,
-    };
-  } catch { return null; }
-}
-
-/**
- * 推送：读-改-写合并，不再整数组覆盖。
- * 1) 拉当前远端 + 最新墓碑；2) 与本地按 id 合并（本地获胜，因为用户刚操作）；
- * 3) 过滤墓碑；4) 写回。这样即使本地是旧/不完整快照，也不会抹掉别人的新增。
- */
-async function pushData(type: DataType, local: unknown[]) {
-  tombstones = await fetchTombstones();
-  const remoteRaw = await kvCmd('get', KV_KEYS[type]);
-  const remote = (safeParse(remoteRaw) as unknown[]) || [];
-  const merged = applyTombstones(type, mergeById(remote, local, type)); // 推荐记录按更新时间取最新，其余类型本地获胜
-  const ok = await apiDataWrite(type, merged);
-  if (!ok) return null;
-  return await bumpVersion();
-}
-
-/** 删除：把 id 写入墓碑（含 TTL 清理），随后由 pushData 把数组中的对应项剔除并传播 */
-export async function syncDelete(type: DataType, ids: string[]) {
-  if (!ids.length) return;
-  const now = Date.now();
-  tombstones = await fetchTombstones();
-  const t: Record<string, number> = { ...(tombstones[type] || {}) };
-  for (const id of ids) t[id] = now;
-  // 清理过期墓碑
-  for (const id of Object.keys(t)) if (now - t[id] > TOMB_TTL) delete t[id];
-  tombstones = { ...tombstones, [type]: t };
-  await apiSyncWrite('set', 'tombstones', JSON.stringify(tombstones));
-}
-
-async function poll() {
-  // 先只查版本号（几十字节）：未变化就不下载 6 类数据的全量 JSON（可达数百KB），
-  // 稳定态下把每 10 秒的轮询流量降到接近零，对国内慢链路尤其重要。
-  const rawV = await kvCmd('get', 'recruit:version');
-  const v = parseInt(rawV || '0') || 0;
-  if (v <= remoteVersion) return;
-
-  const remote = await fetchRemote();
-  if (!remote) return;
-  if (remote.version > remoteVersion) {
-    remoteVersion = remote.version;
-    emitAll(remote.data, remote.version, remote.readOk);
+    if (!busy) pending = Object.keys(localStorage).filter((key) => key.startsWith(`${OUTBOX}:`))
+      .map((key) => JSON.parse(localStorage.getItem(key)!)).sort((a, b) => a.createdAt - b.createdAt);
   }
+  catch { announce('本机待同步记录无法读取，请勿清除浏览器数据'); }
+  void (pending.length ? retrySync() : refresh(true));
+  timer = setInterval(() => { void refresh(); }, 30_000);
+  window.addEventListener('online', onOnline);
+  document.addEventListener('visibilitychange', onVisible);
 }
-
-function emitAll(data: Record<DataType, unknown[]>, version: number, readOk: Record<DataType, boolean>) {
-  if (!onChange) return;
-  for (const type of ALL_TYPES) {
-    onChange(type, applyTombstones(type, data[type]), version, readOk[type]);
+export function requestSyncTypes(types: DataType[]) {
+  let changed = false;
+  for (const type of types) {
+    if (!requestedTypes.has(type)) { requestedTypes.add(type); changed = true; }
   }
+  if (changed && onChange) void refresh(true);
 }
-
-export function startSync(handler: ChangeHandler) {
-  onChange = handler;
-  fetchRemote().then((remote) => {
-    if (!remote) return;
-    remoteVersion = remote.version;
-    emitAll(remote.data, remote.version, remote.readOk);
-  });
-  timer = setInterval(poll, 10000);
-}
-
+function onOnline() { void retrySync(); }
+function onVisible() { if (!document.hidden) void refresh(true); }
 export function stopSync() {
   onChange = null;
-  if (timer) { clearInterval(timer); timer = null; }
-  Object.values(pushTimers).forEach(clearTimeout);
-  pushTimers = {};
+  if (timer) clearInterval(timer);
+  timer = undefined;
+  window.removeEventListener('online', onOnline);
+  document.removeEventListener('visibilitychange', onVisible);
+  requestedTypes = new Set<DataType>();
+  loadedVersions = {};
+  refreshQueued = false;
+  remoteVersion = -1;
 }
-
-function schedulePush(type: DataType, getData: () => unknown[]) {
-  if (pushTimers[type]) clearTimeout(pushTimers[type]);
-  pushTimers[type] = setTimeout(async () => {
-    const v = await pushData(type, getData());
-    if (v != null) remoteVersion = v;
-  }, 1000);
+async function sideWrite(key: string, value: unknown) {
+  const response = await fetch('/api/sync/write', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'set', key, value: JSON.stringify(value) }) });
+  if (!response.ok) { announce('统计摘要未同步，请稍后重试'); throw new Error('统计摘要保存失败'); }
 }
-
-export function syncPush(type: DataType, data: unknown[]) {
-  schedulePush(type, () => data);
-}
-
-/** 把今日增改 diff 写入 KV，供其他端实时拉取 */
-export async function pushImportDiff(diff: unknown): Promise<void> {
-  await apiSyncWrite('set', 'last-import-diff', JSON.stringify(diff));
-  // 同时推高 version，让其他端的 10s 轮询感知到变化
-  await bumpVersion();
-}
-
-/** 从 KV 拉取最新 lastImportDiff（供 SyncProvider 轮询用） */
-export async function fetchImportDiff(): Promise<unknown | null> {
-  return safeParse(await kvCmd('get', 'recruit:last-import-diff'));
-}
-
-/** 把本周新增累计写入 KV */
-export async function pushWeeklyAdded(data: unknown): Promise<void> {
-  await apiSyncWrite('set', 'weekly-added', JSON.stringify(data));
-  await bumpVersion();
-}
-
-/** 从 KV 拉取本周新增累计 */
-export async function fetchWeeklyAdded(): Promise<unknown | null> {
-  return safeParse(await kvCmd('get', 'recruit:weekly-added'));
-}
-
-function safeParse(raw: string | null): unknown {
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
+export const pushImportDiff = (value: unknown) => sideWrite('last-import-diff', value);
+export const pushWeeklyAdded = (value: unknown) => sideWrite('weekly-added', value);
+export async function fetchImportDiff() { return parse((await readKeys(['last-import-diff']))['last-import-diff']); }
+export async function fetchWeeklyAdded() { return parse((await readKeys(['weekly-added']))['weekly-added']); }

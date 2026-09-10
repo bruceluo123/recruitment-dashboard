@@ -9,13 +9,17 @@ export type RepushColumnId = 'a' | 'b';
 export type FeedbackStatus = 'done' | 'pending';
 export type InterviewStatus = 'none' | 'scheduled';
 export type InterviewRound = '一面' | '二面' | '三面';
+export type RecommendationDeliveryStatus = 'manual' | 'queued' | 'sending' | 'sent' | 'partial_failed' | 'failed';
 
 export interface RepushItem {
   id: string;
+  applicationId?: string;      // 本次候选人+岗位投递身份；旧记录默认回退到 id
   column: RepushColumnId;       // 推荐人（a/b 两列）
   fileName: string;            // 显示名（文本录入时为「姓名-岗位」，文件拖入时为文件名）
   candidateCode?: string;       // 候选人编码（复推时沿用）
+  candidateIdentityId?: string; // 跨推荐、TG 回流与人才库保持稳定的候选人身份
   candidateName?: string;      // 推荐人姓名（简历提取）
+  jdId?: string;               // 岗位稳定 ID；展示字段相同的岗位仍需分别记账
   jdTitle?: string;            // 推荐岗位（简历提取）
   contact?: string;            // 候选人联系方式（约面用）
   contactPerson?: string;      // 简历对接人/推荐人（非候选人本人）
@@ -30,8 +34,14 @@ export interface RepushItem {
   interviewRound?: InterviewRound;    // 约面轮次（一面/二面/三面）
   candidateId?: string;        // 约面后关联的面试日历候选人 id
   interviewAt?: string;        // 约面时间（ISO，约面后写入）
-  source?: 'intake' | 'repush'; // 推荐来源；复推记录不进入今日日报
-  repushSourceId?: string;     // 复推时关联原推荐记录，供日报准确排除
+  source?: 'intake' | 'repush'; // 推荐来源；日报按实际送达时间统计两类记录
+  repushSourceId?: string;     // 复推时关联原推荐记录
+  deliveryId?: string;         // 发送队列任务 ID
+  deliveryIndex?: number;      // 该岗位在发送任务中的序号
+  deliveryStatus?: RecommendationDeliveryStatus;
+  deliveryUpdatedAt?: string;  // 发送状态独立版本，不能覆盖人工业务编辑时间
+  telegramMessageId?: string;  // 该岗位实际送达后的 TG 消息 ID
+  deliveredAt?: string;
   offerAppliedAt?: string;     // 点击并确认 Offer 的时间
   organization?: string;       // 该简历推荐到的编制组织/中心（来源于 JD 库的编制组织列表）
   department?: string;         // 该简历推荐到的部门（来源于 JD 库的部门列表）
@@ -52,7 +62,9 @@ export interface UnfeedbackSnapshot {
 export interface NewRecommendation {
   column: RepushColumnId;
   candidateCode?: string;
+  candidateIdentityId?: string;
   candidateName: string;
+  jdId?: string;
   jdTitle?: string;
   contact?: string;
   contactPerson?: string;
@@ -64,6 +76,15 @@ export interface NewRecommendation {
   resumeFileName?: string;
   source?: 'intake' | 'repush';
   repushSourceId?: string;
+  applicationId?: string;
+  deliveryId?: string;
+  deliveryIndex?: number;
+  deliveryStatus?: RecommendationDeliveryStatus;
+  deliveryUpdatedAt?: string;
+  telegramMessageId?: string;
+  deliveredAt?: string;
+  uploadedAt?: string;
+  updatedAt?: string;
 }
 
 interface RepushStore {
@@ -72,6 +93,7 @@ interface RepushStore {
   unfeedbackSnapshots: UnfeedbackSnapshot[];
   addItem: (column: RepushColumnId, fileName: string) => void;
   addRecommendation: (rec: NewRecommendation) => void;
+  upsertDeliveryRecommendation: (record: RepushItem) => void;
   updateItem: (id: string, partial: Partial<RepushItem>) => void;
   removeItem: (id: string) => void;
   setFeedback: (id: string, feedback: FeedbackStatus) => void;
@@ -82,7 +104,6 @@ interface RepushStore {
 }
 
 const DEFAULT_NAMES: Record<RepushColumnId, string> = { a: '麦满分', b: '啵啵' };
-
 /** 云端保留完整推荐记录；浏览器缓存不再重复保存旧版 base64 简历文件。 */
 function compactLocalItem(item: RepushItem): RepushItem {
   const { dataUrl, ...rest } = item;
@@ -114,17 +135,72 @@ export const useRepushStore = create<RepushStore>()(
         };
       }),
       addRecommendation: (rec) => set((s) => {
+        const applicationIndex = rec.applicationId
+          ? s.items.findIndex((item) => item.applicationId === rec.applicationId || item.id === rec.applicationId)
+          : -1;
+        const deliveryMatches = applicationIndex < 0 && !rec.applicationId && rec.deliveryId
+          ? s.items.map((item, index) => ({ item, index })).filter(({ item }) => (
+            item.deliveryId === rec.deliveryId
+            && (rec.jdId ? item.jdId === rec.jdId : (
+              item.jdTitle === rec.jdTitle
+              && item.organization === rec.organization
+              && item.department === rec.department
+            ))
+          ))
+          : [];
+        const existingDeliveryIndex = applicationIndex >= 0
+          ? applicationIndex
+          : deliveryMatches.length === 1 ? deliveryMatches[0].index : -1;
+        if (existingDeliveryIndex >= 0) {
+          const existing = s.items[existingDeliveryIndex];
+          const deliveryStatus = rec.deliveryStatus || existing.deliveryStatus;
+          const deliveryUpdatedAt = rec.deliveryUpdatedAt || existing.deliveryUpdatedAt;
+          const telegramMessageId = rec.telegramMessageId || existing.telegramMessageId;
+          const deliveredAt = rec.deliveredAt || existing.deliveredAt;
+          const candidateIdentityId = rec.candidateIdentityId || existing.candidateIdentityId;
+          const applicationId = rec.applicationId || existing.applicationId;
+          const jdId = rec.jdId || existing.jdId;
+          const deliveryIndex = rec.deliveryIndex ?? existing.deliveryIndex;
+          const updatedAt = rec.updatedAt || existing.updatedAt;
+          if (deliveryStatus === existing.deliveryStatus
+            && telegramMessageId === existing.telegramMessageId
+            && deliveredAt === existing.deliveredAt
+            && candidateIdentityId === existing.candidateIdentityId
+            && applicationId === existing.applicationId
+            && jdId === existing.jdId
+            && deliveryIndex === existing.deliveryIndex
+            && deliveryUpdatedAt === existing.deliveryUpdatedAt
+            && updatedAt === existing.updatedAt) return {};
+          const items = [...s.items];
+          items[existingDeliveryIndex] = {
+            ...existing,
+            deliveryStatus,
+            telegramMessageId,
+            deliveredAt,
+            candidateIdentityId,
+            applicationId,
+            jdId,
+            deliveryIndex,
+            deliveryUpdatedAt,
+            updatedAt: rec.updatedAt || new Date().toISOString(),
+          };
+          return { items };
+        }
         const displayName = rec.jdTitle ? `${rec.candidateName}-${rec.jdTitle}` : rec.candidateName;
-        const now = new Date().toISOString();
+        const now = rec.uploadedAt || new Date().toISOString();
+        const id = rec.applicationId || generateId();
         return {
           items: [
             ...s.items,
             {
-              id: generateId(),
+              id,
+              applicationId: rec.applicationId || id,
               column: rec.column,
               fileName: displayName,
               candidateCode: rec.candidateCode || undefined,
+              candidateIdentityId: rec.candidateIdentityId || undefined,
               candidateName: rec.candidateName,
+              jdId: rec.jdId || undefined,
               jdTitle: rec.jdTitle || undefined,
               contact: rec.contact || undefined,
               contactPerson: rec.contactPerson || undefined,
@@ -134,20 +210,59 @@ export const useRepushStore = create<RepushStore>()(
               resumeFileName: rec.resumeFileName || undefined,
               source: rec.source || 'intake',
               repushSourceId: rec.repushSourceId || undefined,
+              deliveryId: rec.deliveryId || undefined,
+              deliveryIndex: rec.deliveryIndex,
+              deliveryStatus: rec.deliveryStatus || undefined,
+              deliveryUpdatedAt: rec.deliveryUpdatedAt || undefined,
+              telegramMessageId: rec.telegramMessageId || undefined,
+              deliveredAt: rec.deliveredAt || undefined,
               feedback: 'pending' as const,
               interviewStatus: 'none' as const,
               organization: rec.organization || undefined,
               department: rec.department || undefined,
               uploadedAt: now,
-              updatedAt: now,
+              updatedAt: rec.updatedAt || now,
             },
           ],
         };
       }),
+      upsertDeliveryRecommendation: (record) => set((s) => {
+        if (!record?.id || (record.column !== 'a' && record.column !== 'b')) return {};
+        const index = s.items.findIndex((item) => (
+          item.id === record.id
+          || (record.applicationId && item.applicationId === record.applicationId)
+        ));
+        if (index < 0) return { items: [...s.items, record] };
+        const current = s.items[index];
+        const incomingDeliveryAt = String(record.deliveryUpdatedAt || record.updatedAt || record.uploadedAt);
+        const currentDeliveryAt = String(current.deliveryUpdatedAt || '');
+        const acceptsDelivery = !currentDeliveryAt || incomingDeliveryAt > currentDeliveryAt;
+        const merged = {
+          ...current,
+          applicationId: record.applicationId || current.applicationId,
+          jdId: record.jdId || current.jdId,
+          deliveryId: record.deliveryId || current.deliveryId,
+          deliveryIndex: record.deliveryIndex ?? current.deliveryIndex,
+          ...(acceptsDelivery ? {
+            deliveryStatus: record.deliveryStatus,
+            deliveryUpdatedAt: incomingDeliveryAt || current.deliveryUpdatedAt,
+            telegramMessageId: record.telegramMessageId,
+            deliveredAt: record.deliveredAt,
+          } : {}),
+        };
+        if (JSON.stringify(current) === JSON.stringify(merged)) return {};
+        const items = [...s.items];
+        items[index] = merged;
+        return { items };
+      }),
       updateItem: (id, partial) => set((s) => ({
         items: s.items.map((it) => (it.id === id ? { ...it, ...partial, updatedAt: new Date().toISOString() } : it)),
       })),
-      removeItem: (id) => set((s) => ({ items: s.items.filter((it) => it.id !== id) })),
+      removeItem: (id) => set((s) => {
+        const item = s.items.find((it) => it.id === id);
+        if (!item || item.deliveryStatus === 'queued' || item.deliveryStatus === 'sending') return {};
+        return { items: s.items.filter((it) => it.id !== id) };
+      }),
       setFeedback: (id, feedback) => set((s) => ({
         items: s.items.map((it) => (it.id === id ? { ...it, feedback, updatedAt: new Date().toISOString() } : it)),
       })),

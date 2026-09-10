@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronRight, ChevronUp, Repeat, FileText, X, BriefcaseBusiness, Loader2 } from 'lucide-react';
-import type { RepushItem } from '@/store/repush-store';
+import type { RecommendationDeliveryStatus, RepushItem } from '@/store/repush-store';
 import { displayName, formatOrgDept } from '@/lib/repush-format';
+import { isFeedbackEligibleDelivery, projectFeedbackStatus } from '@/lib/feedback-status';
 import type { FeedbackCenterItem } from '@/types/feedback-center';
 
 export type RecommendationFeedbackLabel = '未反馈' | '未通过' | '通过';
@@ -13,24 +14,19 @@ const FEEDBACK_META: Record<RecommendationFeedbackLabel, { label: Recommendation
   通过: { label: '通过', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
 };
 
+const DELIVERY_META: Record<RecommendationDeliveryStatus, { label: string; className: string }> = {
+  sent: { label: '已送达', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  manual: { label: '手动记录', className: 'bg-slate-50 text-slate-500 ring-slate-200' },
+  failed: { label: '发送异常', className: 'bg-rose-50 text-rose-700 ring-rose-200' },
+  partial_failed: { label: '发送异常', className: 'bg-rose-50 text-rose-700 ring-rose-200' },
+  queued: { label: '待送达', className: 'bg-blue-50 text-blue-700 ring-blue-200' },
+  sending: { label: '待送达', className: 'bg-blue-50 text-blue-700 ring-blue-200' },
+};
+
 export function recommendationFeedbackLabel(item?: FeedbackCenterItem): RecommendationFeedbackLabel {
-  const status = item?.confirmedStatus;
-  if (
-    status === 'interview_failed'
-    || status === 'screening_failed'
-    || status === 'closed'
-    || item?.sourceStatus === 'interview_failed'
-    || item?.sourceStatus === 'screening_failed'
-  ) {
-    return '未通过';
-  }
-  if (
-    status === 'interview_passed'
-    || status === 'interview_pending'
-    || item?.sourceStatus === 'scheduled'
-  ) {
-    return '通过';
-  }
+  const status = projectFeedbackStatus(item);
+  if (status === 'positive') return '通过';
+  if (status === 'screening_failed' || status === 'interview_failed' || status === 'closed') return '未通过';
   return '未反馈';
 }
 
@@ -41,6 +37,8 @@ function feedbackMeta(item?: FeedbackCenterItem): { label: RecommendationFeedbac
 interface RecommendationBarProps {
   item: RepushItem;
   feedbackItem?: FeedbackCenterItem;
+  feedbackReady?: boolean;
+  feedbackUnavailable?: boolean;
   candidateGroupCount?: number;
   candidateGroupExpanded?: boolean;
   candidateGroupItems?: RepushItem[];
@@ -56,7 +54,7 @@ interface RecommendationBarProps {
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, feedbackItem, candidateGroupCount, candidateGroupExpanded, candidateGroupItems, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, feedbackItem, feedbackReady = true, feedbackUnavailable = false, candidateGroupCount, candidateGroupExpanded, candidateGroupItems, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -84,14 +82,26 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
     ? Array.from(new Set((candidateGroupItems || []).map((groupItem) => groupItem.contactPerson?.trim()).filter(Boolean)))
     : [];
   const feedback = feedbackMeta(feedbackItem);
-  const groupFeedbackCounts = candidateGroupFeedbackItems?.reduce<Record<RecommendationFeedbackLabel, number>>((counts, groupFeedbackItem) => {
-    counts[feedbackMeta(groupFeedbackItem).label] += 1;
+  const delivery = item.deliveryStatus && item.deliveryStatus !== 'sent'
+    ? DELIVERY_META[item.deliveryStatus]
+    : undefined;
+  const deliveryInFlight = item.deliveryStatus === 'queued' || item.deliveryStatus === 'sending';
+  const feedbackEligible = isFeedbackEligibleDelivery(item.deliveryStatus);
+  const groupFeedbackCounts = candidateGroupItems?.reduce<Record<RecommendationFeedbackLabel, number>>((counts, groupItem, index) => {
+    if (!isFeedbackEligibleDelivery(groupItem.deliveryStatus)) return counts;
+    counts[feedbackMeta(candidateGroupFeedbackItems?.[index]).label] += 1;
     return counts;
   }, { 未反馈: 0, 未通过: 0, 通过: 0 });
-  const showGroupFeedbackSummary = Boolean(isCollapsedCandidateGroup && groupFeedbackCounts);
-  const feedbackTitle = feedbackItem?.sourceSummary
-    || feedbackItem?.auditConclusion
-    || '反馈中心暂未识别到这条推荐的明确反馈';
+  const feedbackEligibleCount = groupFeedbackCounts
+    ? groupFeedbackCounts['未反馈'] + groupFeedbackCounts['未通过'] + groupFeedbackCounts['通过']
+    : 0;
+  const showGroupFeedbackSummary = Boolean(isCollapsedCandidateGroup && feedbackEligibleCount > 0);
+  const showFeedback = isCollapsedCandidateGroup ? feedbackEligibleCount > 0 : feedbackEligible;
+  const feedbackTitle = feedbackItem?.confirmedStatus
+    ? `人工已确认：${feedback.label}`
+    : feedbackItem?.sourceSummary
+      || feedbackItem?.auditConclusion
+      || '反馈中心暂未识别到这条推荐的明确反馈';
   const scheduleLabel = item.interviewRound === '一面'
     ? '约二面'
     : item.interviewRound === '二面'
@@ -211,7 +221,7 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
               </>
             )}
           </span>
-          {showGroupFeedbackSummary && groupFeedbackCounts ? (
+          {showFeedback && (!feedbackReady ? <span className="text-xs text-slate-400">{feedbackUnavailable ? '反馈暂不可用' : '正在读取反馈…'}</span> : showGroupFeedbackSummary && groupFeedbackCounts ? (
             (['通过', '未通过', '未反馈'] as const).map((label) => groupFeedbackCounts[label] > 0 && (
               <span
                 key={label}
@@ -227,6 +237,14 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
               title={feedbackTitle}
             >
               {feedback.label}
+            </span>
+          ))}
+          {delivery && (
+            <span
+              className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${delivery.className}`}
+              title={item.deliveryId ? `${delivery.label} · 发送任务 ${item.deliveryId}` : delivery.label}
+            >
+              {delivery.label}
             </span>
           )}
           {!isCollapsedCandidateGroup && item.interviewRound && (
@@ -379,16 +397,17 @@ export function RecommendationBar({ item, feedbackItem, candidateGroupCount, can
         >
           <Pencil className="w-4 h-4" />
         </button>}
-        {!isCollapsedCandidateGroup && (confirming ? (
+        {!isCollapsedCandidateGroup && (confirming && !deliveryInFlight ? (
           <div className="flex items-center gap-1">
-            <button onClick={() => { onRemove(item.id); setConfirming(false); }} className="px-2 h-8 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600">确认删除</button>
+            <button onClick={() => { if (!deliveryInFlight) onRemove(item.id); setConfirming(false); }} className="px-2 h-8 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600">确认删除</button>
             <button onClick={() => setConfirming(false)} className="px-2 h-8 rounded-lg text-xs text-gray-500 hover:bg-gray-100">取消</button>
           </div>
         ) : (
           <button
-            onClick={() => setConfirming(true)}
-            className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
-            title="删除"
+            onClick={() => { if (!deliveryInFlight) setConfirming(true); }}
+            disabled={deliveryInFlight}
+            className={`p-1.5 rounded-lg text-gray-300 transition-all ${deliveryInFlight ? 'cursor-not-allowed opacity-40' : 'opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50'}`}
+            title={deliveryInFlight ? '发送完成后可删除' : '删除'}
           >
             <Trash2 className="w-4 h-4" />
           </button>

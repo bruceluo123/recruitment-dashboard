@@ -85,11 +85,30 @@ export function JDLibraryPage() {
   const orgOf = (j: typeof jds[number]) => (j.organization || '').trim();
   const svcOf = (j: typeof jds[number]) => (j.serviceUnit || j.department || '').trim();
 
+  const hasDepartmentFilter = orgFilter.size > 0 || serviceFilter.size > 0;
+  const searchKeyword = filter.search.trim().toLowerCase();
   const finalFiltered = filteredJDs.filter((j) =>
     (orgFilter.size === 0 || orgFilter.has(orgOf(j))) &&
     (serviceFilter.size === 0 || serviceFilter.has(svcOf(j))) &&
     (!gapOnly || (!!j.gap && j.gap !== '0')),
-  ).sort((a, b) => groupPriorityRank(a) - groupPriorityRank(b));
+  ).sort((a, b) => {
+    if (searchKeyword) {
+      const aTitleMatched = a.title.toLowerCase().includes(searchKeyword);
+      const bTitleMatched = b.title.toLowerCase().includes(searchKeyword);
+      const titleMatchRank = Number(bTitleMatched) - Number(aTitleMatched);
+      if (titleMatchRank !== 0) return titleMatchRank;
+
+      if (aTitleMatched && bTitleMatched) {
+        const priorityRank = groupPriorityRank(a) - groupPriorityRank(b);
+        if (priorityRank !== 0) return priorityRank;
+      }
+    }
+    if (hasDepartmentFilter) {
+      const newRank = Number(newJdIds.has(b.id)) - Number(newJdIds.has(a.id));
+      if (newRank !== 0) return newRank;
+    }
+    return groupPriorityRank(a) - groupPriorityRank(b);
+  });
   const selectedJd = jds.find((j) => j.id === selectedJdId) || null;
   const visibleIds = finalFiltered.map((j) => j.id);
   const visibleSelectedCount = selectedIds.filter((id) => visibleIds.includes(id)).length;
@@ -140,7 +159,7 @@ export function JDLibraryPage() {
         const parts = [
           data.added ? `新增 ${data.added}` : '',
           data.updated ? `更新 ${data.updated}` : '',
-          data.deleted ? `删除 ${data.deleted}` : '',
+          (data.closed || data.deleted) ? `暂停 ${data.closed || data.deleted}` : '',
         ].filter(Boolean);
         setSyncMsg(parts.length ? `同步完成：${parts.join(' · ')}（共 ${data.total}）` : `已是最新（共 ${data.total}）`);
       } else {

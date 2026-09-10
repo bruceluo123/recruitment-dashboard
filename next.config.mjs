@@ -3,6 +3,7 @@ const nextConfig = {
   experimental: {
     // 对图标/图表库做更彻底的按需引入，减小客户端 bundle
     optimizePackageImports: ['lucide-react', 'recharts'],
+    serverComponentsExternalPackages: ['pdf-to-png-converter', '@napi-rs/canvas'],
   },
   async headers() {
     return [

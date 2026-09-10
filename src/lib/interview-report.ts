@@ -193,8 +193,9 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       group.events.map((event) => [`${event.round}|${event.interviewDate}`, event]),
     ).values()).sort((a, b) => new Date(a.interviewDate).getTime() - new Date(b.interviewDate).getTime());
     const latestCandidate = [...group.candidates].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const offerCandidate = group.candidates.find((candidate) => candidate.offerAppliedAt)
-      || group.candidates.find((candidate) => candidate.regularSalary || candidate.onboardDate)
+    const newest = [...group.candidates].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const offerCandidate = newest.find((candidate) => candidate.offerAppliedAt)
+      || newest.find((candidate) => candidate.regularSalary || candidate.onboardDate)
       || latestCandidate;
     const stage = uniqueEvents.reduce<InterviewRound>(
       (latest, event) => roundRank(event.round) > roundRank(latest) ? event.round : latest,

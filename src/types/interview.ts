@@ -32,6 +32,9 @@ export type InterviewRound = '一面' | '二面' | '三面';
 export interface InterviewEvent {
   id: string;
   recommendationId?: string;
+  eventType?: 'scheduled' | 'rescheduled';
+  previousEventId?: string;
+  previousInterviewDate?: string;
   round: InterviewRound;
   interviewDate: string;
   scheduledAt: string;

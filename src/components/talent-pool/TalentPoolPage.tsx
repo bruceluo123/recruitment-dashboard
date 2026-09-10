@@ -119,11 +119,21 @@ export function TalentPoolPage() {
     let created = 0;
     let updated = 0;
     let resumesLinked = 0;
-    const existingByName = new Map(
-      existingTalents
-        .filter((talent) => talent.name.trim())
-        .map((talent) => [talent.name.trim(), talent] as const),
-    );
+    let skippedConflicts = 0;
+    type IndexedTalent = typeof existingTalents[number];
+    const existingByIdentity = new Map<string, IndexedTalent | null>();
+    const existingByCode = new Map<string, IndexedTalent | null>();
+    const legacyByName = new Map<string, IndexedTalent | null>();
+    const indexUnique = (index: Map<string, IndexedTalent | null>, key: string | undefined, talent: IndexedTalent) => {
+      if (!key || index.get(key) === null) return;
+      const previous = index.get(key);
+      index.set(key, previous && previous.id !== talent.id ? null : talent);
+    };
+    for (const talent of existingTalents) {
+      indexUnique(existingByIdentity, talent.candidateIdentityId?.trim(), talent);
+      indexUnique(existingByCode, talent.candidateCode?.trim().toUpperCase(), talent);
+      indexUnique(legacyByName, talent.name.trim().normalize('NFKC').toLowerCase(), talent);
+    }
     const updatedById = new Map<string, typeof existingTalents[number]>();
     const newBatch: typeof existingTalents = [];
     const newBatchIndexById = new Map<string, number>();
@@ -135,9 +145,32 @@ export function TalentPoolPage() {
       const name = (item.candidateName || '').trim();
       if (!name) continue;
       const jobTitle = (item.jdTitle || '').trim();
-      const existing = existingByName.get(name);
       const recruiter = item.contactPerson?.trim() || repushColumnNames[item.column] || undefined;
       const candidateCode = item.candidateCode?.trim() || undefined;
+      const normalizedCode = candidateCode?.toUpperCase();
+      const candidateIdentityId = item.candidateIdentityId?.trim() || undefined;
+      const normalizedName = name.normalize('NFKC').toLowerCase();
+      const identityEntry = candidateIdentityId ? existingByIdentity.get(candidateIdentityId) : undefined;
+      const codeEntry = normalizedCode ? existingByCode.get(normalizedCode) : undefined;
+      const nameEntry = !candidateIdentityId && !candidateCode ? legacyByName.get(normalizedName) : undefined;
+      if (identityEntry === null || codeEntry === null || nameEntry === null) {
+        skippedConflicts++;
+        continue;
+      }
+      const identityMatch = identityEntry || undefined;
+      const codeMatch = codeEntry || undefined;
+      if ((identityMatch && codeMatch && identityMatch.id !== codeMatch.id)
+        || (identityMatch?.candidateCode && normalizedCode && identityMatch.candidateCode.trim().toUpperCase() !== normalizedCode)
+        || (candidateIdentityId && codeMatch?.candidateIdentityId
+          && codeMatch.candidateIdentityId.trim() !== candidateIdentityId)) {
+        skippedConflicts++;
+        continue;
+      }
+      const existing = identityMatch
+        || codeMatch
+        || (!candidateIdentityId && !candidateCode
+          ? nameEntry
+          : undefined);
       const cats = detectCategories(jobTitle);
       // 推荐记录里的简历文件跟随导入（已有简历的人才不覆盖）
       const itemResume = item.resumeUrl ? { resumeUrl: item.resumeUrl, resumeFileName: item.resumeFileName } : null;
@@ -150,6 +183,9 @@ export function TalentPoolPage() {
           ...existing,
           jobTitle: jobTitle || existing.jobTitle,
           candidateCode: candidateCode || existing.candidateCode,
+          candidateIdentityId: candidateIdentityId
+            || existing.candidateIdentityId
+            || (normalizedCode ? `legacy:${item.column}:${normalizedCode}` : existing.id),
           organization: item.organization?.trim() || existing.organization,
           department: item.department?.trim() || existing.department,
           phone: item.contact?.trim() || existing.phone,
@@ -161,14 +197,19 @@ export function TalentPoolPage() {
         const newBatchIndex = newBatchIndexById.get(existing.id);
         if (newBatchIndex === undefined) updatedById.set(existing.id, nextTalent);
         else newBatch[newBatchIndex] = nextTalent;
-        existingByName.set(name, nextTalent);
+        indexUnique(existingByIdentity, nextTalent.candidateIdentityId?.trim(), nextTalent);
+        indexUnique(existingByCode, nextTalent.candidateCode?.trim().toUpperCase(), nextTalent);
+        indexUnique(legacyByName, normalizedName, nextTalent);
         if (attachResume) { resumesLinked++; if (!existing.hasResumeText) toScan.push({ talentId, url: itemResume.resumeUrl!, fileName: itemResume.resumeFileName }); }
         updated++;
       } else {
         talentId = generateId();
+        const stableIdentityId = candidateIdentityId
+          || (normalizedCode ? `legacy:${item.column}:${normalizedCode}` : talentId);
         const nextTalent = {
           id: talentId,
           candidateCode,
+          candidateIdentityId: stableIdentityId,
           name,
           jobTitle,
           categories: cats.length ? cats : ['operations'],
@@ -186,7 +227,9 @@ export function TalentPoolPage() {
         } as typeof existingTalents[number];
         newBatchIndexById.set(talentId, newBatch.length);
         newBatch.push(nextTalent);
-        existingByName.set(name, nextTalent);
+        indexUnique(existingByIdentity, stableIdentityId, nextTalent);
+        indexUnique(existingByCode, normalizedCode, nextTalent);
+        indexUnique(legacyByName, normalizedName, nextTalent);
         if (itemResume) { resumesLinked++; toScan.push({ talentId, url: itemResume.resumeUrl!, fileName: itemResume.resumeFileName }); }
         created++;
       }
@@ -231,7 +274,7 @@ export function TalentPoolPage() {
       })();
     }
 
-    alert(`导入完成：新建 ${created} 位，更新 ${updated} 位${resumesLinked ? `，关联简历 ${resumesLinked} 份（文字提取在后台进行）` : ''}`);
+    alert(`导入完成：新建 ${created} 位，更新 ${updated} 位${resumesLinked ? `，关联简历 ${resumesLinked} 份（文字提取在后台进行）` : ''}${skippedConflicts ? `；${skippedConflicts} 条因编号与候选人身份冲突未导入` : ''}`);
   };
 
   const handleExportFeishu = async () => {

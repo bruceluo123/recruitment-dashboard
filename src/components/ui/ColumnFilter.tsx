@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ListFilter, Search, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -16,17 +17,39 @@ const EMPTY_TOKEN = '__EMPTY__';
 export function ColumnFilter({ label, options, selected, onChange, emptyLabel = '(空)' }: ColumnFilterProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
 
   const active = selected.size > 0;
 
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = 224;
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+      setPanelPos({ top: rect.bottom + 6, left });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
   }, [open]);
 
   const filtered = useMemo(() => {
@@ -45,7 +68,7 @@ export function ColumnFilter({ label, options, selected, onChange, emptyLabel = 
   const selectAll = () => onChange(new Set()); // 清空筛选 = 显示全部
 
   return (
-    <div ref={ref} className="relative inline-flex items-center gap-1">
+    <div ref={triggerRef} className="relative inline-flex items-center gap-1">
       <span className="uppercase tracking-wider">{label}</span>
       <button
         type="button"
@@ -59,8 +82,12 @@ export function ColumnFilter({ label, options, selected, onChange, emptyLabel = 
         <ListFilter className="w-3.5 h-3.5" />
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-7 z-30 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 normal-case">
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          className="fixed z-[80] w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 normal-case"
+          style={{ top: panelPos.top, left: panelPos.left }}
+        >
           <div className="relative mb-2">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
             <input
@@ -101,7 +128,8 @@ export function ColumnFilter({ label, options, selected, onChange, emptyLabel = 
               })
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

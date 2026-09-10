@@ -1,13 +1,14 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Users, CalendarCheck, FileUp, FileText, Loader2, MessageSquareText } from 'lucide-react';
+import { Users, CalendarCheck, FileUp, FileText, Loader2, MessageSquareText, Repeat2 } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
-import { RecommendationBar, recommendationFeedbackLabel } from './RecommendationBar';
+import { RecommendationBar } from './RecommendationBar';
 import { UnfeedbackModal } from './UnfeedbackModal';
 import { EditRecommendationModal } from './EditRecommendationModal';
 import { RepushModal, type RepushArgs } from './RepushModal';
+import { BulkRepushModal, type BulkRepushCandidate } from './BulkRepushModal';
 import { OfferModal, type OfferFormValues } from './OfferModal';
 import { DailyReportModal } from './DailyReportModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
@@ -15,13 +16,24 @@ import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRou
 import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
-import { scheduleRecommendation } from '@/lib/schedule';
+import { useTalentStore } from '@/store/talent-store';
+import { scheduleRecommendation, findRecommendationCandidate } from '@/lib/schedule';
 import { matchJDByTitle } from '@/lib/recommendation';
 import { getOfferGrade } from '@/lib/offer-compensation';
 import { exportDailyReportExcel } from '@/lib/daily-report-excel';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
-import type { FeedbackCenterItem } from '@/types/feedback-center';
+import { isFeedbackEligibleDelivery, projectFeedbackStatus } from '@/lib/feedback-status';
+import type { FeedbackCenterItem, FeedbackCenterState } from '@/types/feedback-center';
+import { fetchFeedback } from '@/lib/feedback-client';
+import { applyRemoteStoreUpdate, refreshSyncedData } from '@/lib/sync';
+import { recommendationOrganization } from '@/lib/recommendation-copy';
+import { resumeFileMatchesCandidate } from '@/lib/resume-identity';
+import type { JD } from '@/types/jd';
+import type { Talent } from '@/types/talent';
+import type { Candidate } from '@/types/interview';
+
+const EMPTY_FEEDBACK_ITEMS: FeedbackCenterItem[] = [];
 
 function normalizeFeedbackKey(value?: string): string {
   return String(value || '').trim().toLowerCase().replace(/[\s/·・()（）\-_—–]+/g, '');
@@ -31,6 +43,33 @@ function feedbackTargetKey(item: Pick<RepushItem, 'candidateCode' | 'jdTitle' | 
   const code = String(item.candidateCode || '').trim().toUpperCase();
   if (!code || !item.jdTitle || (!item.organization && !item.department)) return '';
   return [code, item.jdTitle, item.organization, item.department].map(normalizeFeedbackKey).join('|');
+}
+
+function feedbackMatchesRecommendation(feedback: FeedbackCenterItem, item: RepushItem): boolean {
+  if (feedback.owner !== item.column) return false;
+
+  const feedbackCode = normalizeFeedbackKey(feedback.candidateCode);
+  const itemCode = normalizeFeedbackKey(item.candidateCode);
+  const feedbackName = normalizeFeedbackKey(feedback.candidateName);
+  const itemName = normalizeFeedbackKey(item.candidateName || displayName(item).split('-')[0]);
+  const candidateMatches = feedbackCode || itemCode
+    ? Boolean(feedbackCode && itemCode && feedbackCode === itemCode)
+    : Boolean(feedbackName && itemName && feedbackName === itemName);
+  if (!candidateMatches) return false;
+
+  const feedbackJob = normalizeFeedbackKey(feedback.jobTitle);
+  const itemJob = normalizeFeedbackKey(item.jdTitle);
+  if (!feedbackJob || !itemJob || feedbackJob !== itemJob) return false;
+
+  return [
+    [feedback.organization, item.organization],
+    [feedback.department, item.department],
+  ].every(([feedbackValue, itemValue]) => {
+    const normalizedFeedback = normalizeFeedbackKey(feedbackValue);
+    const normalizedItem = normalizeFeedbackKey(itemValue);
+    return (!normalizedFeedback && !normalizedItem)
+      || Boolean(normalizedFeedback && normalizedItem && normalizedFeedback === normalizedItem);
+  });
 }
 
 /** 把推荐记录按「天」分组，组与组按时间由近到远排序 */
@@ -69,11 +108,106 @@ function groupByCandidate(items: RepushItem[]): { key: string; items: RepushItem
   return Array.from(groups.entries()).map(([key, groupedItems]) => ({ key, items: groupedItems }));
 }
 
+function sameJobCandidateKey(item: RepushItem): string {
+  const identity = String(item.candidateIdentityId || '').trim().toLowerCase();
+  if (identity) return `identity:${identity}`;
+  const code = String(item.candidateCode || '').trim().toUpperCase();
+  if (code) return `code:${code}`;
+  if (item.candidateId) return `candidate:${item.candidateId}`;
+  const name = normalizeFeedbackKey(item.candidateName || displayName(item).split('-')[0]);
+  return name ? `name:${name}` : `item:${item.id}`;
+}
+
+function indexUniqueTalents(
+  talents: Talent[],
+  value: (talent: Talent) => string,
+): Map<string, Talent> {
+  const index = new Map<string, Talent>();
+  const duplicates = new Set<string>();
+  for (const talent of talents) {
+    const key = value(talent);
+    if (!key) continue;
+    if (index.has(key)) duplicates.add(key);
+    else index.set(key, talent);
+  }
+  duplicates.forEach((key) => index.delete(key));
+  return index;
+}
+
+function sameJobCandidateOptions(
+  items: RepushItem[],
+  talents: Talent[],
+  interviewCandidates: Candidate[],
+  feedbackByRecommendation: Map<string, FeedbackCenterItem>,
+): BulkRepushCandidate[] {
+  const activeTalents = talents.filter((talent) => !talent.archived);
+  const talentById = new Map(activeTalents.map((talent) => [talent.id, talent]));
+  const talentByIdentity = indexUniqueTalents(activeTalents, (talent) => String(talent.candidateIdentityId || '').trim().toLowerCase());
+  const talentByCode = indexUniqueTalents(activeTalents, (talent) => String(talent.candidateCode || '').trim().toUpperCase());
+  const interviewCandidateById = new Map(interviewCandidates.map((candidate) => [candidate.id, candidate]));
+  const options = new Map<string, BulkRepushCandidate>();
+  const newestFirst = items
+    .filter((item) => Boolean(item.resumeUrl)
+      && resumeFileMatchesCandidate(
+        item.candidateName || displayName(item).split('-')[0],
+        item.resumeFileName || item.fileName,
+      ))
+    .slice()
+    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+  for (const item of newestFirst) {
+    const key = sameJobCandidateKey(item);
+    const talent = (item.talentId ? talentById.get(item.talentId) : undefined)
+      || talentByIdentity.get(String(item.candidateIdentityId || '').trim().toLowerCase())
+      || talentByCode.get(String(item.candidateCode || '').trim().toUpperCase());
+    const interviewCandidate = item.candidateId ? interviewCandidateById.get(item.candidateId) : undefined;
+    const feedbackStatus = projectFeedbackStatus(feedbackByRecommendation.get(item.id));
+    const hasInterview = item.interviewStatus === 'scheduled' || Boolean(interviewCandidate?.interviewDate || interviewCandidate?.interviewHistory?.length);
+    const interviewFailed = interviewCandidate?.outcome === 'failed'
+      || feedbackStatus === 'screening_failed'
+      || feedbackStatus === 'interview_failed'
+      || feedbackStatus === 'closed';
+    const existing = options.get(key);
+    if (existing) {
+      if ((!existing.item.rawText && item.rawText) || (!existing.item.highlights && item.highlights) || (hasInterview && !existing.hasInterview) || (interviewFailed && !existing.interviewFailed)) {
+        options.set(key, {
+          ...existing,
+          hasInterview: existing.hasInterview || hasInterview,
+          interviewFailed: existing.interviewFailed || interviewFailed,
+          item: {
+            ...existing.item,
+            rawText: existing.item.rawText || item.rawText,
+            highlights: existing.item.highlights || item.highlights,
+          },
+        });
+      }
+      continue;
+    }
+    options.set(key, {
+      key,
+      candidateCode: String(item.candidateCode || '').trim(),
+      candidateName: String(item.candidateName || displayName(item).split('-')[0] || '未命名人选').trim(),
+      talentId: talent?.id,
+      hasResumeText: talent?.hasResumeText,
+      hasInterview,
+      interviewFailed,
+      item,
+    });
+  }
+  return Array.from(options.values());
+}
+
+function isSameJobTarget(item: RepushItem, jd: JD): boolean {
+  if (item.jdId && item.jdId === jd.id) return true;
+  return [item.jdTitle, item.organization, item.department].map(normalizeFeedbackKey).join('|')
+    === [jd.title, recommendationOrganization(jd), jd.department].map(normalizeFeedbackKey).join('|');
+}
+
 export function RecommendationCenter() {
   const [mounted, setMounted] = useState(false);
   const items = useRepushStore((s) => s.items);
   const columnNames = useRepushStore((s) => s.columnNames);
   const addRecommendation = useRepushStore((s) => s.addRecommendation);
+  const upsertDeliveryRecommendation = useRepushStore((s) => s.upsertDeliveryRecommendation);
   const updateItem = useRepushStore((s) => s.updateItem);
   const removeItem = useRepushStore((s) => s.removeItem);
 
@@ -81,6 +215,7 @@ export function RecommendationCenter() {
   const addCandidate = useInterviewStore((s) => s.addCandidate);
   const updateCandidate = useInterviewStore((s) => s.updateCandidate);
   const candidates = useInterviewStore((s) => s.candidates);
+  const talents = useTalentStore((s) => s.talents);
 
   // 推荐人视图跟随全局持久化偏好（usePrefStore.activeOwner）：
   // 用户切到「啵啵」(b) 后，本页及其他所有页面、刷新/下次打开都保持啵啵，
@@ -90,12 +225,15 @@ export function RecommendationCenter() {
   const [scheduling, setScheduling] = useState<RepushItem | null>(null);
   const [editing, setEditing] = useState<RepushItem | null>(null);
   const [repushing, setRepushing] = useState<RepushItem | null>(null);
+  const [sameJobRepushOpen, setSameJobRepushOpen] = useState(false);
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
+  const [preparingBoard, setPreparingBoard] = useState(false);
   const [showingUnfeedback, setShowingUnfeedback] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
-  const [feedbackItems, setFeedbackItems] = useState<FeedbackCenterItem[]>([]);
+  const [feedbackSnapshots, setFeedbackSnapshots] = useState<Partial<Record<RepushColumnId, FeedbackCenterState>>>({});
+  const [feedbackError, setFeedbackError] = useState('');
   const [expandedCandidateGroups, setExpandedCandidateGroups] = useState<Set<string>>(() => new Set());
   const [contactRefreshTick, setContactRefreshTick] = useState(0);
   const attemptedContactLookups = useRef(new Set<string>());
@@ -114,37 +252,47 @@ export function RecommendationCenter() {
 
   useEffect(() => setMounted(true), []);
 
-  // 推荐中心只读取反馈中心已经生成的 7 天摘要，不触发 OCR 重算。
-  // 每次切换推荐人只发一个请求，接口本身继续执行麦满分/啵啵隔离。
+  // Refresh precomputed summaries only; failures never erase trusted feedback.
   useEffect(() => {
     if (!mounted) return;
-    const controller = new AbortController();
-    setFeedbackItems([]);
-    void fetch(`/api/feedback-center?owner=${view}&scope=all`, {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('反馈摘要读取失败');
-        return response.json();
-      })
-      .then((data) => {
-        if (!controller.signal.aborted) setFeedbackItems(Array.isArray(data.items) ? data.items : []);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setFeedbackItems([]);
-      });
-    return () => controller.abort();
+    let active = true;
+    const load = async () => {
+      if (document.hidden) return;
+      if (active) setFeedbackError('');
+      try {
+        const data = await fetchFeedback(view, false, true);
+        if (active) {
+          setFeedbackSnapshots((current) => ({ ...current, [view]: data }));
+          setFeedbackError('');
+        }
+      } catch { if (active) setFeedbackError('反馈读取失败，请稍后重试'); }
+    };
+    void load();
+    const timer = setInterval(() => void load(), 60_000);
+    window.addEventListener('feedback-updated', load);
+    document.addEventListener('visibilitychange', load);
+    return () => { active = false; clearInterval(timer); window.removeEventListener('feedback-updated', load); document.removeEventListener('visibilitychange', load); };
   }, [mounted, view]);
+
+  const feedbackSnapshot = feedbackSnapshots[view];
+  const feedbackItems = feedbackSnapshot?.items ?? EMPTY_FEEDBACK_ITEMS;
+  const feedbackReady = feedbackSnapshot !== undefined;
 
   const feedbackByRecommendation = useMemo(() => {
     const result = new Map<string, FeedbackCenterItem>();
     const fallback = new Map<string, FeedbackCenterItem[]>();
+    const recommendationsById = new Map(
+      items.filter((item) => item.column === view).map((item) => [item.id, item]),
+    );
 
     for (const feedback of feedbackItems) {
       if (feedback.owner !== view) continue;
       const recommendationId = String(feedback.recommendationId || feedback.id || '').trim();
-      if (recommendationId) result.set(recommendationId, feedback);
+      const directRecommendation = recommendationId ? recommendationsById.get(recommendationId) : undefined;
+      if (directRecommendation && feedbackMatchesRecommendation(feedback, directRecommendation)) {
+        result.set(directRecommendation.id, feedback);
+        continue;
+      }
 
       const key = feedbackTargetKey({
         candidateCode: feedback.candidateCode,
@@ -158,12 +306,19 @@ export function RecommendationCenter() {
       fallback.set(key, matches);
     }
 
+    const fallbackTargets = new Map<string, RepushItem[]>();
     for (const item of items) {
       if (item.column !== view || result.has(item.id)) continue;
       const key = feedbackTargetKey(item);
-      const matches = key ? fallback.get(key) : undefined;
-      // 只有候选人编码、岗位、编制和部门唯一一致时才允许兼容旧记录，避免跨岗位串反馈。
-      if (matches?.length === 1) result.set(item.id, matches[0]);
+      if (!key) continue;
+      const targets = fallbackTargets.get(key) || [];
+      targets.push(item);
+      fallbackTargets.set(key, targets);
+    }
+    for (const [key, targets] of Array.from(fallbackTargets.entries())) {
+      const matches = fallback.get(key);
+      // 旧记录和投递目标都必须唯一，重复投递不能共享同一条反馈。
+      if (targets.length === 1 && matches?.length === 1) result.set(targets[0].id, matches[0]);
     }
     return result;
   }, [feedbackItems, items, view]);
@@ -266,7 +421,13 @@ export function RecommendationCenter() {
   if (!mounted) return null;
 
   const viewItems = items.filter((it) => it.column === view);
-  const unfeedbackItems = viewItems.filter((item) => recommendationFeedbackLabel(feedbackByRecommendation.get(item.id)) === '未反馈');
+  const sameJobCandidates = sameJobCandidateOptions(viewItems, talents, candidates, feedbackByRecommendation);
+  const unfeedbackItems = feedbackReady
+    ? viewItems.filter((item) => (
+      isFeedbackEligibleDelivery(item.deliveryStatus)
+      && projectFeedbackStatus(feedbackByRecommendation.get(item.id)) === 'pending'
+    ))
+    : [];
   const filteredItems = filterRecommendations(viewItems, filters);
   const groups = groupByDay(filteredItems).map((group) => ({
     ...group,
@@ -306,11 +467,22 @@ export function RecommendationCenter() {
   // 复推：基于原记录新建一条独立推荐（换岗位/编制/部门），原记录保持不变
   const confirmRepush = (selections: RepushArgs[]) => {
     if (!repushing || selections.length === 0) return;
+    const authoritative = selections.flatMap((args) => args.record ? [args.record] : []);
+    if (authoritative.length > 0) {
+      applyRemoteStoreUpdate('repush', () => {
+        for (const record of authoritative) upsertDeliveryRecommendation(record);
+        return useRepushStore.getState().items;
+      });
+    }
     for (const args of selections) {
+      if (args.record) continue;
       addRecommendation({
+        applicationId: args.applicationId,
         column: repushing.column,
         candidateCode: repushing.candidateCode,
+        candidateIdentityId: repushing.candidateIdentityId,
         candidateName: repushing.candidateName || displayName(repushing),
+        jdId: args.jdId,
         jdTitle: args.jdTitle || undefined,
         contact: repushing.contact,
         contactPerson: args.contactPerson || undefined,
@@ -320,25 +492,37 @@ export function RecommendationCenter() {
         highlights: repushing.highlights,
         resumeUrl: repushing.resumeUrl,
         resumeFileName: repushing.resumeFileName,
-        source: 'repush',
-        repushSourceId: repushing.id,
+        source: args.source,
+        repushSourceId: args.repushSourceId,
+        deliveryId: args.deliveryId,
+        deliveryIndex: args.deliveryIndex,
+        deliveryStatus: args.deliveryStatus,
+        deliveryUpdatedAt: args.deliveryUpdatedAt,
+        telegramMessageId: args.telegramMessageId,
+        deliveredAt: args.deliveredAt,
+        uploadedAt: args.uploadedAt,
+        updatedAt: args.updatedAt,
       });
     }
-    setRepushing(null);
   };
+
+  const syncSameJobRecords = (records: RepushItem[]) => {
+    if (records.length === 0) return;
+    applyRemoteStoreUpdate('repush', () => {
+      for (const record of records) upsertDeliveryRecommendation(record);
+      return useRepushStore.getState().items;
+    });
+  };
+
+  const hasRecommendedSameJob = (candidate: BulkRepushCandidate, jd: JD) => viewItems.some((item) => (
+    sameJobCandidateKey(item) === candidate.key && isSameJobTarget(item, jd)
+  ));
 
   const confirmOffer = (values: OfferFormValues) => {
     if (!offering) return;
     const offerAppliedAt = new Date().toISOString();
     const name = offering.candidateName || offering.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
-    const linkedCandidate = candidates.find((candidate) => candidate.id === offering.candidateId)
-      || candidates.find((candidate) => (
-        (candidate.owner || 'a') === offering.column
-        && candidate.name === name
-        && candidate.jdTitle === (offering.jdTitle || '')
-        && (!offering.organization || (candidate.organization || '') === offering.organization)
-        && (!offering.department || (candidate.department || '') === offering.department)
-      ));
+    const linkedCandidate = findRecommendationCandidate(offering, candidates);
     const jd = offering.jdTitle ? matchJDByTitle(offering.jdTitle, jds) : null;
     const probationSalary = values.probationSalary.trim();
     const regularSalary = values.regularSalary.trim();
@@ -386,11 +570,27 @@ export function RecommendationCenter() {
   const handleExportTodayReport = async () => {
     setExportingToday(true);
     try {
-      await exportDailyReportExcel({ column: view, name: columnNames[view], items, candidates });
+      await refreshSyncedData();
+      await exportDailyReportExcel({
+        column: view,
+        name: columnNames[view],
+        items: useRepushStore.getState().items,
+        candidates: useInterviewStore.getState().candidates,
+      });
     } catch (error) {
       alert(error instanceof Error ? error.message : '导出今日日报失败，请重试');
     } finally {
       setExportingToday(false);
+    }
+  };
+
+  const handleOpenDailyReport = async () => {
+    setPreparingBoard(true);
+    try {
+      await refreshSyncedData();
+      setReporting(true);
+    } finally {
+      setPreparingBoard(false);
     }
   };
 
@@ -425,17 +625,29 @@ export function RecommendationCenter() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <button
               type="button"
+              onClick={() => setSameJobRepushOpen(true)}
+              disabled={sameJobCandidates.length === 0}
+              title={sameJobCandidates.length > 0 ? '选择多位人选复推到同一个岗位' : '暂无带原简历的可复推人选'}
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Repeat2 className="h-4 w-4" />同岗复推
+            </button>
+            <button
+              type="button"
               onClick={() => setShowingUnfeedback(true)}
-              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition-colors"
+              disabled={!feedbackReady}
+              title={!feedbackReady ? '正在读取反馈，请稍候' : feedbackError ? '使用上次成功读取的反馈结果' : '复制未反馈岗位'}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60 transition-colors"
             >
               <MessageSquareText className="w-4 h-4" />未反馈
             </button>
             {/* 一键看板：把当前推荐人今日数据提交到团队数据看板 */}
             <button
-              onClick={() => setReporting(true)}
+              onClick={handleOpenDailyReport}
+              disabled={preparingBoard}
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 text-sm font-medium hover:bg-indigo-100 transition-colors"
             >
-              <FileUp className="w-4 h-4" />一键看板
+              {preparingBoard ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}一键看板
             </button>
             {/* 今日日报：直接套用 Excel 模板导出，便于截图提交 */}
             <button
@@ -461,7 +673,13 @@ export function RecommendationCenter() {
           </div>
         </div>
 
-        <RecommendationSearchBar items={viewItems} filters={filters} onChange={setFilters} />
+        <RecommendationSearchBar filters={filters} onChange={setFilters} />
+        {feedbackError && (
+          <p role="status" className="mb-3 text-xs text-amber-700">
+            {feedbackReady ? '反馈更新失败，继续显示上次成功读取的结果；请稍后重试' : feedbackError}
+            {feedbackSnapshot?.generatedAt ? `（当前结果更新于 ${new Date(feedbackSnapshot.generatedAt).toLocaleString('zh-CN')}）` : ''}
+          </p>
+        )}
 
         {groups.length > 0 ? (
           <div className="space-y-5">
@@ -490,6 +708,8 @@ export function RecommendationCenter() {
                             key={it.id}
                             item={it}
                             feedbackItem={feedbackByRecommendation.get(it.id)}
+                            feedbackReady={feedbackReady}
+                            feedbackUnavailable={!feedbackReady && Boolean(feedbackError)}
                             candidateGroupCount={index === 0 ? candidateGroup.items.length : undefined}
                             candidateGroupExpanded={expanded}
                             candidateGroupItems={index === 0 ? candidateGroup.items : undefined}
@@ -544,10 +764,20 @@ export function RecommendationCenter() {
           onConfirm={confirmRepush}
         />
       )}
+      {sameJobRepushOpen && (
+        <BulkRepushModal
+          owner={view}
+          candidateOptions={sameJobCandidates}
+          jds={jds}
+          isAlreadyRecommended={hasRecommendedSameJob}
+          onRecords={syncSameJobRecords}
+          onClose={() => setSameJobRepushOpen(false)}
+        />
+      )}
       {offering && (
         <OfferModal
           item={offering}
-          candidate={candidates.find((candidate) => candidate.id === offering.candidateId)}
+          candidate={findRecommendationCandidate(offering, candidates)}
           onClose={() => setOffering(null)}
           onConfirm={confirmOffer}
         />

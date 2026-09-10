@@ -1,238 +1,123 @@
 'use client';
-import { useEffect, useRef } from 'react';
-import { startSync, syncPush, syncDelete, fetchImportDiff, fetchWeeklyAdded, pushWeeklyAdded, isTombstoned } from '@/lib/sync';
-import { reconcileScheduledRecommendations } from '@/lib/schedule';
-import { normalizeJDSections, stripContactMeta } from '@/lib/jd-parse-core';
+import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, type DataType } from '@/lib/sync';
 import { isMockJds } from '@/lib/mock-guard';
-import { mondayKey } from '@/lib/utils';
+import { mergeUniqueJDs } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { useTalentStore } from '@/store/talent-store';
-import { useRepushStore, type RepushItem } from '@/store/repush-store';
+import { useRepushStore } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { useCompanyStore } from '@/store/company-store';
-import type { JD, JDImportResult, JDDiffItem, WeeklyAdded } from '@/types/jd';
+import type { JD, JDImportResult, WeeklyAdded } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
+import type { RepushItem } from '@/store/repush-store';
 import type { TodoItem } from '@/types/todo';
 import type { Company } from '@/types/company';
 
-/** 取数组里所有 id */
-function idsOf(arr: Array<{ id?: string }>): string[] {
-  return arr.map((x) => x.id).filter((x): x is string => !!x);
-}
-
-// 空数据保护（数据安全优先）：绝不用空数组覆盖本地非空数据。
-// 之前尝试用「readOk」放行合法清空，但 Upstash 对「暂时缺失的键」也返回 HTTP 200+空，
-// 导致空数据被当成合法清空下发、把 JD 库整个清空并回灌 KV（2026-07-04 线上事故）。
-// 结论：跨端「整组清空」是极边缘场景，不值得冒数据丢失风险。
-// 真正的删除走墓碑按 id 传播，不依赖整组清空，因此此保护不影响删除生效。
-function shouldApply(incoming: unknown[], currentLen: number): boolean {
-  return !(incoming.length === 0 && currentLen > 0);
-}
-
-/** prev 有、next 没有的 id（即本地刚删除的项） */
-function removedIds(prev: string[], next: string[]): string[] {
-  const nextSet = new Set(next);
-  return prev.filter((id) => !nextSet.has(id));
-}
-
-function mergeRepushByRevision(remote: RepushItem[], local: RepushItem[]): RepushItem[] {
-  const merged = new Map(remote.map((item) => [item.id, item]));
-  for (const item of local) {
-    if (isTombstoned('repush', item.id)) continue;
-    const remoteItem = merged.get(item.id);
-    if (!remoteItem) {
-      merged.set(item.id, item);
-      continue;
-    }
-    const remoteTime = remoteItem.updatedAt ? new Date(remoteItem.updatedAt).getTime() : 0;
-    const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-    if (localTime > remoteTime) merged.set(item.id, item);
-  }
-  return Array.from(merged.values());
+function routeTypes(path: string): DataType[] {
+  const common: DataType[] = ['candidates', 'repush', 'todos'];
+  if (path === '/' || path.startsWith('/resume-matching') || path.startsWith('/repush-pool')
+    || path.startsWith('/interview-calendar') || path.startsWith('/hot-hiring')) return [...common, 'jds'];
+  if (path.startsWith('/jd-library')) return [...common, 'jds', 'companies'];
+  if (path.startsWith('/talent-pool')) return [...common, 'talents', 'jds'];
+  if (path.startsWith('/companies')) return [...common, 'companies'];
+  return common;
 }
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
-  const jds = useJDStore((s) => s.jds);
-  const candidates = useInterviewStore((s) => s.candidates);
-  const talents = useTalentStore((s) => s.talents);
-  const repushItems = useRepushStore((s) => s.items);
-  const todos = useTodoStore((s) => s.todos);
-  const companies = useCompanyStore((s) => s.companies);
-  const skipPush = useRef(true);
+  const [message, setMessage] = useState('');
+  const [conflictCount, setConflictCount] = useState(0);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const pathname = usePathname();
 
-  // 各类型「上一次 id 集合」，用于检测本地删除并写墓碑（删除才能跨端传播）
-  const prevJds = useRef<string[]>([]);
-  const prevCandidates = useRef<string[]>([]);
-  const prevTalents = useRef<string[]>([]);
-  const prevRepush = useRef<string[]>([]);
-  const prevTodos = useRef<string[]>([]);
-  const prevCompanies = useRef<string[]>([]);
+  useEffect(() => { requestSyncTypes(routeTypes(pathname)); }, [pathname]);
 
   useEffect(() => {
-    startSync((type, data) => {
-      skipPush.current = true;
-      if (type === 'jds') {
-        let repairedSections = false;
-        const normalized = (data as Array<Record<string, unknown>>).map((jd: Record<string, unknown>) => {
-          const f = { ...jd } as Record<string, unknown>;
-          if (f.category && !f.categories) {
-            const map: Record<string, string> = { 'product-design': 'design' };
-            f.categories = [map[f.category as string] || f.category];
-            delete f.category;
-          }
-          if (!f.categories || !(f.categories as unknown[]).length) f.categories = ['operations'];
-          if (!f.status) f.status = 'active';
-          // 清理混入职责/要求尾部的联系人/来源/部门元数据（KV 数据不经过 persist 迁移）
-          if (Array.isArray(f.responsibilities)) f.responsibilities = stripContactMeta((f.responsibilities as unknown[]).map(String));
-          if (Array.isArray(f.requirements)) f.requirements = stripContactMeta((f.requirements as unknown[]).map(String));
-          const normalizedJD = f as unknown as JD;
-          const repaired = normalizeJDSections(normalizedJD);
-          if (repaired !== normalizedJD) repairedSections = true;
-          return repaired;
-        });
-        // Only apply remote if it's not empty mock，且不会用空覆盖本地非空
-        const typedJds = normalized as unknown as JD[];
-        if (!isMockJds(typedJds) && shouldApply(typedJds, useJDStore.getState().jds.length)) {
-          useJDStore.setState({ jds: typedJds });
-          // 历史错栏只需修复一次并写回；后续拉取数组一致，不会重复写入。
-          if (repairedSections) syncPush('jds', typedJds);
-        }
-      }
-      if (type === 'candidates') {
-        const d = data as Candidate[];
-        if (shouldApply(d, useInterviewStore.getState().candidates.length)) useInterviewStore.setState({ candidates: d });
-      }
-      if (type === 'talents') {
-        const d = data as Talent[];
-        if (shouldApply(d, useTalentStore.getState().talents.length)) useTalentStore.setState({ talents: d });
-      }
-      if (type === 'repush') {
-        const d = data as RepushItem[];
-        const local = useRepushStore.getState().items;
-        if (shouldApply(d, local.length)) {
-          const merged = mergeRepushByRevision(d, local);
-          const repaired = reconcileScheduledRecommendations(merged, useInterviewStore.getState().candidates);
-          useRepushStore.setState({ items: repaired.items });
-          if (repaired.changed) syncPush('repush', repaired.items);
-        }
-      }
-      if (type === 'todos') {
-        const d = data as TodoItem[];
-        if (shouldApply(d, useTodoStore.getState().todos.length)) useTodoStore.setState({ todos: d });
-      }
-      if (type === 'companies') {
-        const d = data as Company[];
-        if (shouldApply(d, useCompanyStore.getState().companies.length)) useCompanyStore.setState({ companies: d });
-      }
-      setTimeout(() => { skipPush.current = false; }, 1000);
-    });
-  }, []);
-
-  // Push local changes — but NEVER push mock data
-  useEffect(() => {
-    const next = idsOf(jds);
-    const removed = removedIds(prevJds.current, next);
-    prevJds.current = next;
-    if (skipPush.current) return;
-    if (isMockJds(jds)) return; // never push mock data to KV
-    if (removed.length) syncDelete('jds', removed);
-    syncPush('jds', jds);
-  }, [jds]);
-
-  useEffect(() => {
-    const next = idsOf(candidates);
-    const removed = removedIds(prevCandidates.current, next);
-    prevCandidates.current = next;
-    if (skipPush.current) return;
-    if (removed.length) syncDelete('candidates', removed);
-    syncPush('candidates', candidates);
-  }, [candidates]);
-
-  useEffect(() => {
-    const next = idsOf(talents);
-    const removed = removedIds(prevTalents.current, next);
-    prevTalents.current = next;
-    if (skipPush.current) return;
-    if (removed.length) syncDelete('talents', removed);
-    syncPush('talents', talents);
-  }, [talents]);
-
-  useEffect(() => {
-    const next = idsOf(repushItems);
-    const removed = removedIds(prevRepush.current, next);
-    prevRepush.current = next;
-    if (skipPush.current) return;
-    if (removed.length) syncDelete('repush', removed);
-    syncPush('repush', repushItems);
-  }, [repushItems]);
-
-  useEffect(() => {
-    const next = idsOf(todos);
-    const removed = removedIds(prevTodos.current, next);
-    prevTodos.current = next;
-    if (skipPush.current) return;
-    if (removed.length) syncDelete('todos', removed);
-    syncPush('todos', todos);
-  }, [todos]);
-
-  useEffect(() => {
-    const next = idsOf(companies);
-    const removed = removedIds(prevCompanies.current, next);
-    prevCompanies.current = next;
-    if (skipPush.current) return;
-    if (removed.length) syncDelete('companies', removed);
-    syncPush('companies', companies);
-  }, [companies]);
-
-  // 轮询今日增改 diff 和本周新增：远端比本地更新时同步过来
-  useEffect(() => {
-    const checkRemoteState = async () => {
-      try {
-        const [remoteDiff, remoteWeekly] = await Promise.all([fetchImportDiff(), fetchWeeklyAdded()]);
-        // 今日增改
-        const rd = remoteDiff as ({ date: string; added?: JDDiffItem[] } & Record<string, unknown>) | null;
-        if (rd?.date) {
-          const local = useJDStore.getState().lastImportDiff;
-          if (new Date(rd.date).getTime() > (local ? new Date(local.date).getTime() : 0)) {
-            useJDStore.setState({ lastImportDiff: rd as unknown as (JDImportResult & { date: string }) });
-          }
-        }
-        // 本周新增：优先用远端 weeklyAdded；若 KV 中 weeklyAdded 为空则从 lastImportDiff.added 补充
-        const rw = remoteWeekly as WeeklyAdded | null;
-        if (rw?.weekKey) {
-          const local = useJDStore.getState().weeklyAdded;
-          const remoteTs = new Date(rw.lastUpdated).getTime();
-          const localTs = local ? new Date(local.lastUpdated).getTime() : 0;
-          if (!local || rw.weekKey > local.weekKey || (rw.weekKey === local.weekKey && remoteTs > localTs)) {
-            // 同 weekKey 时合并 items（取并集），不同 weekKey 时直接替换
-            if (local && rw.weekKey === local.weekKey) {
-              const existingKeys = new Set(local.items.map((i) => i.reqKey || i.title));
-              const toAdd = rw.items.filter((i) => !existingKeys.has(i.reqKey || i.title));
-              if (toAdd.length > 0) {
-                useJDStore.setState({ weeklyAdded: { ...rw, items: [...local.items, ...toAdd] } });
-              }
-            } else {
-              useJDStore.setState({ weeklyAdded: rw });
-            }
-          }
-        } else if (rd?.added?.length && rd.date) {
-          // KV 中 weeklyAdded 为空：从 lastImportDiff.added 直接补充
-          const weekKey = mondayKey(new Date(rd.date));
-          const localWeekly = useJDStore.getState().weeklyAdded;
-          if (!localWeekly?.items?.length) {
-            const newWeekly: WeeklyAdded = { weekKey, items: rd.added!, lastUpdated: rd.date };
-            useJDStore.setState({ weeklyAdded: newWeekly });
-            pushWeeklyAdded(newWeekly).catch((err) => console.error('pushWeeklyAdded failed', err));
-          }
-        }
-      } catch {}
+    // Suppress only the synchronous store notification caused by a remote apply.
+    // A user edit after that notification is always queued, with no timed blind window.
+    const applying = new Set<DataType>();
+    const changed = (type: DataType, next: unknown[], previous: unknown[]) => {
+      if (next === previous || applying.has(type) || isApplyingRemoteStoreUpdate(type)
+        || (type === 'jds' && isMockJds(next as JD[]))) return;
+      syncPush(type, next, previous);
     };
-    checkRemoteState();
-    const t = setInterval(checkRemoteState, 10000);
-    return () => clearInterval(t);
+    const unsubscribers = [
+      subscribeSyncStatus((nextMessage, nextConflictCount) => {
+        setMessage(nextMessage);
+        setConflictCount(nextConflictCount);
+      }),
+      useJDStore.subscribe((next, previous) => changed('jds', next.jds, previous.jds)),
+      useInterviewStore.subscribe((next, previous) => changed('candidates', next.candidates, previous.candidates)),
+      useTalentStore.subscribe((next, previous) => changed('talents', next.talents, previous.talents)),
+      useRepushStore.subscribe((next, previous) => changed('repush', next.items, previous.items)),
+      useTodoStore.subscribe((next, previous) => changed('todos', next.todos, previous.todos)),
+      useCompanyStore.subscribe((next, previous) => changed('companies', next.companies, previous.companies)),
+    ];
+    startSync((type, data, _version, readOk) => {
+      if (!readOk) return;
+      applying.add(type);
+      try {
+        if (type === 'jds' && !isMockJds(data as JD[])) {
+          // 云端和本地统一走同一套岗位身份去重，避免某台设备的历史重复缓存再次扩散。
+          useJDStore.setState({ jds: mergeUniqueJDs([], data as JD[]).jds });
+        }
+        if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
+        if (type === 'talents') useTalentStore.setState({ talents: data as Talent[] });
+        if (type === 'repush') useRepushStore.setState({ items: data as RepushItem[] });
+        if (type === 'todos') useTodoStore.setState({ todos: data as TodoItem[] });
+        if (type === 'companies') useCompanyStore.setState({ companies: data as Company[] });
+      } finally { applying.delete(type); }
+    }, routeTypes(pathname));
+    let active = true;
+    const summaries = async () => {
+      if (!routeTypes(window.location.pathname).includes('jds')) return;
+      if (document.hidden) return;
+      try {
+        const [diff, weekly] = await Promise.all([fetchImportDiff(), fetchWeeklyAdded()]);
+        if (!active) return;
+        if (diff && typeof diff === 'object' && 'date' in diff) useJDStore.setState({ lastImportDiff: diff as JDImportResult & { date: string } });
+        if (weekly && typeof weekly === 'object' && 'weekKey' in weekly) useJDStore.setState({ weeklyAdded: weekly as WeeklyAdded });
+      } catch { /* Keep the previous summary while the data service is unavailable. */ }
+    };
+    void summaries();
+    const interval = setInterval(() => void summaries(), 120_000);
+    return () => { active = false; clearInterval(interval); stopSync(); unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, []);
-
-  return <>{children}</>;
+  return <>
+    {message && <div role="status" className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+      <span>{message}</span>
+      {conflictCount > 0 ? (
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            className="underline disabled:opacity-50"
+            disabled={resolvingConflict}
+            onClick={() => {
+              setResolvingConflict(true);
+              void resolveSyncConflicts('local').finally(() => setResolvingConflict(false));
+            }}
+          >
+            保留本机
+          </button>
+          <button
+            type="button"
+            className="underline disabled:opacity-50"
+            disabled={resolvingConflict}
+            onClick={() => {
+              setResolvingConflict(true);
+              void resolveSyncConflicts('remote').finally(() => setResolvingConflict(false));
+            }}
+          >
+            采用云端
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="shrink-0 underline" onClick={() => void retrySync()}>重试同步</button>
+      )}
+    </div>}
+    {children}
+  </>;
 }

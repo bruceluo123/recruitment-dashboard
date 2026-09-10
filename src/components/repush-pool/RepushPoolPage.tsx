@@ -1,13 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check, ChevronDown, ChevronUp, Clock3, ExternalLink, FileText,
   ListChecks, Loader2, MessageSquareText, RefreshCw, Repeat2, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { fetchFeedback, invalidateFeedback } from '@/lib/feedback-client';
+import { isFeedbackEligibleDelivery, projectFeedbackStatus } from '@/lib/feedback-status';
 import { displayName } from '@/lib/repush-format';
 import { recommendationOrganization } from '@/lib/recommendation-copy';
+import { applyRemoteStoreUpdate } from '@/lib/sync';
 import { RepushModal, type RepushArgs } from '@/components/recommendation-center/RepushModal';
 import { usePrefStore } from '@/store/pref-store';
 import { useJDStore } from '@/store/jd-store';
@@ -41,20 +44,14 @@ interface RecommendationIndex {
   byCandidate: Map<string, RepushItem[]>;
 }
 
-interface CachedFeedback {
-  expiresAt: number;
-  state: FeedbackCenterState;
-}
+const EMPTY_FEEDBACK_ITEMS: FeedbackCenterItem[] = [];
 
 const BUCKETS: Array<{ id: FeedbackBucket; label: string; description: string }> = [
-  { id: 'pending', label: '无反馈，去跟进', description: '仍有岗位没有明确结果' },
+  { id: 'pending', label: '待跟进', description: '仍有岗位没有明确结果' },
   { id: 'screening_failed', label: '已反馈，可复推', description: '全部已有初筛结果，可换部门继续推荐' },
   { id: 'interview_failed', label: '面试后，可复推', description: '面试未通过，可重新匹配其他岗位' },
 ];
 
-const FEEDBACK_CACHE_MS = 60_000;
-const feedbackCache = new Map<'a' | 'b', CachedFeedback>();
-const feedbackRequests = new Map<'a' | 'b', Promise<FeedbackCenterState>>();
 function clean(value?: string): string {
   return String(value || '').trim();
 }
@@ -94,17 +91,27 @@ function sameCandidate(feedback: FeedbackCenterItem, item: RepushItem): boolean 
   if (feedback.owner !== item.column) return false;
   const feedbackCode = normalize(feedback.candidateCode);
   const itemCode = normalize(item.candidateCode);
-  if (feedbackCode && itemCode) return feedbackCode === itemCode;
-  return normalize(feedback.candidateName) === normalize(item.candidateName || displayName(item).split('-')[0]);
+  if (feedbackCode || itemCode) return Boolean(feedbackCode && itemCode && feedbackCode === itemCode);
+  const feedbackName = normalize(feedback.candidateName);
+  const itemName = normalize(item.candidateName || displayName(item).split('-')[0]);
+  return Boolean(feedbackName && itemName && feedbackName === itemName);
 }
 
 function sameTarget(feedback: FeedbackCenterItem, item: RepushItem): boolean {
   if (!sameCandidate(feedback, item)) return false;
-  if (normalize(feedback.jobTitle) !== normalize(item.jdTitle || item.fileName)) return false;
-  if (feedback.organization && item.organization
-    && normalize(feedback.organization) !== normalize(item.organization)) return false;
-  if (feedback.department && item.department
-    && normalize(feedback.department) !== normalize(item.department)) return false;
+  const feedbackJob = normalize(feedback.jobTitle);
+  const itemJob = normalize(item.jdTitle);
+  if (!feedbackJob || !itemJob || feedbackJob !== itemJob) return false;
+  const identityPairs: Array<[string | undefined, string | undefined]> = [
+    [feedback.organization, item.organization],
+    [feedback.department, item.department],
+  ];
+  if (identityPairs.some(([feedbackValue, itemValue]) => {
+    const normalizedFeedback = normalize(feedbackValue);
+    const normalizedItem = normalize(itemValue);
+    return Boolean(normalizedFeedback || normalizedItem)
+      && (!normalizedFeedback || !normalizedItem || normalizedFeedback !== normalizedItem);
+  })) return false;
   return true;
 }
 
@@ -124,51 +131,15 @@ function recommendationLookupKeys(item: RepushItem): string[] {
 
 function linkedRecommendation(feedback: FeedbackCenterItem, index: RecommendationIndex): RepushItem | undefined {
   const byId = feedback.recommendationId ? index.byId.get(feedback.recommendationId) : undefined;
-  if (byId) return byId;
+  if (byId && sameTarget(feedback, byId)) return byId;
 
   const candidates = index.byCandidate.get(feedbackLookupKey(feedback)) || [];
-  const byTarget = candidates.find((item) => sameTarget(feedback, item));
-  if (byTarget) return byTarget;
-
-  return candidates.length === 1 ? candidates[0] : undefined;
-}
-
-async function fetchFeedback(owner: 'a' | 'b', force: boolean): Promise<FeedbackCenterState> {
-  const cached = feedbackCache.get(owner);
-  if (!force && cached && cached.expiresAt > Date.now()) return cached.state;
-  const pending = feedbackRequests.get(owner);
-  if (!force && pending) return pending;
-
-  const params = new URLSearchParams({ owner, days: '7' });
-  if (force) params.set('refresh', '1');
-  const request = fetch(`/api/feedback-center?${params.toString()}`, {
-    cache: force ? 'no-store' : 'default',
-  }).then(async (response) => {
-    const data = await response.json() as FeedbackCenterState & { ok?: boolean; error?: string };
-    if (!response.ok || data.ok === false) throw new Error(data.error || '读取反馈失败');
-    const state: FeedbackCenterState = {
-      version: 1,
-      generatedAt: data.generatedAt || '',
-      items: Array.isArray(data.items) ? data.items : [],
-    };
-    feedbackCache.set(owner, { expiresAt: Date.now() + FEEDBACK_CACHE_MS, state });
-    return state;
-  }).finally(() => {
-    if (feedbackRequests.get(owner) === request) feedbackRequests.delete(owner);
-  });
-  feedbackRequests.set(owner, request);
-  return request;
-}
-
-function effectiveStatus(item: FeedbackCenterItem): 'pending' | 'screening_failed' | 'interview_failed' | 'closed' {
-  if (item.confirmedStatus === 'closed' || item.confirmedStatus === 'interview_passed') return 'closed';
-  if (item.confirmedStatus === 'interview_failed' || item.sourceStatus === 'interview_failed') return 'interview_failed';
-  if (item.confirmedStatus === 'screening_failed' || item.sourceStatus === 'screening_failed') return 'screening_failed';
-  return 'pending';
+  const matches = candidates.filter((item) => sameTarget(feedback, item));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function groupBucket(items: ViewFeedbackItem[]): FeedbackBucket | null {
-  const statuses = items.map(effectiveStatus);
+  const statuses = items.map(projectFeedbackStatus);
   if (statuses.some((status) => status === 'pending')) return 'pending';
   if (statuses.some((status) => status === 'interview_failed')) return 'interview_failed';
   if (statuses.some((status) => status === 'screening_failed')) return 'screening_failed';
@@ -176,14 +147,15 @@ function groupBucket(items: ViewFeedbackItem[]): FeedbackBucket | null {
 }
 
 function statusMeta(item: ViewFeedbackItem): { label: string; className: string } {
-  if (item.sourceStatus === 'manual_review') {
+  const status = projectFeedbackStatus(item);
+  if (!item.confirmedStatus && item.sourceStatus === 'manual_review') {
     return { label: 'OCR 待核对', className: 'bg-violet-50 text-violet-700 ring-violet-200' };
   }
-  const status = effectiveStatus(item);
   if (status === 'screening_failed') return { label: '初筛未通过', className: 'bg-slate-100 text-slate-600 ring-slate-200' };
   if (status === 'interview_failed') return { label: '面试未通过', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
-  if (status === 'closed') return { label: '已有结果', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
-  if (item.sourceStatus === 'scheduled' || item.confirmedStatus === 'interview_pending') {
+  if (status === 'positive') return { label: '通过', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
+  if (status === 'closed') return { label: '已关闭', className: 'bg-slate-100 text-slate-600 ring-slate-200' };
+  if (item.confirmedStatus === 'interview_pending' || (!item.confirmedStatus && item.sourceStatus === 'scheduled')) {
     return { label: '面试待反馈', className: 'bg-blue-50 text-blue-700 ring-blue-200' };
   }
   return { label: '待反馈', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
@@ -215,7 +187,7 @@ function suggestedJobs(group: CandidateGroup, jds: JD[]): JD[] {
 
 export function RepushPoolPage() {
   const [mounted, setMounted] = useState(false);
-  const [feedbackItems, setFeedbackItems] = useState<FeedbackCenterItem[]>([]);
+  const [feedbackSnapshots, setFeedbackSnapshots] = useState<Partial<Record<RepushColumnId, FeedbackCenterState>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeBucket, setActiveBucket] = useState<FeedbackBucket>('pending');
@@ -228,10 +200,12 @@ export function RepushPoolPage() {
   const [showLedger, setShowLedger] = useState(false);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [messageLedger, setMessageLedger] = useState<FeedbackMessageLedgerItem[]>([]);
+  const feedbackLoadId = useRef(0);
 
   const items = useRepushStore((state) => state.items);
   const columnNames = useRepushStore((state) => state.columnNames);
   const addRecommendation = useRepushStore((state) => state.addRecommendation);
+  const upsertDeliveryRecommendation = useRepushStore((state) => state.upsertDeliveryRecommendation);
   const jds = useJDStore((state) => state.jds);
   const owner = usePrefStore((state) => state.activeOwner);
   const setOwner = usePrefStore((state) => state.setActiveOwner);
@@ -241,15 +215,19 @@ export function RepushPoolPage() {
   useEffect(() => setMounted(true), []);
 
   const loadFeedback = useCallback(async (force = false) => {
+    const loadId = ++feedbackLoadId.current;
+    const requestedOwner = owner;
     setLoading(true);
     setError('');
     try {
-      const data = await fetchFeedback(owner, force);
-      setFeedbackItems(data.items);
+      const data = await fetchFeedback(requestedOwner, force);
+      setFeedbackSnapshots((current) => ({ ...current, [requestedOwner]: data }));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : '读取反馈失败');
+      if (feedbackLoadId.current === loadId) {
+        setError(loadError instanceof Error ? loadError.message.replace('，已保留上次结果', '') : '读取反馈失败');
+      }
     } finally {
-      setLoading(false);
+      if (feedbackLoadId.current === loadId) setLoading(false);
     }
   }, [owner]);
 
@@ -261,8 +239,14 @@ export function RepushPoolPage() {
     void loadFeedback(false);
   }, [loadFeedback]);
 
+  const feedbackSnapshot = feedbackSnapshots[owner];
+  const feedbackItems = feedbackSnapshot?.items ?? EMPTY_FEEDBACK_ITEMS;
+  const feedbackReady = feedbackSnapshot !== undefined;
+
   const recentRecommendations = useMemo(() => items.filter((item) => (
-    item.column === owner && recentDayKeys.has(dateKey(item.uploadedAt))
+    item.column === owner
+    && isFeedbackEligibleDelivery(item.deliveryStatus)
+    && recentDayKeys.has(dateKey(item.uploadedAt))
   )), [items, owner, recentDayKeys]);
   const recommendationIndex = useMemo<RecommendationIndex>(() => {
     const byId = new Map<string, RepushItem>();
@@ -279,6 +263,7 @@ export function RepushPoolPage() {
   }, [recentRecommendations]);
 
   const mergedItems = useMemo<ViewFeedbackItem[]>(() => {
+    if (!feedbackReady) return [];
     const apiItems = feedbackItems
       .filter((item) => item.owner === owner && item.sourceStatus !== 'manual_review')
       .flatMap<ViewFeedbackItem>((feedback) => {
@@ -323,7 +308,7 @@ export function RepushPoolPage() {
         synthetic: true,
       }));
     return [...apiItems, ...synthetic];
-  }, [feedbackItems, owner, recentRecommendations, recommendationIndex]);
+  }, [feedbackItems, feedbackReady, owner, recentRecommendations, recommendationIndex]);
 
   const toggleLedger = async () => {
     if (showLedger) {
@@ -376,6 +361,13 @@ export function RepushPoolPage() {
     result[bucket.id] = groups.filter((group) => group.bucket === bucket.id).length;
     return result;
   }, { pending: 0, screening_failed: 0, interview_failed: 0 }), [groups]);
+  const pendingBreakdown = useMemo(() => {
+    const pendingGroups = groups.filter((group) => group.bucket === 'pending');
+    const partial = pendingGroups.filter((group) => (
+      group.items.some((item) => projectFeedbackStatus(item) !== 'pending')
+    )).length;
+    return { none: pendingGroups.length - partial, partial };
+  }, [groups]);
 
   const selectedRecommendations = useMemo(() => recentRecommendations.filter((item) => (
     selectedDay === 'all' || dateKey(item.uploadedAt) === selectedDay
@@ -417,7 +409,7 @@ export function RepushPoolPage() {
   };
 
   const markFollowed = async (group: CandidateGroup) => {
-    const target = group.items.find((item) => !item.synthetic && effectiveStatus(item) === 'pending');
+    const target = group.items.find((item) => !item.synthetic && projectFeedbackStatus(item) === 'pending');
     if (!target) return;
     setUpdatingId(target.id);
     try {
@@ -428,8 +420,18 @@ export function RepushPoolPage() {
       });
       const data = await response.json() as { ok?: boolean; item?: FeedbackCenterItem };
       if (!response.ok || !data.ok || !data.item) throw new Error('保存失败');
-      setFeedbackItems((current) => current.map((item) => item.id === target.id ? data.item! : item));
-      feedbackCache.delete(owner);
+      setFeedbackSnapshots((current) => {
+        const snapshot = current[owner];
+        if (!snapshot) return current;
+        return {
+          ...current,
+          [owner]: {
+            ...snapshot,
+            items: snapshot.items.map((item) => item.id === target.id ? data.item! : item),
+          },
+        };
+      });
+      invalidateFeedback(owner);
     } catch {
       setError('跟进记录保存失败，请稍后重试');
     } finally {
@@ -440,11 +442,22 @@ export function RepushPoolPage() {
   const confirmRepush = (selections: RepushArgs[]) => {
     if (!repushing?.repushItem || selections.length === 0) return;
     const source = repushing.repushItem;
+    const authoritative = selections.flatMap((args) => args.record ? [args.record] : []);
+    if (authoritative.length > 0) {
+      applyRemoteStoreUpdate('repush', () => {
+        for (const record of authoritative) upsertDeliveryRecommendation(record);
+        return useRepushStore.getState().items;
+      });
+    }
     for (const args of selections) {
+      if (args.record) continue;
       addRecommendation({
+        applicationId: args.applicationId,
         column: source.column,
         candidateCode: source.candidateCode,
+        candidateIdentityId: source.candidateIdentityId,
         candidateName: source.candidateName || repushing.candidateName,
+        jdId: args.jdId,
         jdTitle: args.jdTitle,
         contact: source.contact,
         contactPerson: args.contactPerson,
@@ -454,11 +467,18 @@ export function RepushPoolPage() {
         highlights: source.highlights,
         resumeUrl: source.resumeUrl,
         resumeFileName: source.resumeFileName,
-        source: 'repush',
-        repushSourceId: source.id,
+        source: args.source,
+        repushSourceId: args.repushSourceId,
+        deliveryId: args.deliveryId,
+        deliveryIndex: args.deliveryIndex,
+        deliveryStatus: args.deliveryStatus,
+        deliveryUpdatedAt: args.deliveryUpdatedAt,
+        telegramMessageId: args.telegramMessageId,
+        deliveredAt: args.deliveredAt,
+        uploadedAt: args.uploadedAt,
+        updatedAt: args.updatedAt,
       });
     }
-    setRepushing(null);
   };
 
   if (!mounted) return null;
@@ -540,8 +560,8 @@ export function RepushPoolPage() {
               'flex min-h-20 items-center justify-between rounded-lg border px-4 text-left transition-all',
               activeBucket === bucket.id ? 'border-indigo-200 bg-indigo-50 ring-1 ring-indigo-100' : 'border-slate-200 bg-white hover:border-slate-300',
             )}>
-              <span><span className="block font-semibold text-slate-900">{bucket.label}</span><span className="mt-1 block text-xs text-slate-400">{bucket.description}</span></span>
-              <span className={cn('rounded-md px-2.5 py-1 text-lg font-semibold', activeBucket === bucket.id ? 'bg-white text-indigo-600' : 'bg-slate-50 text-slate-600')}>{counts[bucket.id]} 人</span>
+              <span><span className="block font-semibold text-slate-900">{bucket.label}</span><span className="mt-1 block text-xs text-slate-400">{bucket.id === 'pending' && feedbackReady ? `完全无反馈 ${pendingBreakdown.none} · 部分待反馈 ${pendingBreakdown.partial}` : bucket.description}</span></span>
+              <span className={cn('rounded-md px-2.5 py-1 text-lg font-semibold', activeBucket === bucket.id ? 'bg-white text-indigo-600' : 'bg-slate-50 text-slate-600')}>{feedbackReady ? `${counts[bucket.id]} 人` : '—'}</span>
             </button>
           ))}
         </div>
@@ -550,13 +570,15 @@ export function RepushPoolPage() {
 
         {loading ? (
           <div className="flex min-h-80 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm text-slate-500"><Loader2 className="mr-2 h-5 w-5 animate-spin text-indigo-500" />正在读取反馈记录</div>
+        ) : !feedbackReady ? (
+          <div className="flex min-h-72 flex-col items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400"><RefreshCw className="mb-3 h-9 w-9 text-amber-400" /><p className="font-medium text-slate-600">尚未读取到可信反馈结果</p><p className="mt-1 text-sm">请点击右上角刷新后重试</p></div>
         ) : visibleGroups.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400"><Check className="mb-3 h-9 w-9 text-emerald-400" /><p className="font-medium text-slate-600">当前没有需要处理的人选</p><p className="mt-1 text-sm">可切换日期或另一位推荐人查看</p></div>
         ) : (
           <div className="space-y-3">
             {visibleGroups.map((group) => {
               const isExpanded = expandedKey === group.key;
-              const feedbackCount = group.items.filter((item) => effectiveStatus(item) !== 'pending').length;
+              const feedbackCount = group.items.filter((item) => projectFeedbackStatus(item) !== 'pending').length;
               const pendingCount = group.items.length - feedbackCount;
               const recommendations = isExpanded ? suggestedJobs(group, jds) : [];
               const category = group.items.map((item) => inferCategory(item.jobTitle, jds)).find(Boolean);

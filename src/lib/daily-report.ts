@@ -12,6 +12,7 @@
 
 import type { RepushItem } from '@/store/repush-store';
 import type { Candidate } from '@/types/interview';
+import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
 
 const SUPABASE_URL = 'https://scjlplyuucysdhrfatrp.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_IIHJnxZQIF3AcSUG7wHKFg_KDgDmxjA';
@@ -205,31 +206,38 @@ export function isSameDay(iso: string | undefined, ref: Date): boolean {
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
 }
 
-function recommendationIdentity(item: RepushItem): string {
-  return (item.candidateCode || item.candidateName || '').trim().toLowerCase();
+function deliveredToday(item: RepushItem, ref: Date): boolean {
+  if (!isFeedbackEligibleDelivery(item.deliveryStatus)) return false;
+  const deliveredAt = item.deliveryStatus === 'sent'
+    ? (item.deliveredAt || item.deliveryUpdatedAt || item.uploadedAt)
+    : item.uploadedAt;
+  return isSameDay(deliveredAt, ref);
 }
 
-function isRepushRecommendation(item: RepushItem, allItems: RepushItem[]): boolean {
-  if (item.source === 'repush' || item.repushSourceId) return true;
-  const identity = recommendationIdentity(item);
-  if (!identity) return false;
-  const title = (item.jdTitle || '').trim().toLowerCase();
-  const uploadedAt = new Date(item.uploadedAt).getTime();
-  return allItems.some((other) => {
-    if (other.id === item.id || other.column !== item.column) return false;
-    if (recommendationIdentity(other) !== identity) return false;
-    if ((other.jdTitle || '').trim().toLowerCase() === title) return false;
-    return new Date(other.uploadedAt).getTime() < uploadedAt;
-  });
+function isRepushRecommendation(item: RepushItem): boolean {
+  return item.source === 'repush' || Boolean(item.repushSourceId);
 }
 
-/** 日报只录首次推荐；复推记录（含可识别的历史复推）不进入统计。 */
+/** 一键看板只统计当天实际送达的首次推荐，复推不进入数量。 */
 export function todaysRecommendations(items: RepushItem[], ref: Date, column?: 'a' | 'b'): RepushItem[] {
-  return items.filter((it) => (
-    isSameDay(it.uploadedAt, ref)
-    && (!column || it.column === column)
-    && !isRepushRecommendation(it, items)
+  return items.filter((item) => (
+    (!column || item.column === column)
+    && deliveredToday(item, ref)
+    && !isRepushRecommendation(item)
   ));
+}
+
+/** 今日日报保留复推岗位，但同一复推岗位当天无论人数只计 1。 */
+export function todaysReportRecommendations(items: RepushItem[], ref: Date, column?: 'a' | 'b'): RepushItem[] {
+  const seenRepushJobs = new Set<string>();
+  return items.filter((item) => {
+    if ((column && item.column !== column) || !deliveredToday(item, ref)) return false;
+    if (!isRepushRecommendation(item)) return true;
+    const jobKey = item.jdId || makeJobKey(item.jdTitle || item.fileName, item.department || '');
+    if (seenRepushJobs.has(jobKey)) return false;
+    seenRepushJobs.add(jobKey);
+    return true;
+  });
 }
 
 /** 日报只录一面；二面、三面不进入邀约、面试或待面试统计。 */

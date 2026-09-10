@@ -1,15 +1,19 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ResumeUploader } from './ResumeUploader';
 import { MatchingResultsList } from './MatchingResultsList';
 import { RecommendationCandidateDialog } from './RecommendationCandidateDialog';
-import { RecommendationCopyDialog, type RecommendationCopyItem } from './RecommendationCopyDialog';
+import {
+  RecommendationCopyDialog,
+  type RecommendationCopyItem,
+  type RecommendationDeliverySnapshot,
+} from './RecommendationCopyDialog';
 import { TargetJDPickerDialog } from './TargetJDPickerDialog';
-import { useResumeStore, MATCH_TTL_MS } from '@/store/resume-store';
+import { useResumeStore } from '@/store/resume-store';
 import { useJDStore } from '@/store/jd-store';
-import { useRepushStore, type RepushColumnId } from '@/store/repush-store';
+import { useRepushStore, type RecommendationDeliveryStatus, type RepushColumnId } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
 import type { JD } from '@/types/jd';
@@ -18,40 +22,41 @@ import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock, ListC
 import { cn } from '@/lib/utils';
 import { extractRecommendationInfo, type ExtractedRecommendation } from '@/lib/recommendation';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
+import { applyRemoteStoreUpdate } from '@/lib/sync';
 
-const OWNER_CONFIG: Record<RepushColumnId, { name: string; codePrefix: string; storageKey: string; recommender: string }> = {
+const OWNER_CONFIG: Record<RepushColumnId, { name: string; codePrefix: string }> = {
   a: {
     name: '麦满分',
     codePrefix: 'XYMMF00',
-    storageKey: 'recruit:next-mmf-candidate-code',
-    recommender: '麦满分 @bruceluo123',
   },
   b: {
     name: '啵啵',
     codePrefix: 'XYBB00',
-    storageKey: 'recruit:next-bb-candidate-code',
-    recommender: 'BOBO @bobomiepucha',
   },
 };
 
-function nextCandidateCodeSuffix(owner: RepushColumnId): string {
-  const config = OWNER_CONFIG[owner];
-  const codePattern = new RegExp(`^${config.codePrefix}(\\d{3})$`);
-  const existingMax = useRepushStore.getState().items.reduce((max, item) => {
-    const match = item.candidateCode?.trim().toUpperCase().match(codePattern);
-    return match ? Math.max(max, Number.parseInt(match[1], 10)) : max;
-  }, 0);
-  const stored = typeof window === 'undefined'
-    ? 0
-    : Number.parseInt(window.localStorage.getItem(config.storageKey) || '', 10) || 0;
-  return String(Math.min(Math.max(existingMax + 1, stored, 1), 999)).padStart(3, '0');
+interface CandidateCodeAllocation {
+  code: string;
+  candidateIdentityId: string;
 }
 
-function reserveNextCandidateCode(owner: RepushColumnId, currentSuffix: string): void {
-  if (typeof window === 'undefined') return;
-  const current = Number.parseInt(currentSuffix, 10);
-  if (!Number.isFinite(current)) return;
-  window.localStorage.setItem(OWNER_CONFIG[owner].storageKey, String(Math.min(current + 1, 999)).padStart(3, '0'));
+async function allocateCandidateCode(
+  owner: RepushColumnId,
+  preferredCode: string | undefined,
+  candidateName: string,
+  candidateIdentityId?: string,
+): Promise<CandidateCodeAllocation> {
+  const response = await fetch('/api/candidate-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ owner, preferredCode, candidateName, candidateIdentityId }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const result = await response.json().catch(() => ({})) as Partial<CandidateCodeAllocation> & { error?: string };
+  if (!response.ok || !result.code || !result.candidateIdentityId) {
+    throw new Error(result.error || '候选人编号分配失败，请重试');
+  }
+  return { code: result.code, candidateIdentityId: result.candidateIdentityId };
 }
 
 function escapeRegExp(value: string): string {
@@ -70,14 +75,15 @@ function readCandidateValue(candidateText: string, resumeText: string, labels: s
   return readLabeledValue(candidateText, labels) || readLabeledValue(resumeText, labels);
 }
 
-function buildCandidateCode(owner: RepushColumnId, codeSuffix: string, extractedCode: string): string {
-  const prefix = OWNER_CONFIG[owner].codePrefix;
-  const digits = codeSuffix.replace(/\D/g, '').slice(0, 3);
-  return digits ? `${prefix}${digits.padStart(3, '0')}` : extractedCode || prefix;
-}
-
 function safeFilePart(value: string): string {
   return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim();
+}
+
+function candidateNameForResume(resume: Resume, info: ExtractedRecommendation, resumeFileName: string): string {
+  return (info.name
+    || resume.parsedData.name
+    || resumeFileName.replace(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i, '')
+    || '候选人').trim();
 }
 
 function buildRecommendationCopy(
@@ -85,7 +91,9 @@ function buildRecommendationCopy(
   info: ExtractedRecommendation,
   jd: JD,
   candidateText: string,
-  codeSuffix: string,
+  candidateCode: string,
+  candidateIdentityId: string,
+  candidateName: string,
   resumeSource: string,
   resumeFileName: string,
   owner: RepushColumnId,
@@ -99,8 +107,6 @@ function buildRecommendationCopy(
   const location = readCandidateValue(candidateText, resumeText, ['目前所在地', '当前所在地', '现居地', '所在地', '现居']);
   const arrivalTime = readCandidateValue(candidateText, resumeText, ['预计可到岗时间', '可到岗时间', '到岗时间', '最快到岗时间']);
   const organization = recommendationOrganization(jd);
-  const candidateName = info.name || resume.parsedData.name || resume.fileName.replace(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i, '');
-  const candidateCode = buildCandidateCode(owner, codeSuffix, info.candidateCode);
   const extension = resumeFileName.match(/\.(pdf|docx?|jpe?g|png|webp|gif)$/i)?.[0].toLowerCase() || '.pdf';
   const renamedResume = `${[candidateName, jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
 
@@ -120,7 +126,12 @@ function buildRecommendationCopy(
     jdId: jd.id,
     title: jd.title,
     organization,
+    department: jd.department?.trim() || '',
     contactPerson: jd.odc?.trim() || '',
+    candidateCode,
+    candidateIdentityId,
+    candidateName,
+    contact: info.contact || '',
     fileName: renamedResume,
     text: recommendationText,
   };
@@ -128,7 +139,6 @@ function buildRecommendationCopy(
 
 export function ResumeMatchingPage() {
   const [mounted, setMounted] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
   const [matchCategory, setMatchCategory] = useState<JDCategory | 'all'>('all');
   const [targetJDIds, setTargetJDIds] = useState<Set<string>>(() => new Set());
   const [targetJDPickerOpen, setTargetJDPickerOpen] = useState(false);
@@ -136,16 +146,22 @@ export function ResumeMatchingPage() {
   const [recommendationCopies, setRecommendationCopies] = useState<RecommendationCopyItem[]>([]);
   const [candidateDialogOpen, setCandidateDialogOpen] = useState(false);
   const [candidateInfoText, setCandidateInfoText] = useState('');
-  const [candidateCodeSuffix, setCandidateCodeSuffix] = useState('');
+  const [reservedCandidateCode, setReservedCandidateCode] = useState('');
+  const [reservedCandidateIdentityId, setReservedCandidateIdentityId] = useState('');
+  const [recommendationOwner, setRecommendationOwner] = useState<RepushColumnId | null>(null);
+  const [candidateCodeError, setCandidateCodeError] = useState('');
   const [recommendationResumeSource, setRecommendationResumeSource] = useState('boss');
   const [recommendationResumeFile, setRecommendationResumeFile] = useState<File | null>(null);
   const [recommendationResumeBlobUrl, setRecommendationResumeBlobUrl] = useState('');
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [copyDialogInitialJdId, setCopyDialogInitialJdId] = useState('');
   const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
+  const recommendationGeneration = useRef(0);
   const activeOwner = usePrefStore((s) => s.activeOwner);
   const setActiveOwner = usePrefStore((s) => s.setActiveOwner);
   const jds = useJDStore((s) => s.jds);
+  const addRecommendation = useRepushStore((s) => s.addRecommendation);
+  const upsertDeliveryRecommendation = useRepushStore((s) => s.upsertDeliveryRecommendation);
   const resumes = useResumeStore((s) => s.resumes);
   const activeResumeId = useResumeStore((s) => s.activeResumeId);
   const resultsByResume = useResumeStore((s) => s.resultsByResume);
@@ -159,7 +175,6 @@ export function ResumeMatchingPage() {
   const matchWithJDs = useResumeStore((s) => s.matchWithJDs);
   const cancelMatching = useResumeStore((s) => s.cancelMatching);
   const clearMatchesFor = useResumeStore((s) => s.clearMatchesFor);
-  const pruneExpired = useResumeStore((s) => s.pruneExpired);
   const removeResume = useResumeStore((s) => s.removeResume);
 
   const handleRemoveResume = (id: string) => {
@@ -169,11 +184,15 @@ export function ResumeMatchingPage() {
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
+    recommendationGeneration.current += 1;
     setSelectedResultIds(new Set());
     setRecommendationCopies([]);
     setCandidateDialogOpen(false);
     setCandidateInfoText('');
-    setCandidateCodeSuffix(nextCandidateCodeSuffix(activeOwner));
+    setReservedCandidateCode('');
+    setReservedCandidateIdentityId('');
+    setRecommendationOwner(null);
+    setCandidateCodeError('');
     setRecommendationResumeSource('boss');
     setRecommendationResumeFile(null);
     setRecommendationResumeBlobUrl('');
@@ -182,22 +201,12 @@ export function ResumeMatchingPage() {
     setIsGeneratingCopy(false);
   }, [activeOwner, activeResumeId]);
 
-  // 每 10 秒刷新一次时间并清理过期结果，驱动倒计时显示
-  useEffect(() => {
-    const t = setInterval(() => {
-      setNow(Date.now());
-      pruneExpired();
-    }, 10 * 1000);
-    return () => clearInterval(t);
-  }, [pruneExpired]);
-
   const activeResume = resumes.find((r) => r.id === activeResumeId);
   const activeBatch = activeResumeId ? resultsByResume[activeResumeId] : undefined;
   const activeResults = activeBatch?.results || [];
+  const remainingJobCount = Math.max(0, (activeBatch?.scopeIds?.length || 0) - activeResults.filter((result) => activeBatch?.scopeIds?.includes(result.jdId)).length);
+  const failedJobCount = activeResults.filter((result) => result.assessmentStatus === 'failed').length;
   const activeIsMatching = isMatching && matchingResumeId === activeResumeId;
-  // 当前简历结果剩余存活时间（正在匹配的简历不倒计时）
-  const remainMs = activeBatch && !activeIsMatching ? MATCH_TTL_MS - (now - activeBatch.matchedAt) : 0;
-  const remainMin = Math.max(0, Math.ceil(remainMs / 60000));
 
   const handleMatch = () => {
     if (!activeResumeId || activeResume?.parsingStatus !== 'completed') return;
@@ -212,7 +221,7 @@ export function ResumeMatchingPage() {
     setSelectedResultIds((previous) => {
       const next = new Set(previous);
       if (next.has(resultId)) next.delete(resultId);
-      else next.add(resultId);
+      else if (next.size < 10) next.add(resultId);
       return next;
     });
     setRecommendationCopies([]);
@@ -223,7 +232,7 @@ export function ResumeMatchingPage() {
   const handleRequestRecommendationCopy = () => {
     const selectionCount = targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size;
     if (!activeResume || selectionCount === 0 || isGeneratingCopy) return;
-    setCandidateCodeSuffix(nextCandidateCodeSuffix(activeOwner));
+    setCandidateCodeError('');
     if (!recommendationResumeFile && activeResume.file) {
       setRecommendationResumeFile(activeResume.file);
       setRecommendationResumeBlobUrl(activeResume.blobUrl || '');
@@ -232,42 +241,68 @@ export function ResumeMatchingPage() {
     setCandidateDialogOpen(true);
   };
 
-  const handleGenerateRecommendationCopy = async (candidateText: string, codeSuffix: string, resumeFile: File | null, resumeSource: string) => {
+  const handleGenerateRecommendationCopy = async (candidateText: string, resumeFile: File | null, resumeSource: string) => {
     if (!activeResume || (targetJDIds.size === 0 && selectedResultIds.size === 0) || isGeneratingCopy) return;
     const resumeId = activeResume.id;
     const selectedJDs = targetJDIds.size > 0
       ? jds.filter((jd) => targetJDIds.has(jd.id) && jd.status !== 'paused')
       : activeResults.filter((result) => selectedResultIds.has(result.id)).map((result) => result.jd);
     if (selectedJDs.length === 0) return;
+    const owner = activeOwner;
+    const generation = ++recommendationGeneration.current;
+    const isStale = () => generation !== recommendationGeneration.current
+      || useResumeStore.getState().activeResumeId !== resumeId
+      || usePrefStore.getState().activeOwner !== owner;
 
     setCandidateInfoText(candidateText);
-    setCandidateCodeSuffix(codeSuffix);
     setRecommendationResumeSource(resumeSource);
     setRecommendationResumeFile(resumeFile);
     setRecommendationResumeBlobUrl(resumeFile && resumeFile === activeResume.file ? activeResume.blobUrl || '' : '');
-    setCandidateDialogOpen(false);
     setIsGeneratingCopy(true);
+    setCandidateCodeError('');
     try {
       const info = await extractRecommendationInfo(candidateText || activeResume.rawText);
-      if (useResumeStore.getState().activeResumeId !== resumeId) return;
+      if (isStale()) return;
+      const prefix = OWNER_CONFIG[owner].codePrefix;
+      const extractedCode = info.candidateCode?.trim().toUpperCase() || '';
+      const reusableCode = extractedCode.startsWith(prefix) ? extractedCode : '';
+      const preferredCode = reusableCode || reservedCandidateCode || undefined;
+      const resumeFileName = resumeFile?.name || activeResume.fileName;
+      const candidateName = candidateNameForResume(activeResume, info, resumeFileName);
+      const allocation = await allocateCandidateCode(
+        owner,
+        preferredCode,
+        candidateName,
+        preferredCode === reservedCandidateCode ? reservedCandidateIdentityId || undefined : undefined,
+      );
+      if (isStale()) return;
+      setReservedCandidateCode(allocation.code);
+      setReservedCandidateIdentityId(allocation.candidateIdentityId);
+      setRecommendationOwner(owner);
       const copies = selectedJDs.map((jd) => (
         buildRecommendationCopy(
           activeResume,
           info,
           jd,
           candidateText,
-          codeSuffix,
+          allocation.code,
+          allocation.candidateIdentityId,
+          candidateName,
           resumeSource,
-          resumeFile?.name || activeResume.fileName,
-          activeOwner,
+          resumeFileName,
+          owner,
         )
       ));
       setRecommendationCopies(copies);
-      if (copies.length > 0) reserveNextCandidateCode(activeOwner, codeSuffix);
       setCopyDialogInitialJdId(copies[0]?.jdId || '');
       setCopyDialogOpen(copies.length > 0);
+      setCandidateDialogOpen(copies.length === 0);
+    } catch (error) {
+      if (isStale()) return;
+      setCandidateCodeError(error instanceof Error ? error.message : '推荐文案生成失败，请重试');
+      setCandidateDialogOpen(true);
     } finally {
-      setIsGeneratingCopy(false);
+      if (generation === recommendationGeneration.current) setIsGeneratingCopy(false);
     }
   };
 
@@ -394,11 +429,7 @@ export function ResumeMatchingPage() {
             }} className="h-10 px-4 rounded-xl bg-white text-gray-600 border border-gray-200 text-sm font-medium hover:bg-gray-50 transition-all flex items-center gap-2">
               <Trash2 className="w-4 h-4" />清除结果
             </button>
-            {remainMin > 0 && (
-              <span className="flex items-center gap-1.5 text-xs text-gray-400">
-                <Clock className="w-3.5 h-3.5" />{remainMin} 分钟后自动清除
-              </span>
-            )}
+            <span className="flex items-center gap-1.5 text-xs text-gray-400"><Clock className="w-3.5 h-3.5" />本页结果保留至主动清除或刷新</span>
           </>
         )}
       </div>
@@ -450,9 +481,22 @@ export function ResumeMatchingPage() {
           )}
         </div>
         <GlassPanel>
+          {activeBatch && <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>范围 {activeBatch.scopeIds?.length || 0} 岗 · 已评估 {activeResults.length - failedJobCount} · 分析失败 {failedJobCount} · 未深入评估 {remainingJobCount}{activeBatch.skipped ? ` · 无缺口跳过 ${activeBatch.skipped}` : ''}</span>
+            {remainingJobCount > 0 && !activeIsMatching && <button type="button" disabled={isMatching} onClick={() => activeResumeId && void matchWithJDs(activeResumeId, matchCategory, undefined, 'next')} className="rounded-lg border border-indigo-200 px-3 py-2 text-indigo-600 disabled:opacity-50">{activeResults.length ? '分析更多相近岗位' : matchError ? '重试匹配' : '开始岗位分析'}</button>}
+            {failedJobCount > 0 && <button type="button" disabled={isMatching} onClick={() => activeResumeId && void matchWithJDs(activeResumeId, matchCategory, undefined, 'retry')} className="rounded-lg border border-amber-200 px-3 py-2 text-amber-700 disabled:opacity-50">重试失败岗位</button>}
+          </div>}
+          {activeBatch?.profile && <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-sm">
+            <p className="font-medium text-indigo-800">人选判断：{activeBatch.profile.primaryRole}</p>
+            <p className="mt-2 text-slate-600">{activeBatch.profile.summary}</p>
+            <div className="mt-2 flex flex-wrap gap-2">{activeBatch.profile.levels.map((item) => <span key={item.label} title={item.quote} className="rounded-md bg-white px-2 py-1 text-xs text-indigo-700">{item.label}</span>)}</div>
+            <details className="mt-2 text-xs text-slate-500"><summary className="cursor-pointer">查看经历依据</summary>{activeBatch.profile.facts.map((item, index) => <p key={index} className="mt-2">{item.quote} → {item.meaning}</p>)}</details>
+          </div>}
           <MatchingResultsList
+            key={activeResumeId}
             results={activeResults}
             isMatching={activeIsMatching}
+            refinementProgress={activeIsMatching ? { completed: activeBatch?.refinedCount || 0, total: activeBatch?.refineTotal || 0 } : null}
             selectedResultIds={selectedResultIds}
             recommendationSelectionCount={targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size}
             generatedJdIds={new Set(recommendationCopies.map((item) => item.jdId))}
@@ -468,21 +512,79 @@ export function ResumeMatchingPage() {
         <RecommendationCandidateDialog
           jobCount={targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size}
           codePrefix={OWNER_CONFIG[activeOwner].codePrefix}
+          candidateCode={reservedCandidateCode}
           initialCandidateText={candidateInfoText}
-          initialCodeSuffix={candidateCodeSuffix}
           initialResumeFile={recommendationResumeFile || activeResume?.file || null}
           initialResumeSource={recommendationResumeSource}
-          onClose={() => setCandidateDialogOpen(false)}
+          error={candidateCodeError}
+          generating={isGeneratingCopy}
+          onClose={() => {
+            recommendationGeneration.current += 1;
+            setIsGeneratingCopy(false);
+            setCandidateDialogOpen(false);
+          }}
           onGenerate={handleGenerateRecommendationCopy}
         />
       )}
       {copyDialogOpen && recommendationCopies.length > 0 && (
         <RecommendationCopyDialog
-          owner={activeOwner}
+          owner={recommendationOwner || activeOwner}
           items={recommendationCopies}
           initialJdId={copyDialogInitialJdId}
           resumeFile={recommendationResumeFile}
+          resumeFileName={recommendationResumeFile?.name || activeResume?.fileName || 'resume.pdf'}
           resumeBlobUrl={recommendationResumeBlobUrl}
+          onResumeBlobReady={setRecommendationResumeBlobUrl}
+          onDeliveryUpdate={(deliveryItems, delivery: RecommendationDeliverySnapshot, fileUrl) => {
+            if (!delivery.id) return;
+            const applications = new Map((delivery.applications || []).map((application) => [application.index, application]));
+            const records = new Map((delivery.records || []).map((record) => [record.deliveryIndex, record]));
+            if (records.size > 0) {
+              applyRemoteStoreUpdate('repush', () => {
+                for (const record of Array.from(records.values())) upsertDeliveryRecommendation(record);
+                return useRepushStore.getState().items;
+              });
+            }
+            for (const result of delivery.deliveries || []) {
+              const copy = deliveryItems[result.index];
+              if (!copy) continue;
+              const authoritativeRecord = records.get(result.index);
+              if (authoritativeRecord) continue;
+              const application = applications.get(result.index);
+              const deliveryStatus: RecommendationDeliveryStatus = result?.status === 'sent' || result?.messageId
+                ? 'sent'
+                : result?.status === 'failed'
+                  ? 'failed'
+                  : result?.status === 'sending'
+                    ? 'sending'
+                    : 'queued';
+              addRecommendation({
+                applicationId: application?.applicationId || `${delivery.id}:${copy.jdId}`,
+                column: recommendationOwner || activeOwner,
+                candidateCode: copy.candidateCode,
+                candidateIdentityId: copy.candidateIdentityId,
+                candidateName: copy.candidateName,
+                jdId: copy.jdId,
+                jdTitle: copy.title,
+                contact: copy.contact,
+                contactPerson: copy.contactPerson,
+                rawText: copy.text,
+                organization: copy.organization,
+                department: copy.department,
+                resumeUrl: fileUrl,
+                resumeFileName: recommendationResumeFile?.name || activeResume?.fileName,
+                source: 'intake',
+                deliveryId: delivery.id,
+                deliveryIndex: result.index,
+                deliveryStatus,
+                deliveryUpdatedAt: delivery.updatedAt,
+                telegramMessageId: result?.messageId,
+                deliveredAt: result?.sentAt,
+                uploadedAt: delivery.createdAt,
+                updatedAt: delivery.createdAt,
+              });
+            }
+          }}
           onEditCandidateInfo={() => {
             setCopyDialogOpen(false);
             setCandidateDialogOpen(true);

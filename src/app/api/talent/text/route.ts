@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kvGetRaw, kvSetRaw, kvConfigured, talentTextKey } from '@/lib/kv-server';
+import { kvCommandStrict, kvGetRaw, kvSetRaw, kvConfigured, talentTextKey } from '@/lib/kv-server';
 
 export const runtime = 'nodejs';
 
@@ -17,7 +17,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!kvConfigured()) return NextResponse.json({ error: 'KV 未配置' }, { status: 503 });
   try {
-    const { id, text } = (await request.json()) as { id?: string; text?: string };
+    const body = (await request.json()) as { id?: string; text?: string; ids?: unknown };
+    if (Array.isArray(body.ids)) {
+      const ids = Array.from(new Set(body.ids.map(String).map((id) => id.trim()).filter(Boolean))).slice(0, 100);
+      if (!ids.length) return NextResponse.json({ items: [] });
+      const values = await kvCommandStrict<Array<string | null>>('MGET', ...ids.map(talentTextKey));
+      return NextResponse.json({
+        items: ids.map((id, index) => ({ id, text: values[index] || '' })),
+      });
+    }
+    const { id, text } = body;
     if (!id || typeof text !== 'string') return NextResponse.json({ error: '参数缺失' }, { status: 400 });
     const ok = await kvSetRaw(talentTextKey(id), text);
     if (!ok) return NextResponse.json({ error: '保存失败' }, { status: 500 });

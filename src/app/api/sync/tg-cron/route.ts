@@ -12,7 +12,10 @@ function errBody(error: string): TgSyncSummary {
 export async function GET(req: NextRequest): Promise<NextResponse<TgSyncSummary>> {
   // Vercel Cron 会带上 Authorization: Bearer ${CRON_SECRET}（若已配置）
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
+  if (!secret) {
+    return NextResponse.json(errBody('CRON_SECRET 未配置'), { status: 503 });
+  }
+  if (req.headers.get('authorization') !== `Bearer ${secret}`) {
     return NextResponse.json(errBody('Unauthorized'), { status: 401 });
   }
 

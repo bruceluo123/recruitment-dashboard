@@ -7,7 +7,7 @@ import {
   isSameDay,
   scheduledToday,
   todaysInterviews,
-  todaysRecommendations,
+  todaysReportRecommendations,
 } from '@/lib/daily-report';
 
 interface ExportDailyReportArgs {
@@ -127,7 +127,7 @@ function getWorkOfferRows(candidates: Candidate[], ref: Date, column: RepushColu
 }
 
 function buildWorkRows(items: RepushItem[], candidates: Candidate[], ref: Date, column: RepushColumnId): ReportRow[] {
-  const recommendations = todaysRecommendations(items, ref, column);
+  const recommendations = todaysReportRecommendations(items, ref, column);
   const invites = scheduledToday(candidates, ref, column);
   const interviews = todaysInterviews(candidates, ref, column);
   const offers = getWorkOfferRows(candidates, ref, column);

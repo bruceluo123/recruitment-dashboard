@@ -25,10 +25,10 @@ import type { TodoItem, TodoPrimaryCategory } from '@/types/todo';
 const TRIGGER_POSITION_KEY = 'recruitai-quick-todo-trigger-top';
 const TRIGGER_HEIGHT = 48;
 const TRIGGER_MARGIN = 16;
-const QUICK_TODO_GROUP_STYLE: Record<TodoPrimaryCategory, { header: string; dot: string }> = {
-  recruitment: { header: 'bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
-  supervision: { header: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
-  other: { header: 'bg-slate-100 text-slate-700', dot: 'bg-slate-400' },
+const QUICK_TODO_CATEGORY_STYLE: Record<TodoPrimaryCategory, string> = {
+  recruitment: 'bg-blue-50 text-blue-700',
+  supervision: 'bg-amber-50 text-amber-700',
+  other: 'bg-slate-100 text-slate-600',
 };
 
 function clampTriggerTop(top: number, viewportHeight: number) {
@@ -70,14 +70,6 @@ export function QuickTodoDrawer() {
     () => visibleTodos.filter((todo) => completedToday(todo, today)).slice().reverse(),
     [today, visibleTodos],
   );
-  const actionableGroups = useMemo(
-    () => TODO_PRIMARY_CATEGORIES.map((groupCategory) => ({
-      category: groupCategory,
-      items: actionable.filter((todo) => primaryTodoCategory(todo.category) === groupCategory),
-    })),
-    [actionable],
-  );
-
   useEffect(() => {
     const savedTop = Number(window.localStorage.getItem(TRIGGER_POSITION_KEY));
     const initialTop = Number.isFinite(savedTop) && savedTop > 0 ? savedTop : window.innerHeight * 0.42;
@@ -272,28 +264,10 @@ export function QuickTodoDrawer() {
           </div>
 
           {actionable.length > 0 ? (
-            <div className="space-y-5">
-              {actionableGroups.map((group) => {
-                const style = QUICK_TODO_GROUP_STYLE[group.category];
-                return (
-                  <section key={group.category}>
-                    <div className={cn('mb-2 flex h-9 items-center gap-2 rounded-lg px-3', style.header)}>
-                      <span className={cn('h-2 w-2 rounded-full', style.dot)} />
-                      <h4 className="text-sm font-bold">{TODO_CATEGORY_LABEL[group.category]}</h4>
-                      <span className="ml-auto text-xs font-semibold opacity-70">{group.items.length}</span>
-                    </div>
-                    {group.items.length > 0 ? (
-                      <div className="space-y-2">
-                        {group.items.map((todo) => (
-                          <QuickTodoRow key={todo.id} todo={todo} ownerName={todo.owner === 'both' ? '共同' : ownerName} onToggle={toggleDone} />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="px-3 py-1 text-xs text-slate-400">暂无{TODO_CATEGORY_LABEL[group.category]}待办</p>
-                    )}
-                  </section>
-                );
-              })}
+            <div className="space-y-2">
+              {actionable.map((todo) => (
+                <QuickTodoRow key={todo.id} todo={todo} ownerName={todo.owner === 'both' ? '共同' : ownerName} onToggle={toggleDone} />
+              ))}
             </div>
           ) : (
             <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-5 text-center">
@@ -348,6 +322,8 @@ export function QuickTodoDrawer() {
 }
 
 function QuickTodoRow({ todo, ownerName, onToggle }: { todo: TodoItem; ownerName: string; onToggle: (id: string) => void }) {
+  const category = primaryTodoCategory(todo.category);
+
   return (
     <div className={cn(
       'group flex min-h-14 items-center gap-3 rounded-lg border bg-white px-3 py-2.5 transition-colors',
@@ -372,6 +348,12 @@ function QuickTodoRow({ todo, ownerName, onToggle }: { todo: TodoItem; ownerName
           {todo.owner === 'both' && <span className="text-indigo-500">{ownerName}</span>}
         </div>
       </div>
+      <span className={cn(
+        'shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold',
+        QUICK_TODO_CATEGORY_STYLE[category],
+      )}>
+        {TODO_CATEGORY_LABEL[category]}
+      </span>
     </div>
   );
 }

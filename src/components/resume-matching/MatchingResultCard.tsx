@@ -32,8 +32,14 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
   const [jdCopied, setJdCopied] = useState(false);
   const [orgCopied, setOrgCopied] = useState(false);
   const { jd, score, breakdown, reasoning, highlights, concerns } = result;
+  const matchTier = result.matchTier || (score >= 80 ? 'direct' : score >= 60 ? 'review' : 'reject');
+  const tierMeta = matchTier === 'direct'
+    ? { label: '优先推荐', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' }
+    : matchTier === 'review'
+      ? { label: '相近可尝试', className: 'bg-amber-50 text-amber-700 ring-amber-200' }
+      : { label: '暂不推荐', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
   const priorityDepartment = groupPriorityLabel(jd);
-  const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
+  const scoreColor = matchTier === 'direct' ? 'text-green-600' : matchTier === 'review' ? 'text-amber-600' : 'text-red-600';
   const router = useRouter();
   const selectJD = useJDStore((s) => s.selectJD);
   const setFilter = useJDStore((s) => s.setFilter);
@@ -98,10 +104,10 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
         />
         <div className="flex flex-col items-center shrink-0">
           <span className="text-xs text-gray-400 mb-1">#{rank}</span>
-          <div className="relative w-14 h-14 flex items-center justify-center">
+          <div title="综合匹配参考分，并非面试通过概率" className="relative w-14 h-14 flex items-center justify-center">
             <svg className="absolute inset-0 w-14 h-14 -rotate-90">
               <circle cx="28" cy="28" r="24" fill="none" stroke="#e5e7eb" strokeWidth="3" />
-              <circle cx="28" cy="28" r="24" fill="none" stroke={score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : '#ef4444'} strokeWidth="3" strokeDasharray={`${score * 1.51} 151`} strokeLinecap="round" />
+              <circle cx="28" cy="28" r="24" fill="none" stroke={matchTier === 'direct' ? '#10b981' : matchTier === 'review' ? '#f59e0b' : '#ef4444'} strokeWidth="3" strokeDasharray={`${score * 1.51} 151`} strokeLinecap="round" />
             </svg>
             <span className={cn('text-lg font-bold', scoreColor)}>{score}</span>
           </div>
@@ -111,6 +117,9 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="text-base font-semibold text-gray-800">{jd.title}</h4>
+                <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset', tierMeta.className)}>{tierMeta.label}</span>
+                {result.levelFit && <span title={result.levelReason} className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-600">{{ close: '档位接近', candidate_below_job: '岗位要求更高', job_below_candidate: '岗位档位偏低', unknown: '档位待确认' }[result.levelFit]}</span>}
+                {result.cached && <span className="text-xs text-gray-400">复用 {new Date(result.matchedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 的分析</span>}
                 {isUrgentPriority(jd.priority) && (
                   <span className={cn('px-1.5 py-0.5 rounded-md text-xs font-bold', PRIORITY_COLORS[jd.priority!])}>急招 {jd.priority}</span>
                 )}
@@ -155,6 +164,8 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
             </div>
             <ChevronRight className={cn('w-5 h-5 text-gray-300 shrink-0 transition-all', expanded && 'rotate-90')} />
           </div>
+          <p className="mt-2 text-sm text-slate-600">{reasoning}</p>
+          {result.levelReason && <p className="mt-1 text-xs text-slate-500">档位判断：{result.levelReason}</p>}
           {expanded && (
             <div className="mt-4 pt-4 border-t border-gray-100 animate-fade-in space-y-4" onClick={(e) => e.stopPropagation()}>
               {/* View toggle */}
@@ -162,7 +173,7 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
                 <button onClick={() => setViewMode('ai')}
                   className={cn('flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5',
                     viewMode === 'ai' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
-                  <Sparkles className="w-3.5 h-3.5" />AI 分析
+                  <Sparkles className="w-3.5 h-3.5" />经历与岗位对照
                 </button>
                 <button onClick={() => setViewMode('jd')}
                   className={cn('flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5',

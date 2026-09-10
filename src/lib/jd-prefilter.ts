@@ -1,6 +1,7 @@
 import type { JD, JDCategory } from '@/types/jd';
 import { hasCategory } from '@/types/jd';
 import { detectCategories } from './jd-parse-core';
+import { compareTagProfiles, extractCandidateTagProfile, extractJDTagProfile } from './tag-system';
 
 /**
  * 本地预筛：用「关键词重叠 + 候选人主职能分类」为 JD 粗排，避免把全部岗位塞给 AI。
@@ -8,12 +9,11 @@ import { detectCategories } from './jd-parse-core';
  *
  * 关键改进：词面重叠（bag-of-words）会误杀"语义相关但用词不同"的岗位
  * （如候选人写"注册转化留存"、JD 写"直播运营"——同属运营却零重叠）。
- * 因此对「命中候选人主职能分类」的岗位加一个大额加权，保证这些岗位优先进入
- * AI 候选集，由 AI 做语义层面的精排判断，而不是被哑过滤提前删掉。
+ * 主职能只适度加权，共享标签提供技术与业务维度召回；最终由 AI 核对原文事实。
  */
 
-// 主职方向必须优先于相邻方向；最多提升两个有充分证据的方向。
-const CATEGORY_BOOSTS = [12000, 6500];
+// 主职方向有优先权，但跨方向的直接技术证据可以超过该加权。
+const CATEGORY_BOOSTS = [60, 30];
 
 const RESUME_ROLE_SIGNALS: Array<[JDCategory, RegExp, number]> = [
   ['seo', /seo(?:运营|优化|专员|经理)?|搜索引擎优化/gi, 14],
@@ -21,7 +21,7 @@ const RESUME_ROLE_SIGNALS: Array<[JDCategory, RegExp, number]> = [
   ['gaming', /游戏(?:运营|策划|开发|制作)|unity|unreal|cocos/gi, 14],
   ['ai', /ai(?:产品经理|运营|内容(?:创作|生产|运营)|视频(?:生成|制作)|工程师|研发|应用(?:开发|工程))|人工智能(?:工程师|研发|应用)|rag(?:知识库|检索|系统|服务)|llm(?:网关|服务|应用)|agent(?:开发|工程|系统|应用)|aigc(?:内容|视频|生成|制作|运营)/gi, 12],
   ['algorithm', /算法(?:工程师|研发)|机器学习|深度学习|计算机视觉|nlp/gi, 14],
-  ['frontend', /前端(?:开发|工程师|负责人)|react(?:开发|工程师)|vue(?:开发|工程师)|flutter(?:开发|工程师)|android(?:开发|工程师)|ios(?:开发|工程师)/gi, 14],
+  ['frontend', /前端(?:开发|工程师|负责人)|react(?:开发|工程师)|vue(?:开发|工程师)|flutter(?:开发|工程师)|android(?:开发|工程师)|ios(?:开发|工程师)|c#(?:开发|工程师)|\.net(?:开发|工程师)|桌面客户端/gi, 14],
   ['backend', /后端(?:开发|工程师|负责人)|golang|java(?:开发|工程师)|php(?:开发|工程师)|服务端/gi, 14],
   ['devops', /运维(?:开发|工程师|负责人)|devops(?:工程师|负责人)?|sre(?:工程师|负责人)?/gi, 14],
   ['testing', /测试(?:开发|工程师|负责人)|质量保证|qa工程师/gi, 14],
@@ -33,7 +33,7 @@ const RESUME_ROLE_SIGNALS: Array<[JDCategory, RegExp, number]> = [
   ['video', /视频(?:运营|剪辑|制作|编导)|短视频(?:运营|制作)|剪辑师|编导/gi, 14],
   ['live', /直播(?:运营|策划|负责人)|主播|场控|中控/gi, 14],
   ['legal', /法务|律师|法律顾问|合规(?:专员|经理)|知识产权/gi, 14],
-  ['finance', /财务|会计|出纳|审计|税务/gi, 14],
+  ['finance', /财务|会计|出纳|内审|外审|审计(?:师|经理|主管|专员|负责人|总监)|税务/gi, 14],
   ['data', /数据(?:分析师|运营|工程师|增长|产品)|商业分析|bi分析/gi, 14],
   ['hardware', /硬件(?:工程师|开发)|嵌入式|芯片|固件|gpu|cuda/gi, 14],
   ['hr', /招聘(?:专员|经理|负责人)|人力资源|hrbp|薪酬绩效|员工关系/gi, 14],
@@ -166,7 +166,7 @@ function scoreJD(jd: JD, resumeLower: string, resumeTerms: Set<string>): number 
   const respTerms = extractTerms(jd.responsibilities.join(' '));
 
   let score = 0;
-  const hit = (t: string) => resumeTerms.has(t) || resumeLower.includes(t);
+  const hit = (t: string) => resumeTerms.has(t) || (/[^a-z0-9.+#]/i.test(t) && resumeLower.includes(t));
   titleTerms.forEach((t) => { if (hit(t)) score += 3; });
   reqTerms.forEach((t) => { if (hit(t)) score += 2; });
   respTerms.forEach((t) => { if (hit(t)) score += 1; });
@@ -177,8 +177,7 @@ function scoreJD(jd: JD, resumeLower: string, resumeTerms: Set<string>): number 
  * 预筛 JD：返回与简历最相关的前 limit 个。
  * 若总数不超过 limit，直接原样返回（无需筛）。
  *
- * @param boostCategories 候选人主职能分类。命中其中任一分类的岗位获得大额加权，
- *   优先纳入 AI 候选集（解决跨用词的同类岗位被词面预筛误杀的问题）。
+ * @param boostCategories 候选人主职能分类，与标签和原文词面共同参与排序。
  */
 export function prefilterJDs(
   resumeText: string,
@@ -190,6 +189,7 @@ export function prefilterJDs(
 
   const resumeLower = resumeText.toLowerCase();
   const resumeTerms = extractTerms(resumeText);
+  const profile = extractCandidateTagProfile({ resumeText, currentJob: '', highlights: '' });
   const categoryBoost = (jd: JD) => boostCategories.reduce((best, category, index) => (
     hasCategory(jd, category) ? Math.max(best, CATEGORY_BOOSTS[index] || 0) : best
   ), 0);
@@ -197,14 +197,15 @@ export function prefilterJDs(
   const ranked = jds
     .map((jd) => ({
       jd,
-      s: scoreJD(jd, resumeLower, resumeTerms) + categoryBoost(jd),
+      s: scoreJD(jd, resumeLower, resumeTerms) + categoryBoost(jd)
+        + compareTagProfiles(extractJDTagProfile(jd), profile).score * 3,
     }))
     .sort((a, b) => b.s - a.s);
 
   const seen = new Set<string>();
   return ranked
     .filter(({ jd }) => {
-      const key = jd.reqKey?.trim() || [jd.title, jd.organization, jd.department, jd.serviceUnit].join('|');
+      const key = jd.id;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

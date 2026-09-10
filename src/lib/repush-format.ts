@@ -1,6 +1,7 @@
 // 推荐数据相关的时间格式化与未反馈清单生成工具。
 
 import type { RepushItem } from '@/store/repush-store';
+import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
 
 const DAY = 24 * 60 * 60 * 1000;
 const DAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
@@ -110,7 +111,7 @@ export function formatOrgDept(organization?: string, department?: string, sep = 
  * 已约面/已面试的条目，追加「X号已面试」。
  */
 export function buildUnfeedbackList(items: RepushItem[], title: string): string {
-  const pending = items.filter((it) => it.feedback === 'pending');
+  const pending = items.filter((it) => isFeedbackEligibleDelivery(it.deliveryStatus) && it.feedback === 'pending');
   if (!pending.length) return '';
   const lines = pending.map((it, i) => {
     const base = displayName(it);

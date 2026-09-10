@@ -6,6 +6,8 @@ import type { JD, JDCategory } from '@/types/jd';
 import { hasCategory, JD_CATEGORY_LABELS } from '@/types/jd';
 import { cn } from '@/lib/utils';
 
+const MAX_TARGET_JDS = 10;
+
 interface TargetJDPickerDialogProps {
   jds: JD[];
   selectedIds: Set<string>;
@@ -24,7 +26,7 @@ export function TargetJDPickerDialog({
   onConfirm,
 }: TargetJDPickerDialogProps) {
   const [query, setQuery] = useState('');
-  const [draftIds, setDraftIds] = useState<Set<string>>(() => new Set(selectedIds));
+  const [draftIds, setDraftIds] = useState<Set<string>>(() => new Set(Array.from(selectedIds).slice(0, MAX_TARGET_JDS)));
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -58,7 +60,7 @@ export function TargetJDPickerDialog({
     setDraftIds((previous) => {
       const next = new Set(previous);
       if (next.has(jdId)) next.delete(jdId);
-      else next.add(jdId);
+      else if (next.size < MAX_TARGET_JDS) next.add(jdId);
       return next;
     });
   };
@@ -148,7 +150,7 @@ export function TargetJDPickerDialog({
         </div>
 
         <footer className="flex items-center justify-between border-t border-gray-100 bg-gray-50/70 px-6 py-4">
-          <span className="text-sm text-gray-500">已选 <strong className="text-indigo-600">{draftIds.size}</strong> 个岗位</span>
+          <span className="text-sm text-gray-500">已选 <strong className="text-indigo-600">{draftIds.size}</strong>/{MAX_TARGET_JDS} 个岗位</span>
           <div className="flex gap-3">
             <button type="button" onClick={onClose} className="h-10 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-600 hover:bg-gray-50">
               取消

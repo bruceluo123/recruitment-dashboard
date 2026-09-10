@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kvGetRaw, kvSetRaw } from '@/lib/kv-server';
+import { kvCommandStrict, kvGetRaw } from '@/lib/kv-server';
+import { hasValidServiceToken, requireApiSession, requireMutationSession, requireOwnerSession } from '@/lib/auth-api';
 import type {
   FeedbackCenterState,
   FeedbackConfirmedStatus,
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const KEY = 'recruit:feedback-inbox';
 const EMPTY_STATE: FeedbackCenterState = { version: 1, generatedAt: '', items: [], ledger: [] };
 const STATE_CACHE_MS = 30_000;
-let stateCache: { expiresAt: number; state: FeedbackCenterState } | null = null;
+let stateCache: { expiresAt: number; raw: string; state: FeedbackCenterState } | null = null;
 const VALID_STATUSES = new Set<FeedbackConfirmedStatus>([
   'pending',
   'screening_failed',
@@ -33,18 +34,35 @@ interface RecommendationRecord {
   uploadedAt?: string;
 }
 
-async function readState(force = false): Promise<FeedbackCenterState> {
-  if (!force && stateCache && stateCache.expiresAt > Date.now()) return stateCache.state;
-  const raw = await kvGetRaw(KEY);
-  if (!raw) return EMPTY_STATE;
+async function readStateSnapshot(force = false): Promise<{ raw: string; state: FeedbackCenterState }> {
+  if (!force && stateCache && stateCache.expiresAt > Date.now()) {
+    return { raw: stateCache.raw, state: stateCache.state };
+  }
+  const raw = await kvCommandStrict<string | null>('GET', KEY) || '';
+  if (!raw) return { raw, state: EMPTY_STATE };
   try {
     const parsed = JSON.parse(raw) as FeedbackCenterState;
     const state = parsed?.version === 1 && Array.isArray(parsed.items) ? parsed : EMPTY_STATE;
-    stateCache = { expiresAt: Date.now() + STATE_CACHE_MS, state };
-    return state;
+    stateCache = { expiresAt: Date.now() + STATE_CACHE_MS, raw, state };
+    return { raw, state };
   } catch {
-    return EMPTY_STATE;
+    return { raw, state: EMPTY_STATE };
   }
+}
+
+async function readState(force = false): Promise<FeedbackCenterState> {
+  return (await readStateSnapshot(force)).state;
+}
+
+async function saveState(expectedRaw: string, state: FeedbackCenterState): Promise<'saved' | 'conflict'> {
+  const raw = JSON.stringify(state);
+  const committed = await kvCommandStrict<number>('EVAL', `
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2])
+return 1`, 1, KEY, expectedRaw, raw);
+  if (committed !== 1) return 'conflict';
+  stateCache = { expiresAt: Date.now() + STATE_CACHE_MS, raw, state };
+  return 'saved';
 }
 
 function recentDateKeys(days: number): Set<string> {
@@ -83,13 +101,23 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const ownerParam = params.get('owner');
   const owner = ownerParam === 'a' || ownerParam === 'b' ? ownerParam : null;
+  // 两个招聘账号都可以查看完整反馈数据；所属人权限只限制修改和发送操作。
+  const unauthorized = await requireApiSession(request);
+  if (unauthorized) return unauthorized;
+  if (!owner && !hasValidServiceToken(request)) {
+    return NextResponse.json({ ok: false, error: '必须指定所属人' }, { status: 400 });
+  }
   const detail = params.get('detail') === '1';
   const ledger = params.get('ledger') === '1';
   const force = params.get('refresh') === '1';
   const allItems = params.get('scope') === 'all';
   const days = Math.min(31, Math.max(1, Number.parseInt(params.get('days') || '7', 10) || 7));
   const ids = new Set(params.getAll('id').map((id) => id.trim()).filter(Boolean));
-  const state = await readState(force);
+  let state: FeedbackCenterState;
+  try { state = await readState(force); }
+  catch {
+    return NextResponse.json({ ok: false, error: '反馈读取失败，已保留上次结果' }, { status: 503 });
+  }
 
   if (!owner) {
     return NextResponse.json({ ok: true, ...state }, { headers: { 'Cache-Control': 'no-store' } });
@@ -119,6 +147,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const unauthorized = await requireMutationSession(request);
+  if (unauthorized) return unauthorized;
   try {
     const body = await request.json() as {
       id?: string;
@@ -137,7 +167,8 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ ok: false, error: '反馈状态无效' }, { status: 400 });
     }
 
-    const state = await readState();
+    const snapshot = await readStateSnapshot(true);
+    const state = JSON.parse(JSON.stringify(snapshot.state)) as FeedbackCenterState;
     if (body.action === 'flag_ledger') {
       const ledgerIndex = (state.ledger || []).findIndex((item) => (
         item.id === id && (!body.owner || item.owner === body.owner)
@@ -147,6 +178,8 @@ export async function PATCH(request: NextRequest) {
       }
       const now = new Date().toISOString();
       const ledgerItem = state.ledger![ledgerIndex];
+      const ownerBlocked = await requireOwnerSession(request, ledgerItem.owner, true);
+      if (ownerBlocked) return ownerBlocked;
       const reviewId = `${ledgerItem.owner}:manual_review:tg:${ledgerItem.telegramMessageId}:manual`;
       const reviewItem: FeedbackCenterState['items'][number] = {
         id: reviewId,
@@ -167,9 +200,10 @@ export async function PATCH(request: NextRequest) {
       else state.items.push(reviewItem);
       state.ledger![ledgerIndex] = { ...ledgerItem, status: 'manual_review', note: '已手动转入人工核对' };
       state.generatedAt = state.generatedAt || now;
-      const saved = await kvSetRaw(KEY, JSON.stringify(state));
-      if (!saved) return NextResponse.json({ ok: false, error: '消息台账更新失败' }, { status: 503 });
-      stateCache = { expiresAt: Date.now() + STATE_CACHE_MS, state };
+      const saved = await saveState(snapshot.raw, state);
+      if (saved === 'conflict') {
+        return NextResponse.json({ ok: false, error: '反馈数据已更新，请刷新后重试' }, { status: 409 });
+      }
       return NextResponse.json({ ok: true, item: reviewItem, ledgerItem: state.ledger![ledgerIndex] });
     }
     const index = state.items.findIndex((item) => item.id === id && (!body.owner || item.owner === body.owner));
@@ -179,6 +213,8 @@ export async function PATCH(request: NextRequest) {
 
     const now = new Date().toISOString();
     const current = state.items[index];
+    const ownerBlocked = await requireOwnerSession(request, current.owner, true);
+    if (ownerBlocked) return ownerBlocked;
     if (body.owner && current.owner !== body.owner) {
       return NextResponse.json({ ok: false, error: '反馈记录不属于当前推荐人' }, { status: 403 });
     }
@@ -251,17 +287,32 @@ export async function PATCH(request: NextRequest) {
     } else {
       state.items[index] = next;
     }
-    state.generatedAt = state.generatedAt || now;
-    const saved = await kvSetRaw(KEY, JSON.stringify(state));
-    if (!saved) {
-      return NextResponse.json({ ok: false, error: '反馈状态保存失败' }, { status: 503 });
+    if (current.telegramMessageId && (body.action === 'resolve_review' || body.action === 'close')) {
+      const ledgerIndex = (state.ledger || []).findIndex((entry) => (
+        entry.owner === current.owner && entry.telegramMessageId === current.telegramMessageId
+      ));
+      if (ledgerIndex >= 0) {
+        const ledgerItem = state.ledger![ledgerIndex];
+        state.ledger![ledgerIndex] = body.action === 'resolve_review' && resolvedRecommendation
+          ? {
+            ...ledgerItem,
+            status: 'resolved',
+            note: '已由人工关联到推荐记录',
+            recommendationIds: Array.from(new Set([...ledgerItem.recommendationIds, resolvedRecommendation.id])),
+          }
+          : { ...ledgerItem, status: 'irrelevant', note: '已由人工关闭核对' };
+      }
     }
-    stateCache = { expiresAt: Date.now() + STATE_CACHE_MS, state };
+    state.generatedAt = state.generatedAt || now;
+    const saved = await saveState(snapshot.raw, state);
+    if (saved === 'conflict') {
+      return NextResponse.json({ ok: false, error: '反馈数据已更新，请刷新后重试' }, { status: 409 });
+    }
     return NextResponse.json({ ok: true, item: next });
   } catch (error) {
     return NextResponse.json({
       ok: false,
       error: error instanceof Error ? error.message : '更新反馈失败',
-    }, { status: 500 });
+    }, { status: 503 });
   }
 }

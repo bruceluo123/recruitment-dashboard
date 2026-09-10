@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
 
     const stream = body.stream === true;
     const response = await fetch(DEEPSEEK_URL, {
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(50_000)]),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

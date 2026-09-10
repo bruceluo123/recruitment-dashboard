@@ -4,15 +4,45 @@ import { useEffect, useState } from 'react';
 import { Check, Copy, FileCheck2, FileText, Loader2, Send, Users, X } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { cn } from '@/lib/utils';
-import type { RepushColumnId } from '@/store/repush-store';
+import type { RepushColumnId, RepushItem } from '@/store/repush-store';
 
 export interface RecommendationCopyItem {
   jdId: string;
   title: string;
   organization: string;
+  department: string;
   contactPerson: string;
+  candidateCode: string;
+  candidateIdentityId: string;
+  candidateName: string;
+  contact: string;
   fileName: string;
   text: string;
+}
+
+export interface RecommendationDeliverySnapshot {
+  ok?: boolean;
+  id?: string;
+  queued?: boolean;
+  status?: 'queued' | 'sending' | 'sent' | 'failed' | 'partial_failed';
+  sent?: number;
+  total?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  applications?: Array<{
+    index: number;
+    applicationId: string;
+    jdId: string;
+  }>;
+  records?: RepushItem[];
+  deliveries?: Array<{
+    index: number;
+    status: 'pending' | 'sending' | 'sent' | 'failed';
+    messageId?: string;
+    sentAt?: string;
+    error?: string;
+  }>;
+  error?: string;
 }
 
 interface TgDialogOption {
@@ -28,7 +58,14 @@ interface RecommendationCopyDialogProps {
   items: RecommendationCopyItem[];
   initialJdId?: string;
   resumeFile: File | null;
+  resumeFileName: string;
   resumeBlobUrl?: string;
+  onResumeBlobReady?: (url: string) => void;
+  onDeliveryUpdate?: (
+    items: RecommendationCopyItem[],
+    delivery: RecommendationDeliverySnapshot,
+    fileUrl: string,
+  ) => void;
   onEditCandidateInfo: () => void;
   onClose: () => void;
 }
@@ -45,7 +82,10 @@ export function RecommendationCopyDialog({
   items,
   initialJdId,
   resumeFile,
+  resumeFileName,
   resumeBlobUrl,
+  onResumeBlobReady,
+  onDeliveryUpdate,
   onEditCandidateInfo,
   onClose,
 }: RecommendationCopyDialogProps) {
@@ -54,7 +94,7 @@ export function RecommendationCopyDialog({
   const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
   const [recipient, setRecipient] = useState('@ojisamer');
   const [isLoadingDialogs, setIsLoadingDialogs] = useState(true);
-  const uploadedBlobUrl = resumeBlobUrl || '';
+  const [uploadedBlobUrl, setUploadedBlobUrl] = useState(resumeBlobUrl || '');
   const [sendingMode, setSendingMode] = useState<'current' | 'all' | ''>('');
   const [sendingStep, setSendingStep] = useState<'uploading' | 'queueing' | ''>('');
   const [deliveryNotice, setDeliveryNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -63,6 +103,10 @@ export function RecommendationCopyDialog({
   useEffect(() => {
     setActiveJdId(initialJdId || items[0]?.jdId || '');
   }, [initialJdId, items]);
+
+  useEffect(() => {
+    setUploadedBlobUrl(resumeBlobUrl || '');
+  }, [resumeBlobUrl, resumeFile]);
 
   const activeItem = items.find((item) => item.jdId === activeJdId) || items[0];
 
@@ -111,12 +155,14 @@ export function RecommendationCopyDialog({
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
       try {
-        const blob = await upload(`tg-delivery/${Date.now()}-${resumeFile.name}`, resumeFile, {
+        const blob = await upload(`resumes/recommendations/${Date.now()}-${resumeFile.name}`, resumeFile, {
           access: 'public',
           handleUploadUrl: '/api/resume/blob-upload',
           contentType: resumeFile.type || 'application/octet-stream',
           abortSignal: controller.signal,
         });
+        setUploadedBlobUrl(blob.url);
+        onResumeBlobReady?.(blob.url);
         return blob.url;
       } catch (error) {
         lastError = error;
@@ -157,24 +203,42 @@ export function RecommendationCopyDialog({
       : '加入发送队列超时，请稍后重试');
   };
 
-  const followDelivery = async (id: string, expected: number) => {
+  const readDelivery = async (id: string): Promise<RecommendationDeliverySnapshot | null> => {
+    const response = await fetch(`/api/tg/send?id=${encodeURIComponent(id)}`, {
+      cache: 'no-store', signal: AbortSignal.timeout(15_000),
+    });
+    if (response.status === 404) return null;
+    const data = await response.json().catch(() => ({})) as RecommendationDeliverySnapshot;
+    if (!response.ok || !data.ok) throw new Error(data.error || '发送结果读取失败');
+    return { ...data, id: data.id || id };
+  };
+
+  const followDelivery = async (
+    id: string,
+    expected: number,
+    storageKey: string,
+    deliveryItems: RecommendationCopyItem[],
+    fileUrl: string,
+  ) => {
     let lastReportedSent = 0;
-    for (let attempt = 0; attempt < 180; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    for (let attempt = 0; attempt < 48; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
       try {
-        const response = await fetch(`/api/tg/send?id=${encodeURIComponent(id)}`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.ok) continue;
+        const data = await readDelivery(id);
+        if (!data) throw new Error('未找到发送任务');
+        const sent = data.sent || 0;
+        onDeliveryUpdate?.(deliveryItems, data, fileUrl);
         if (data.status === 'sent') {
           setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || expected} 份推荐` });
+          localStorage.removeItem(storageKey);
           return;
         }
-        if (data.status === 'sending' && data.sent > lastReportedSent) {
-          lastReportedSent = data.sent;
-          setDeliveryNotice({ ok: true, text: `已发送 ${data.sent}/${expected}，正在继续发送` });
+        if (data.status === 'sending' && sent > lastReportedSent) {
+          lastReportedSent = sent;
+          setDeliveryNotice({ ok: true, text: `已发送 ${sent}/${expected}，正在继续发送` });
         }
-        if (data.status === 'failed') {
-          setDeliveryNotice({ ok: false, text: data.error || 'TG 发送失败' });
+        if (data.status === 'failed' || data.status === 'partial_failed') {
+          setDeliveryNotice({ ok: false, text: `已发送 ${data.sent || 0}/${expected}，再次点击只会重试未发送项。${data.error || ''}` });
           return;
         }
       } catch {
@@ -186,27 +250,69 @@ export function RecommendationCopyDialog({
 
   const sendRecommendations = async (deliveryItems: RecommendationCopyItem[], mode: 'current' | 'all') => {
     if (!recipient.trim() || sendingMode) return;
+    if (deliveryItems.length > 10) {
+      setDeliveryNotice({ ok: false, text: '一次最多发送 10 个岗位，请减少选择后重试' });
+      return;
+    }
     setSendingMode(mode);
     setSendingStep(uploadedBlobUrl ? 'queueing' : 'uploading');
     setDeliveryNotice(null);
     try {
       const fileUrl = await ensureResumeBlob();
       setSendingStep('queueing');
-      const requestId = typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      const data = await enqueueDelivery({
-        requestId,
+      const payload = {
         sender: owner,
         target: recipient.trim(),
         fileUrl,
-        deliveries: deliveryItems.map((item) => ({ text: item.text, fileName: item.fileName })),
-      });
+        deliveries: deliveryItems.map((item) => ({
+          text: item.text,
+          fileName: item.fileName,
+          application: {
+            jdId: item.jdId,
+            candidateCode: item.candidateCode,
+            candidateIdentityId: item.candidateIdentityId,
+            candidateName: item.candidateName,
+            jdTitle: item.title,
+            contact: item.contact,
+            contactPerson: item.contactPerson,
+            organization: item.organization,
+            department: item.department,
+            resumeFileName,
+            source: 'intake' as const,
+          },
+        })),
+      };
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
+      const storageKey = `recruit:initial-delivery:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+      let requestId = localStorage.getItem(storageKey) || '';
+      let retry = false;
+      if (requestId) {
+        const previous = await readDelivery(requestId);
+        if (!previous) {
+          localStorage.removeItem(storageKey);
+          requestId = '';
+        } else if (previous.status === 'sent') {
+          onDeliveryUpdate?.(deliveryItems, previous, fileUrl);
+          localStorage.removeItem(storageKey);
+          setDeliveryNotice({ ok: true, text: `已发送 ${previous.sent || deliveryItems.length} 份推荐` });
+          return;
+        } else if (previous.status === 'failed' || previous.status === 'partial_failed') {
+          retry = true;
+        }
+      }
+      requestId ||= typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(storageKey, requestId);
+      const response = await enqueueDelivery({ ...payload, requestId, retry }) as RecommendationDeliverySnapshot;
+      const data = { ...response, id: response.id || requestId };
+      onDeliveryUpdate?.(deliveryItems, data, fileUrl);
       if (data.queued && data.id) {
-        setDeliveryNotice({ ok: true, text: `已加入发送队列，正在上传 0/${deliveryItems.length}` });
-        void followDelivery(data.id, deliveryItems.length);
+        setDeliveryNotice({ ok: true, text: retry ? '已重新加入未发送项' : `已加入发送队列，正在上传 0/${deliveryItems.length}` });
+        await followDelivery(data.id, deliveryItems.length, storageKey, deliveryItems, fileUrl);
       } else {
         setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || deliveryItems.length} 份推荐` });
+        localStorage.removeItem(storageKey);
       }
     } catch (error) {
       setDeliveryNotice({ ok: false, text: (error as Error).message || 'TG 发送失败' });

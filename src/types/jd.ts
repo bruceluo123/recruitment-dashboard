@@ -55,6 +55,8 @@ export interface JD {
   location?: string;
   status: JDStatus;
   source?: 'manual' | 'google-sync';  // 来源：手动添加 / 谷歌表格自动同步
+  syncClosedAt?: string;              // 从同步源消失时暂停，不删除历史岗位身份
+  statusBeforeSyncClose?: JDStatus;   // 岗位重新出现时恢复此前状态
   createdAt: string;
   updatedAt: string;
 }

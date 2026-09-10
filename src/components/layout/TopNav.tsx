@@ -1,12 +1,18 @@
 'use client';
 import { useState } from 'react';
-import { Bell, Search, Menu } from 'lucide-react';
+import { Bell, Search, Menu, LogOut } from 'lucide-react';
 import { useUIStore } from '@/store/ui-store';
 import { TalentQueryDialog } from '@/components/talent-pool/TalentQueryDialog';
+import { requestSyncTypes } from '@/lib/sync';
 
 export function TopNav() {
   const openNav = useUIStore((s) => s.openNav);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.assign('/login');
+  }
 
   return (
     <>
@@ -21,7 +27,7 @@ export function TopNav() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button type="button" data-search-trigger="talent-global" onClick={() => setSearchOpen(true)} className="group hidden md:block text-left">
+          <button type="button" data-search-trigger="talent-global" onClick={() => { requestSyncTypes(['talents']); setSearchOpen(true); }} className="group hidden md:block text-left">
             <span className="flex w-72 h-10 items-center gap-2.5 rounded-lg border border-blue-200 bg-blue-50/80 px-3 text-sm shadow-sm shadow-blue-100/70 transition-all group-hover:border-blue-400 group-hover:bg-white group-hover:shadow-blue-100">
               <Search className="w-4 h-4 shrink-0 text-blue-600" />
               <span className="font-semibold text-slate-800">人才全局搜索</span>
@@ -37,6 +43,9 @@ export function TopNav() {
             </div>
             <span className="text-sm text-gray-600 hidden sm:block">招聘官</span>
           </div>
+          <button type="button" onClick={() => void logout()} className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all" aria-label="退出登录" title="退出登录">
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </header>
       <TalentQueryDialog isOpen={searchOpen} onClose={() => setSearchOpen(false)} initialQuery="" />

@@ -12,7 +12,10 @@ function errBody(error: string): BackupSummary {
 export async function GET(req: NextRequest): Promise<NextResponse<BackupSummary>> {
   // Vercel Cron 会带 Authorization: Bearer ${CRON_SECRET}（若已配置）。手动触发同样可用。
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
+  if (!secret) {
+    return NextResponse.json(errBody('CRON_SECRET 未配置'), { status: 503 });
+  }
+  if (req.headers.get('authorization') !== `Bearer ${secret}`) {
     return NextResponse.json(errBody('Unauthorized'), { status: 401 });
   }
 
