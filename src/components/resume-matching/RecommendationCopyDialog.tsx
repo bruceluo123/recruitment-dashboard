@@ -70,8 +70,9 @@ interface RecommendationCopyDialogProps {
   onClose: () => void;
 }
 
-const UPLOAD_TIMEOUT_MS = 30_000;
+const UPLOAD_TIMEOUT_MS = 45_000;
 const SEND_TIMEOUT_MS = 20_000;
+const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -149,6 +150,31 @@ export function RecommendationCopyDialog({
   const ensureResumeBlob = async (): Promise<string> => {
     if (uploadedBlobUrl) return uploadedBlobUrl;
     if (!resumeFile) throw new Error('请先返回上一步上传简历');
+
+    // 小文件优先经服务端转存，避免部分网络环境下浏览器直连 Blob 长时间卡住。
+    if (resumeFile.size <= SERVER_UPLOAD_MAX_BYTES) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+      try {
+        const formData = new FormData();
+        formData.append('file', resumeFile);
+        const response = await fetch('/api/talent/upload', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({})) as { url?: string; error?: string };
+        if (!response.ok || !data.url) throw new Error(data.error || '服务端上传失败');
+        setUploadedBlobUrl(data.url);
+        onResumeBlobReady?.(data.url);
+        return data.url;
+      } catch {
+        // 服务端通道失败时继续尝试 Blob 客户端直传。
+      } finally {
+        window.clearTimeout(timer);
+      }
+    }
+
     const { upload } = await import('@vercel/blob/client');
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
