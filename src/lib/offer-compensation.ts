@@ -141,11 +141,13 @@ export function calculateOfferCommission(args: {
 
 const CANCELLED_OUTCOMES = new Set(['offer-rejected', 'failed', 'withdrawn', 'early-departure-30', 'early-departure-7']);
 
-function monthKey(value?: string): string {
+/** 绩效月按上月26日至本月25日计算，例如8月26日归入9月绩效月。 */
+export function getOfferPerformanceMonth(value?: string): string {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  const performanceMonth = new Date(date.getFullYear(), date.getMonth() + (date.getDate() >= 26 ? 1 : 0), 1);
+  return `${performanceMonth.getFullYear()}-${String(performanceMonth.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export function isEffectiveOnboard(candidate: Candidate): boolean {
@@ -155,12 +157,12 @@ export function isEffectiveOnboard(candidate: Candidate): boolean {
 }
 
 export function countEffectiveOnboards(candidates: Candidate[], onboardDate?: string, owner?: CandidateOwner): number {
-  const targetMonth = monthKey(onboardDate);
+  const targetMonth = getOfferPerformanceMonth(onboardDate);
   if (!targetMonth) return 0;
   return candidates.filter((candidate) => (
     (candidate.owner || 'a') === (owner || 'a')
     && isEffectiveOnboard(candidate)
-    && monthKey(candidate.onboardDate) === targetMonth
+    && getOfferPerformanceMonth(candidate.onboardDate) === targetMonth
   )).length;
 }
 

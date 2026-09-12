@@ -5,7 +5,7 @@ import { BriefcaseBusiness, X } from 'lucide-react';
 import type { Candidate } from '@/types/interview';
 import type { RepushItem } from '@/store/repush-store';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
-import { calculateOfferCommission, countEffectiveOnboards, formatCommissionAmount, isEffectiveOnboard } from '@/lib/offer-compensation';
+import { calculateOfferCommission, countEffectiveOnboards, formatCommissionAmount, getOfferPerformanceMonth, isEffectiveOnboard } from '@/lib/offer-compensation';
 
 export interface OfferFormValues {
   probationSalary: string;
@@ -36,7 +36,7 @@ export function OfferModal({ item, candidate, candidates, onClose, onConfirm }: 
   const candidateAlreadyCounted = Boolean(
     candidate
     && isEffectiveOnboard(candidate)
-    && candidate.onboardDate?.slice(0, 7) === onboardIso?.slice(0, 7),
+    && getOfferPerformanceMonth(candidate.onboardDate) === getOfferPerformanceMonth(onboardIso),
   );
   const projectedCount = currentCount + (onboardIso && !candidateAlreadyCounted ? 1 : 0);
   const commission = calculateOfferCommission({

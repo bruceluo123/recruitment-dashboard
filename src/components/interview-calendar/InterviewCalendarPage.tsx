@@ -13,7 +13,7 @@ import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
 import { buildRecruitmentReportRows, buildRecruitmentReportText, parseInterviewReport } from '@/lib/interview-report';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
-import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
+import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, getOfferCommissionForCandidate, getOfferPerformanceMonth } from '@/lib/offer-compensation';
 
 function dateKey(iso: string): string {
   const d = new Date(iso);
@@ -342,9 +342,7 @@ export function InterviewCalendarPage() {
   const secondInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-2').length;
   const offerCount = activeOwnerCandidates.filter((c) => {
     if (c.stage !== 'offer') return false;
-    const date = new Date(c.onboardDate || c.offerAppliedAt || c.appliedAt);
-    if (Number.isNaN(date.getTime())) return false;
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` >= '2026-09';
+    return getOfferPerformanceMonth(c.onboardDate || c.offerAppliedAt || c.appliedAt) >= '2026-09';
   }).length;
   const isEditing = editingId === selectedId;
   useEscapeClose(() => setShowImport(false), showImport);

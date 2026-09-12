@@ -2,6 +2,7 @@
 import { StageKanbanColumn } from './StageKanbanColumn';
 import { DEFAULT_STAGES } from '@/types/interview';
 import type { Candidate } from '@/types/interview';
+import { getOfferPerformanceMonth } from '@/lib/offer-compensation';
 
 interface StageKanbanBoardProps {
   candidates: Candidate[];
@@ -48,9 +49,7 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate
 
 function offerMonth(candidate: Candidate): string {
   const value = candidate.onboardDate || candidate.offerAppliedAt || candidate.appliedAt;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return getOfferPerformanceMonth(value);
 }
 
 function groupRecentOffers(candidates: Candidate[]): Array<{ month: string; candidates: Candidate[] }> {
