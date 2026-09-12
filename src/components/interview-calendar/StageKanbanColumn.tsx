@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { StageKanbanCard } from './StageKanbanCard';
 import { STAGE_COLORS } from '@/types/interview';
 import type { InterviewStage, Candidate, CandidateStatus } from '@/types/interview';
-import { formatCommissionAmount, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
+import { formatCommissionAmount, getOfferCommissionForCandidate, isEffectiveOnboard } from '@/lib/offer-compensation';
 
 interface StageKanbanColumnProps {
   stage: InterviewStage;
@@ -33,6 +33,14 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
     ? new Map(candidates.map((candidate) => [candidate.id, getOfferCommissionForCandidate(candidate, candidates)]))
     : new Map();
   const commissionSum = Array.from(commissions.values()).reduce((sum, item) => sum + (item?.commissionAmount || 0), 0);
+  const effectiveOnboards = isOffer ? candidates.filter(isEffectiveOnboard) : [];
+  const advancedOnboardCount = effectiveOnboards.filter((candidate) => {
+    const tier = commissions.get(candidate.id)?.salaryTier;
+    return tier === '高级/主管/经理' || tier === '专家/总监' || tier === '特殊人才/CEO';
+  }).length;
+  const headerSubtitle = isOffer
+    ? [subtitle, `入职 ${effectiveOnboards.length} 人`, `高级岗位 ${advancedOnboardCount} 人`].filter(Boolean).join(' · ')
+    : subtitle;
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -51,7 +59,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
         <div className="flex min-w-0 items-center gap-3">
           <div className={cn('h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white/80', dotColor)} />
           <h3 className="text-sm font-semibold text-gray-800">{title || stage.name}</h3>
-          {subtitle && <span className="text-xs text-gray-400">{subtitle}</span>}
+          {headerSubtitle && <span className="text-xs text-gray-400">{headerSubtitle}</span>}
           <span className="rounded-md border border-white bg-white/90 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-600 shadow-sm">
             {isOffer ? `${candidates.length} 人 · ¥${formatCommissionAmount(commissionSum)}` : candidates.length}
           </span>
