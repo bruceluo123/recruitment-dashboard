@@ -171,9 +171,10 @@ function responsibleDepartmentFor(
     department: clean(jd?.department) || clean(activity.department),
     organizations: [activity.organization, jd?.organization, jd?.serviceUnit],
   });
-  return responsibleJob
-    ? clean(responsibleJob.department) || clean(responsibleJob.organization)
-    : undefined;
+  if (!responsibleJob) return undefined;
+  return clean(responsibleJob.organization)
+    .replace(/^北斗\s*[-—–]?\s*/, '')
+    .replace(/公司$/, '');
 }
 
 function jobTitleFor(activity: { jdTitle?: string }, fallback = '未填写岗位'): string {
