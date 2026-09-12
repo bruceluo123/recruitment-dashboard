@@ -19,8 +19,9 @@ export async function GET(request: NextRequest) {
       const key = keys[index];
       if (!['candidates', 'repush', 'todos'].includes(key) || !value) return value;
       const parsed = JSON.parse(value) as unknown;
-      // 推荐中心允许两个账号交叉查看；记录修改仍由 /api/sync/records 按所属人校验。
-      const readableOwners = key === 'repush' ? ['a', 'b'] as const : owners;
+      // 推荐中心及周报允许两个账号交叉查看推荐、面试、Offer 与入职数据；
+      // 这里只放宽读取，记录修改仍由 /api/sync/records 按所属人校验。
+      const readableOwners = key === 'repush' || key === 'candidates' ? ['a', 'b'] as const : owners;
       return JSON.stringify(filterAccessibleRecords(key, parsed, [...readableOwners]));
     });
     return NextResponse.json({ values: Object.fromEntries(keys.map((key, index) => [key, visibleValues[index]])) }, { headers: { 'Cache-Control': 'no-store' } });
