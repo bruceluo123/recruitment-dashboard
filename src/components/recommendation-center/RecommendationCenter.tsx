@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Users, CalendarCheck, FileUp, FileText, Loader2, MessageSquareText, Repeat2 } from 'lucide-react';
+import { Users, CalendarCheck, CalendarRange, FileUp, FileText, Loader2, MessageSquareText, Repeat2 } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
@@ -11,6 +11,7 @@ import { RepushModal, type RepushArgs } from './RepushModal';
 import { BulkRepushModal, type BulkRepushCandidate } from './BulkRepushModal';
 import { OfferModal, type OfferFormValues } from './OfferModal';
 import { DailyReportModal } from './DailyReportModal';
+import { WeeklyReportModal } from './WeeklyReportModal';
 import { RecommendationSearchBar, filterRecommendations, EMPTY_FILTERS, type RecommendationFilters } from './RecommendationSearchBar';
 import { useRepushStore, type RepushColumnId, type RepushItem, type InterviewRound } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
@@ -228,7 +229,9 @@ export function RecommendationCenter() {
   const [sameJobRepushOpen, setSameJobRepushOpen] = useState(false);
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
+  const [weeklyReporting, setWeeklyReporting] = useState(false);
   const [preparingBoard, setPreparingBoard] = useState(false);
+  const [preparingWeekly, setPreparingWeekly] = useState(false);
   const [showingUnfeedback, setShowingUnfeedback] = useState(false);
   const [exportingToday, setExportingToday] = useState(false);
   const [filters, setFilters] = useState<RecommendationFilters>(EMPTY_FILTERS);
@@ -594,6 +597,18 @@ export function RecommendationCenter() {
     }
   };
 
+  const handleOpenWeeklyReport = async () => {
+    setPreparingWeekly(true);
+    try {
+      await refreshSyncedData();
+      setWeeklyReporting(true);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '生成周报失败，请重试');
+    } finally {
+      setPreparingWeekly(false);
+    }
+  };
+
   return (
     <div className="workspace-page max-w-6xl">
       <div>
@@ -657,6 +672,14 @@ export function RecommendationCenter() {
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-sm font-medium hover:bg-emerald-100 transition-colors"
             >
               {exportingToday ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}今日日报
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenWeeklyReport}
+              disabled={preparingWeekly}
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+            >
+              {preparingWeekly ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarRange className="h-4 w-4" />}周报
             </button>
             {/* 两个推荐人切换（非并排） */}
             <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
@@ -789,6 +812,16 @@ export function RecommendationCenter() {
           items={items}
           candidates={candidates}
           onClose={() => setReporting(false)}
+        />
+      )}
+      {weeklyReporting && (
+        <WeeklyReportModal
+          column={view}
+          name={columnNames[view]}
+          items={items}
+          candidates={candidates}
+          jds={jds}
+          onClose={() => setWeeklyReporting(false)}
         />
       )}
       {showingUnfeedback && (
