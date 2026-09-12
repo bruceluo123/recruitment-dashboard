@@ -11,7 +11,7 @@ const menuSections = [
     { href: '/repush-pool', label: '反馈中心', icon: Send },
     { href: '/jd-library', label: 'JD 库', icon: Briefcase },
     { href: '/resume-matching', label: '简历匹配', icon: FileSearch },
-    { href: '/interview-calendar', label: '面试日历', icon: CalendarDays },
+    { href: '/interview-calendar', label: '面试/Offer', icon: CalendarDays },
   ],
   [
     { href: '/hot-hiring', label: '热招看板', icon: Flame },

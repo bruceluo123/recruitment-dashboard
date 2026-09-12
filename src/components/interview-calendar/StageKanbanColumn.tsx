@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { StageKanbanCard } from './StageKanbanCard';
 import { STAGE_COLORS } from '@/types/interview';
 import type { InterviewStage, Candidate, CandidateStatus } from '@/types/interview';
-import { formatCommissionAmount, getOfferCommissionForCandidate, isEffectiveOnboard } from '@/lib/offer-compensation';
+import { formatCommissionAmount, getCommissionPayout, getMonthlyCommissionRate, getOfferCommissionForCandidate, isEffectiveOnboard } from '@/lib/offer-compensation';
 
 interface StageKanbanColumnProps {
   stage: InterviewStage;
@@ -33,7 +33,11 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
     ? new Map(candidates.map((candidate) => [candidate.id, getOfferCommissionForCandidate(candidate, candidates)]))
     : new Map();
   const commissionSum = Array.from(commissions.values()).reduce((sum, item) => sum + (item?.commissionAmount || 0), 0);
+  const payableSum = isOffer
+    ? candidates.reduce((sum, candidate) => sum + getCommissionPayout(commissions.get(candidate.id), candidate.commissionTenureMonths || 0).amount, 0)
+    : 0;
   const effectiveOnboards = isOffer ? candidates.filter(isEffectiveOnboard) : [];
+  const commissionRate = getMonthlyCommissionRate(effectiveOnboards.length);
   const advancedOnboardCount = effectiveOnboards.filter((candidate) => {
     const tier = commissions.get(candidate.id)?.salaryTier;
     return tier === '高级/主管/经理' || tier === '专家/总监' || tier === '特殊人才/CEO';
@@ -61,7 +65,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
           <h3 className="text-sm font-semibold text-gray-800">{title || stage.name}</h3>
           {headerSubtitle && <span className="text-xs text-gray-400">{headerSubtitle}</span>}
           <span className="rounded-md border border-white bg-white/90 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-600 shadow-sm">
-            {isOffer ? `${candidates.length} 人 · ¥${formatCommissionAmount(commissionSum)}` : candidates.length}
+            {isOffer ? `${candidates.length} 个 Offer` : candidates.length}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -73,6 +77,14 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
           </button>
         </div>
       </header>
+      {isOffer && (
+        <div className="grid grid-cols-2 gap-px border-b border-emerald-100 bg-emerald-100 sm:grid-cols-4">
+          <CommissionStat label="有效入职" value={`${effectiveOnboards.length} 人`} hint={`高级岗位 ${advancedOnboardCount} 人`} />
+          <CommissionStat label="人数档比例" value={`${commissionRate * 100}%`} hint={effectiveOnboards.length < 3 ? '不足3人，暂不计提' : '同月所有Offer联动'} />
+          <CommissionStat label="预计总提成" value={`¥${formatCommissionAmount(commissionSum)}`} hint="转正薪资 × 比例 × 难度系数" />
+          <CommissionStat label="当前累计可发" value={`¥${formatCommissionAmount(payableSum)}`} hint="按入职满月进度计算" />
+        </div>
+      )}
       <div ref={trackRef} onWheel={handleWheel} className="flex h-[182px] min-w-0 gap-3 overflow-x-auto overflow-y-hidden bg-[#fbfcfe] px-4 py-3 scroll-smooth">
         {candidates.length > 0 ? candidates.map((candidate) => (
           <StageKanbanCard
@@ -89,5 +101,17 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
         )}
       </div>
     </section>
+  );
+}
+
+function CommissionStat({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="bg-emerald-50/60 px-4 py-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-medium text-emerald-700/70">{label}</span>
+        <span className="text-sm font-bold tabular-nums text-emerald-700">{value}</span>
+      </div>
+      <p className="mt-0.5 truncate text-[10px] text-gray-400" title={hint}>{hint}</p>
+    </div>
   );
 }

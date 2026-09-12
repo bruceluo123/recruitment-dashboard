@@ -37,7 +37,7 @@ export default function SettingsPage() {
             {[
               { title: 'JD 库', desc: '18个分类 + 批量导入' },
               { title: '简历匹配', desc: 'AI 解析 + 智能配对' },
-              { title: '面试日历', desc: '看板流程 + 拖拽管理' },
+              { title: '面试/Offer', desc: '面试流程 + Offer提成核算' },
               { title: 'DeepSeek AI', desc: '多维度岗位匹配评分' },
             ].map((f) => (
               <div key={f.title} className="p-3 rounded-lg bg-gray-50">

@@ -371,7 +371,7 @@ export function InterviewCalendarPage() {
 
       <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
         <div className="shrink-0">
-          <h2 className="page-title">面试日历</h2>
+          <h2 className="page-title">面试 / Offer</h2>
           <p className="page-subtitle">
             {columnNames[ownerTab]} 共 {activeOwnerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二/三面 {secondInterviewCount} 个，Offer {offerCount} 个
           </p>
