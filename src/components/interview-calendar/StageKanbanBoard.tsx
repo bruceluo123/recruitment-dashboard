@@ -9,10 +9,11 @@ interface StageKanbanBoardProps {
   onCandidateClick: (id: string) => void;
   onFailCandidate: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
+  onDeleteOffer: (id: string) => void;
   onCommissionTenureChange: (id: string, months: 0 | 1 | 2 | 3) => void;
 }
 
-export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate, onEarlyDeparture, onCommissionTenureChange }: StageKanbanBoardProps) {
+export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanBoardProps) {
   const interviewStages = DEFAULT_STAGES.filter((stage) => stage.id !== 'offer');
   const offerStage = DEFAULT_STAGES.find((stage) => stage.id === 'offer');
   const offerGroups = groupRecentOffers(candidates);
@@ -40,6 +41,7 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate
           onCandidateClick={onCandidateClick}
           onFailCandidate={onFailCandidate}
           onEarlyDeparture={onEarlyDeparture}
+          onDeleteOffer={onDeleteOffer}
           onCommissionTenureChange={onCommissionTenureChange}
         />
       ))}

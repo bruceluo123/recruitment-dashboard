@@ -78,6 +78,7 @@ export function InterviewCalendarPage() {
   const candidates = useInterviewStore((s) => s.candidates);
   const addCandidate = useInterviewStore((s) => s.addCandidate);
   const updateCandidate = useInterviewStore((s) => s.updateCandidate);
+  const removeCandidate = useInterviewStore((s) => s.removeCandidate);
   const columnNames = useRepushStore((s) => s.columnNames);
 
   // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段（与人才复推池一致）
@@ -181,6 +182,14 @@ export function InterviewCalendarPage() {
     updateCandidate(id, { commissionTenureMonths: months });
     const label = COMMISSION_TENURE_OPTIONS.find((item) => item.value === months)?.label || '未满1个月';
     setCopyMsg(`${candidate.name} 已更新为${label}`);
+  };
+
+  const handleDeleteOffer = (id: string) => {
+    const candidate = candidates.find((item) => item.id === id);
+    if (!candidate) return;
+    removeCandidate(id);
+    if (selectedId === id) setSelectedId(null);
+    setCopyMsg(`已删除 ${candidate.name} 的 Offer 记录`);
   };
 
   const handleCopyToday = async () => {
@@ -410,7 +419,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} onCommissionTenureChange={handleCommissionTenureChange} />
+        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} />
       ) : (
         <WeekGridView candidates={activeOwnerCandidates} onCandidateClick={setSelectedId} />
       )}

@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { CalendarClock, CircleX, LogOut, Mail, Pencil, UserRound } from 'lucide-react';
+import { CalendarClock, CircleX, LogOut, Mail, Pencil, Trash2, UserRound } from 'lucide-react';
 import { cn, formatInterviewDate } from '@/lib/utils';
 import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, type OfferCommission } from '@/lib/offer-compensation';
 import type { Candidate, CandidateStatus } from '@/types/interview';
@@ -12,6 +12,7 @@ interface StageKanbanCardProps {
   onClick: () => void;
   onFail: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
+  onDeleteOffer?: (id: string) => void;
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
 }
 
@@ -29,7 +30,7 @@ function formatOnboardDate(isoStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}号(周${week})`;
 }
 
-export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onEarlyDeparture, onCommissionTenureChange }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const accent = STAGE_ACCENTS[candidate.stage];
   const payout = getCommissionPayout(offerCommission, candidate.commissionTenureMonths || 0);
@@ -104,6 +105,15 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
         </span>
         {candidate.stage === 'offer' ? (
           <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+            <button
+              title="删除未接 Offer 人选"
+              onClick={() => {
+                if (window.confirm(`确认删除 ${candidate.name} 的 Offer 记录吗？`)) onDeleteOffer?.(candidate.id);
+              }}
+              className="flex h-7 items-center rounded-md px-1.5 text-gray-400 transition-all hover:bg-rose-50 hover:text-rose-500"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
             <button
               title="记录提前离职"
               onClick={() => onEarlyDeparture(candidate.id)}
