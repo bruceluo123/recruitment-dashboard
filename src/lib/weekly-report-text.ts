@@ -291,7 +291,8 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
         row.offers.size > 0 ? `Offer ${row.offers.size}人` : '',
         row.onboards.size > 0 ? `入职${row.onboards.size}人` : '',
       ].filter(Boolean).join('，');
-      return `${index + 1}. ${row.name}：${activity}`;
+      const sequence = input.column === 'b' ? `${index + 1}）` : `（${index + 1}）`;
+      return `${sequence}${row.name}：${activity}`;
     });
   if (departmentLines.length === 0) departmentLines.push('暂无本周负责部门推荐记录');
 
