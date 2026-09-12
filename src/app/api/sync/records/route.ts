@@ -5,7 +5,7 @@ import { canAccessRecord } from '@/lib/data-ownership';
 import { kvCommandStrict } from '@/lib/kv-server';
 import { applyRecordChanges, recordsEqual, type RecordChange, type SyncRecord } from '@/lib/record-changes';
 export const dynamic = 'force-dynamic';
-const TYPES = new Set(['jds', 'candidates', 'talents', 'repush', 'todos', 'companies']);
+const TYPES = new Set(['jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance']);
 const REPUSH_DELIVERY_FIELDS = [
   'deliveryId',
   'deliveryIndex',

@@ -5,7 +5,7 @@ import { kvCommandStrict } from '@/lib/kv-server';
 
 export const dynamic = 'force-dynamic';
 
-// 全部 6 类业务数据的 KV 键映射（与 src/lib/sync.ts 的 KV_KEYS 保持一致）。
+// 全部业务数据的 KV 键映射（与 src/lib/sync.ts 保持一致）。
 const SYNC_KEYS: Record<string, string> = {
   jds: 'recruit:jds',
   candidates: 'recruit:candidates',
@@ -13,6 +13,7 @@ const SYNC_KEYS: Record<string, string> = {
   repush: 'recruit:repush',
   todos: 'recruit:todos',
   companies: 'recruit:companies',
+  performance: 'recruit:performance',
 };
 
 export async function GET(request: NextRequest) {

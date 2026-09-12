@@ -4,7 +4,7 @@ import { permittedOwners, requireApiSession } from '@/lib/auth-api';
 import { filterAccessibleRecords } from '@/lib/data-ownership';
 export const dynamic = 'force-dynamic';
 const KEYS: Record<string, string> = Object.fromEntries([
-  'jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'version', 'tombstones', 'last-import-diff', 'weekly-added',
+  'jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance', 'version', 'tombstones', 'last-import-diff', 'weekly-added',
 ].map((key) => [key, `recruit:${key}`]));
 export async function GET(request: NextRequest) {
   const unauthorized = await requireApiSession(request);
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const values = await kvCommandStrict<(string | null)[]>('MGET', ...keys.map((key) => KEYS[key]));
     const visibleValues = values.map((value, index) => {
       const key = keys[index];
-      if (!['candidates', 'repush', 'todos'].includes(key) || !value) return value;
+      if (!['candidates', 'repush', 'todos', 'performance'].includes(key) || !value) return value;
       const parsed = JSON.parse(value) as unknown;
       // 推荐中心及周报允许两个账号交叉查看推荐、面试、Offer 与入职数据；
       // 这里只放宽读取，记录修改仍由 /api/sync/records 按所属人校验。

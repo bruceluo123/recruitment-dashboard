@@ -15,6 +15,14 @@ export interface OfferCommission {
   status: 'estimated' | 'below-minimum' | 'missing-onboard-date' | 'cancelled';
 }
 
+export interface KpiPerformancePay {
+  performanceBase: number;
+  multiplier: 0 | 1 | 1.2 | 1.5 | 2;
+  performancePay: number;
+  adjustment: number;
+  label: string;
+}
+
 type Coefficients = [number, number, number, number, number];
 
 interface JobRule {
@@ -102,6 +110,23 @@ export function getMonthlyCommissionRate(onboardCount: number): number {
   if (onboardCount <= 9) return 0.05;
   if (onboardCount <= 14) return 0.06;
   return 0.07;
+}
+
+/** KPI绩效基数为岗位工资的10%，最终只在这部分工资内奖扣。 */
+export function calculateKpiPerformancePay(positionSalary: number, kpiScore: number): KpiPerformancePay {
+  const salary = Number.isFinite(positionSalary) ? Math.max(0, positionSalary) : 0;
+  const score = Number.isFinite(kpiScore) ? Math.max(0, kpiScore) : 0;
+  const performanceBase = Math.round(salary * 0.1 * 100) / 100;
+  const multiplier: KpiPerformancePay['multiplier'] = score >= 90 ? 2 : score >= 80 ? 1.5 : score >= 70 ? 1.2 : score >= 60 ? 1 : 0;
+  const label = score >= 90 ? '90分以上' : score >= 80 ? '80–89分' : score >= 70 ? '70–79分' : score >= 60 ? '60–69分' : '低于60分';
+  const performancePay = Math.round(performanceBase * multiplier * 100) / 100;
+  return {
+    performanceBase,
+    multiplier,
+    performancePay,
+    adjustment: Math.round((performancePay - performanceBase) * 100) / 100,
+    label,
+  };
 }
 
 export function getOfferJobRule(jobTitle: string, salary: number): { category: string; coefficient: number; salaryTier: OfferSalaryTier } {

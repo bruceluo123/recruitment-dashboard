@@ -1,11 +1,12 @@
 'use client';
 import { StageKanbanColumn } from './StageKanbanColumn';
 import { DEFAULT_STAGES } from '@/types/interview';
-import type { Candidate } from '@/types/interview';
+import type { Candidate, CandidateOwner } from '@/types/interview';
 import { getOfferPerformanceMonth } from '@/lib/offer-compensation';
 
 interface StageKanbanBoardProps {
   candidates: Candidate[];
+  owner: CandidateOwner;
   onCandidateClick: (id: string) => void;
   onFailCandidate: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
@@ -13,7 +14,7 @@ interface StageKanbanBoardProps {
   onCommissionTenureChange: (id: string, months: 0 | 1 | 2 | 3) => void;
 }
 
-export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanBoardProps) {
+export function StageKanbanBoard({ candidates, owner, onCandidateClick, onFailCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanBoardProps) {
   const interviewStages = DEFAULT_STAGES.filter((stage) => stage.id !== 'offer');
   const offerStage = DEFAULT_STAGES.find((stage) => stage.id === 'offer');
   const offerGroups = groupRecentOffers(candidates);
@@ -37,6 +38,8 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate
           stage={offerStage}
           title={`${Number(month.slice(5))}月 Offer`}
           subtitle="按入职满月进度发放"
+          performanceMonth={month}
+          owner={owner}
           candidates={monthCandidates}
           onCandidateClick={onCandidateClick}
           onFailCandidate={onFailCandidate}

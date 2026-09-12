@@ -10,6 +10,7 @@ import { useTalentStore } from '@/store/talent-store';
 import { useRepushStore } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { useCompanyStore } from '@/store/company-store';
+import { usePerformanceStore, type PerformanceKpiRecord } from '@/store/performance-store';
 import type { JD, JDImportResult, WeeklyAdded } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
@@ -18,7 +19,7 @@ import type { TodoItem } from '@/types/todo';
 import type { Company } from '@/types/company';
 
 function routeTypes(path: string): DataType[] {
-  const common: DataType[] = ['candidates', 'repush', 'todos'];
+  const common: DataType[] = ['candidates', 'repush', 'todos', 'performance'];
   if (path === '/' || path.startsWith('/resume-matching') || path.startsWith('/repush-pool')
     || path.startsWith('/interview-calendar') || path.startsWith('/hot-hiring')) return [...common, 'jds'];
   if (path.startsWith('/jd-library')) return [...common, 'jds', 'companies'];
@@ -55,6 +56,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       useRepushStore.subscribe((next, previous) => changed('repush', next.items, previous.items)),
       useTodoStore.subscribe((next, previous) => changed('todos', next.todos, previous.todos)),
       useCompanyStore.subscribe((next, previous) => changed('companies', next.companies, previous.companies)),
+      usePerformanceStore.subscribe((next, previous) => changed('performance', next.records, previous.records)),
     ];
     startSync((type, data, _version, readOk) => {
       if (!readOk) return;
@@ -69,6 +71,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         if (type === 'repush') useRepushStore.setState({ items: data as RepushItem[] });
         if (type === 'todos') useTodoStore.setState({ todos: data as TodoItem[] });
         if (type === 'companies') useCompanyStore.setState({ companies: data as Company[] });
+        if (type === 'performance') usePerformanceStore.setState({ records: data as PerformanceKpiRecord[] });
       } finally { applying.delete(type); }
     }, routeTypes(pathname));
     let active = true;

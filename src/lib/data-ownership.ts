@@ -1,6 +1,6 @@
 import type { OwnerId } from '@/lib/auth-core';
 
-const OWNER_SCOPED_TYPES = new Set(['candidates', 'repush', 'todos']);
+const OWNER_SCOPED_TYPES = new Set(['candidates', 'repush', 'todos', 'performance']);
 
 export function recordOwner(type: string, value: unknown): OwnerId | null | undefined {
   if (!OWNER_SCOPED_TYPES.has(type)) return null;
@@ -11,6 +11,7 @@ export function recordOwner(type: string, value: unknown): OwnerId | null | unde
     if (record.owner === 'both') return null;
     return record.owner === 'a' || record.owner === 'b' ? record.owner : undefined;
   }
+  if (type === 'performance') return record.owner === 'a' || record.owner === 'b' ? record.owner : undefined;
   return record.owner === 'b' ? 'b' : 'a';
 }
 

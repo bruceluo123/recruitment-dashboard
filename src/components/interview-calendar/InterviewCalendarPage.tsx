@@ -436,7 +436,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} />
+        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} />
       ) : (
         <WeekGridView candidates={activeOwnerCandidates} onCandidateClick={setSelectedId} />
       )}

@@ -1,6 +1,6 @@
 import { diffRecords, recordsEqual, type RecordChange, type SyncRecord } from './record-changes';
 
-export type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies';
+export type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies' | 'performance';
 type ChangeHandler = (type: DataType, data: unknown[], version: number, readOk: boolean) => void;
 interface Mutation {
   id: string;
@@ -10,7 +10,7 @@ interface Mutation {
   conflicts?: string[];
   resolution?: 'local';
 }
-const TYPES: DataType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies'];
+const TYPES: DataType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance'];
 const OUTBOX = 'recruit:record-outbox:v1';
 const REPUSH_DELIVERY_FIELDS = new Set([
   'deliveryId',
