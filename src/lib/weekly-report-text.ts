@@ -3,6 +3,7 @@ import type { Candidate } from '@/types/interview';
 import type { JD } from '@/types/jd';
 import { priorityRank } from '@/types/jd';
 import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
+import { matchXunyingResponsibleJob } from '@/lib/xunying-responsible-jobs';
 
 export interface WeeklyReportInput {
   column: RepushColumnId;
@@ -159,6 +160,22 @@ function departmentFor(
     || '未填写部门';
 }
 
+function responsibleDepartmentFor(
+  activity: Pick<RepushItem, 'department' | 'organization' | 'jdId' | 'jdTitle'>
+    | Pick<Candidate, 'department' | 'organization' | 'jdId' | 'jdTitle'>,
+  jds: JD[],
+): string | undefined {
+  const jd = findJD(jds, activity.jdId, activity.jdTitle, activity.department, activity.organization);
+  const responsibleJob = matchXunyingResponsibleJob({
+    title: clean(jd?.title) || clean(activity.jdTitle),
+    department: clean(jd?.department) || clean(activity.department),
+    organizations: [activity.organization, jd?.organization, jd?.serviceUnit],
+  });
+  return responsibleJob
+    ? clean(responsibleJob.department) || clean(responsibleJob.organization)
+    : undefined;
+}
+
 function jobTitleFor(activity: { jdTitle?: string }, fallback = '未填写岗位'): string {
   return clean(activity.jdTitle) || fallback;
 }
@@ -236,28 +253,28 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
 
   for (const item of recommendations) {
     const jd = findJD(input.jds, item.jdId, item.jdTitle, item.department, item.organization);
-    const row = departmentRow(departmentFor(item, input.jds));
+    const responsibleDepartment = responsibleDepartmentFor(item, input.jds);
+    if (!responsibleDepartment) continue;
+    const row = departmentRow(responsibleDepartment);
     row.recommendations.add(recommendationKey(item));
     row.recommendationPriority = Math.min(row.recommendationPriority, priorityRank(jd?.priority));
   }
   for (const candidate of interviews) {
-    departmentRow(departmentFor(candidate, input.jds)).interviews.add(candidateKey(candidate));
+    const responsibleDepartment = responsibleDepartmentFor(candidate, input.jds);
+    if (responsibleDepartment) departmentRow(responsibleDepartment).interviews.add(candidateKey(candidate));
   }
   for (const candidate of offers) {
-    departmentRow(departmentFor(candidate, input.jds)).offers.add(candidateKey(candidate));
+    const responsibleDepartment = responsibleDepartmentFor(candidate, input.jds);
+    if (responsibleDepartment) departmentRow(responsibleDepartment).offers.add(candidateKey(candidate));
   }
   for (const candidate of onboards) {
-    departmentRow(departmentFor(candidate, input.jds)).onboards.add(candidateKey(candidate));
+    const responsibleDepartment = responsibleDepartmentFor(candidate, input.jds);
+    if (responsibleDepartment) departmentRow(responsibleDepartment).onboards.add(candidateKey(candidate));
   }
 
   const recommendedDepartments = Array.from(departments.values())
     .filter((row) => row.recommendations.size > 0);
-  const priorityRecommendedDepartments = recommendedDepartments
-    .filter((row) => row.recommendationPriority <= 1);
-  const visibleDepartments = priorityRecommendedDepartments.length > 0
-    ? priorityRecommendedDepartments
-    : recommendedDepartments;
-  const departmentLines = visibleDepartments
+  const departmentLines = recommendedDepartments
     .sort((a, b) => {
       if (a.recommendationPriority !== b.recommendationPriority) {
         return a.recommendationPriority - b.recommendationPriority;
@@ -269,7 +286,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
     .map((row, index) => (
       `${index + 1}. ${row.name}：推荐${row.recommendations.size}人，面试${row.interviews.size}人，Offer ${row.offers.size}人，入职${row.onboards.size}人`
     ));
-  if (departmentLines.length === 0) departmentLines.push('暂无本周记录');
+  if (departmentLines.length === 0) departmentLines.push('暂无本周负责部门推荐记录');
 
   const dateLabel = `${monthDay(start)}-${monthDay(end)}`;
   const onboardLine = `到岗${onboards.length}${onboardDetail ? `：${onboardDetail}` : ''}`;
