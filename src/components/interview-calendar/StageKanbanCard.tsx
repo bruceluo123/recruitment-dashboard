@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { CalendarClock, CircleX, LogOut, Mail, Pencil, UserRound } from 'lucide-react';
 import { cn, formatInterviewDate } from '@/lib/utils';
-import { formatCommissionAmount, type OfferCommission } from '@/lib/offer-compensation';
+import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, type OfferCommission } from '@/lib/offer-compensation';
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
 
@@ -12,6 +12,7 @@ interface StageKanbanCardProps {
   onClick: () => void;
   onFail: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
+  onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
 }
 
 const STAGE_ACCENTS: Record<CandidateStatus, { border: string; badge: string; icon: string }> = {
@@ -28,9 +29,10 @@ function formatOnboardDate(isoStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}号(周${week})`;
 }
 
-export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onEarlyDeparture }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onEarlyDeparture, onCommissionTenureChange }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const accent = STAGE_ACCENTS[candidate.stage];
+  const payout = getCommissionPayout(offerCommission, candidate.commissionTenureMonths || 0);
   const roundLabel = candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
 
   return (
@@ -53,7 +55,7 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
         </div>
         {candidate.stage === 'offer' && (
           <span className={cn('shrink-0 text-sm font-extrabold tabular-nums', offerCommission?.eligible ? 'text-emerald-600' : 'text-amber-600')}>
-            {offerCommission?.eligible ? `¥${formatCommissionAmount(offerCommission.commissionAmount)}` : '暂不计提'}
+            {offerCommission?.eligible ? `预计 ¥${formatCommissionAmount(offerCommission.commissionAmount)}` : '暂不计提'}
           </span>
         )}
       </div>
@@ -85,7 +87,7 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
         </div>
         {candidate.stage === 'offer' && offerCommission && (
           <p className="truncate text-[11px] text-gray-500" title={`${offerCommission.jobCategory} · ${offerCommission.salaryTier}`}>
-            {offerCommission.jobCategory} · {offerCommission.difficultyCoefficient}系数 · {offerCommission.commissionRate * 100}%
+            {offerCommission.jobCategory} · {offerCommission.difficultyCoefficient}系数 · 累计可发 ¥{formatCommissionAmount(payout.amount)}
           </p>
         )}
         {candidate.contactEmail && (
@@ -101,13 +103,23 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
           <Pencil className="h-3 w-3" />查看详情
         </span>
         {candidate.stage === 'offer' ? (
-          <button
-            title="记录提前离职"
-            onClick={(event) => { event.stopPropagation(); onEarlyDeparture(candidate.id); }}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600"
-          >
-            <LogOut className="h-3.5 w-3.5" />提前离职
-          </button>
+          <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+            <button
+              title="记录提前离职"
+              onClick={() => onEarlyDeparture(candidate.id)}
+              className="flex h-7 items-center rounded-md px-1.5 text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+            <select
+              aria-label={`${candidate.name}的入职满月进度`}
+              value={candidate.commissionTenureMonths || 0}
+              onChange={(event) => onCommissionTenureChange?.(candidate.id, Number(event.target.value) as 0 | 1 | 2 | 3)}
+              className="h-7 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 text-[11px] font-medium text-emerald-700 outline-none focus:border-emerald-400"
+            >
+              {COMMISSION_TENURE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
         ) : candidate.outcome === 'failed' ? (
           <span className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-medium text-red-500">
             <CircleX className="h-3.5 w-3.5" />未通过

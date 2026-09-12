@@ -4,7 +4,7 @@
 
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import type { InterviewEvent, InterviewRound } from '@/types/interview';
-import { getOfferCommissionForCandidate } from '@/lib/offer-compensation';
+import { getCommissionPayout, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
 
 // 列顺序固定，导出与导入共用同一套表头
 const HEADERS = ['日期', '时间', '姓名', '岗位', '编制', '部门', '面试官', '阶段'] as const;
@@ -102,7 +102,7 @@ export interface RecruitmentReportRow {
 
 export const RECRUITMENT_REPORT_HEADERS = [
   '候选人', '岗位', '面试阶段', '面试日期', '面试状态', 'Offer薪资',
-  '部门', '入职日期', '远程', '薪资档位', '预计提成', '来源',
+  '部门', '入职日期', '远程', '薪资档位', '累计可发提成', '来源',
 ] as const;
 
 function localDateKey(iso: string): string {
@@ -202,6 +202,7 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       '一面',
     );
     const commission = getOfferCommissionForCandidate(offerCandidate, candidates);
+    const payout = getCommissionPayout(commission, offerCandidate.commissionTenureMonths || 0);
     return {
       key,
       candidateIds: group.candidates.map((candidate) => candidate.id),
@@ -215,7 +216,7 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       onboardDate: formatOnboardDay(offerCandidate.onboardDate),
       workMode: latestCandidate.workMode || '远程',
       salaryTier: commission?.salaryTier || '',
-      commission: commission?.eligible ? String(commission.commissionAmount) : '',
+      commission: payout.amount ? String(payout.amount) : '',
       source: latestCandidate.recommendationSource === 'repush' ? '转推荐' : '人才库',
       sortAt: uniqueEvents.length ? new Date(uniqueEvents[0].interviewDate).getTime() : Number.MAX_SAFE_INTEGER,
     };

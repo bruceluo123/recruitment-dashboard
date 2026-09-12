@@ -16,6 +16,7 @@ interface StageKanbanColumnProps {
   onCandidateClick: (candidateId: string) => void;
   onFailCandidate: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
+  onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
 }
 
 const LANE_TONES: Record<CandidateStatus, string> = {
@@ -24,7 +25,7 @@ const LANE_TONES: Record<CandidateStatus, string> = {
   offer: 'bg-emerald-50/70',
 };
 
-export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandidateClick, onFailCandidate, onEarlyDeparture }: StageKanbanColumnProps) {
+export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandidateClick, onFailCandidate, onEarlyDeparture, onCommissionTenureChange }: StageKanbanColumnProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
@@ -73,6 +74,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
             onClick={() => onCandidateClick(candidate.id)}
             onFail={onFailCandidate}
             onEarlyDeparture={onEarlyDeparture}
+            onCommissionTenureChange={onCommissionTenureChange}
           />
         )) : (
           <div className="flex w-full items-center justify-center text-xs text-gray-400">暂无候选人</div>

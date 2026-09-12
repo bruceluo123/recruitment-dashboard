@@ -538,6 +538,7 @@ export function RecommendationCenter() {
       probationSalary: probationSalary || undefined,
       regularSalary: regularSalary || undefined,
       probationMonths: '2',
+      commissionTenureMonths: linkedCandidate?.commissionTenureMonths ?? 0,
       onboardDate,
       jobLevel: undefined,
       salary: salary || undefined,

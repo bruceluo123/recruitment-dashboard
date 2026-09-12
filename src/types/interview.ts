@@ -71,6 +71,7 @@ export interface Candidate {
   regularSalary?: string;
   probationMonths?: string;
   jobLevel?: OfferJobLevel;
+  commissionTenureMonths?: 0 | 1 | 2 | 3; // 新提成制发放进度：未满1个月 / 满1、2、3个月
   workMode?: string;
   recommendationSource?: 'intake' | 'repush';
   onboardDate?: string;

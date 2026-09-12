@@ -183,3 +183,18 @@ export function getOfferCommissionForCandidate(candidate: Candidate, candidates:
 export function formatCommissionAmount(value: number): string {
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
 }
+
+export const COMMISSION_TENURE_OPTIONS = [
+  { value: 0, label: '未满1个月', ratio: 0 },
+  { value: 1, label: '满1个月', ratio: 0.7 },
+  { value: 2, label: '满2个月', ratio: 0.9 },
+  { value: 3, label: '满3个月', ratio: 1 },
+] as const;
+
+export function getCommissionPayout(commission: OfferCommission | null | undefined, months = 0): { ratio: number; amount: number } {
+  const option = COMMISSION_TENURE_OPTIONS.find((item) => item.value === months) || COMMISSION_TENURE_OPTIONS[0];
+  return {
+    ratio: option.ratio,
+    amount: commission?.eligible ? Math.round(commission.commissionAmount * option.ratio * 100) / 100 : 0,
+  };
+}

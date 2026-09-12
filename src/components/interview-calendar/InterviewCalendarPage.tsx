@@ -13,7 +13,7 @@ import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
 import { buildRecruitmentReportRows, buildRecruitmentReportText, parseInterviewReport } from '@/lib/interview-report';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
-import { formatCommissionAmount, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
+import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
 
 function dateKey(iso: string): string {
   const d = new Date(iso);
@@ -175,6 +175,14 @@ export function InterviewCalendarPage() {
     setCopyMsg(`已记录 ${candidate.name} 提前离职，该 Offer 不再计入提成`);
   };
 
+  const handleCommissionTenureChange = (id: string, months: 0 | 1 | 2 | 3) => {
+    const candidate = candidates.find((item) => item.id === id);
+    if (!candidate) return;
+    updateCandidate(id, { commissionTenureMonths: months });
+    const label = COMMISSION_TENURE_OPTIONS.find((item) => item.value === months)?.label || '未满1个月';
+    setCopyMsg(`${candidate.name} 已更新为${label}`);
+  };
+
   const handleCopyToday = async () => {
     const now = new Date();
     const isToday = (iso: string) => {
@@ -328,12 +336,15 @@ export function InterviewCalendarPage() {
   const selectedCommission = selected?.stage === 'offer'
     ? getOfferCommissionForCandidate(selected, ownerCandidates)
     : null;
+  const selectedPayout = getCommissionPayout(selectedCommission, selected?.commissionTenureMonths || 0);
+  const selectedTenureLabel = COMMISSION_TENURE_OPTIONS.find((item) => item.value === (selected?.commissionTenureMonths || 0))?.label || '未满1个月';
   const firstInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-1').length;
   const secondInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-2').length;
   const offerCount = activeOwnerCandidates.filter((c) => {
     if (c.stage !== 'offer') return false;
-    const date = c.onboardDate?.slice(0, 10) || '';
-    return !(date >= '2026-07-26' && date <= '2026-08-25');
+    const date = new Date(c.onboardDate || c.offerAppliedAt || c.appliedAt);
+    if (Number.isNaN(date.getTime())) return false;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` >= '2026-09';
   }).length;
   const isEditing = editingId === selectedId;
   useEscapeClose(() => setShowImport(false), showImport);
@@ -401,7 +412,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} />
+        <StageKanbanBoard candidates={boardCandidates} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} onCommissionTenureChange={handleCommissionTenureChange} />
       ) : (
         <WeekGridView candidates={activeOwnerCandidates} onCandidateClick={setSelectedId} />
       )}
@@ -661,6 +672,8 @@ export function InterviewCalendarPage() {
                   <Stat label="难度系数" value={selectedCommission ? String(selectedCommission.difficultyCoefficient) : '-'} />
                   <Stat label="本月提成比例" value={selectedCommission ? `${selectedCommission.commissionRate * 100}%（${selectedCommission.onboardCount}人）` : '-'} />
                   <Stat label="预计提成" value={selectedCommission?.eligible ? `¥${formatCommissionAmount(selectedCommission.commissionAmount)}` : '暂不计提'} />
+                  <Stat label="入职进度" value={selectedTenureLabel} />
+                  <Stat label="累计可发" value={`${selectedPayout.ratio * 100}% · ¥${formatCommissionAmount(selectedPayout.amount)}`} />
                 </>
               ) : <Stat label="分数" value={`${selected.score} 分`} />}
               <div className="p-3 rounded-lg bg-gray-50"><p className="text-xs text-gray-400 mb-0.5">面试时间</p><p className="text-base font-bold text-gray-800">{selected.interviewDate ? formatInterviewDate(selected.interviewDate) : '未安排'}</p></div>
