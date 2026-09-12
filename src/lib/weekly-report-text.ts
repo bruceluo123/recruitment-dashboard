@@ -218,6 +218,12 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
     && isFirstRecommendation(item)
     && isInRange(recommendationDate(item), start, end)
   ));
+  const departmentRecommendations = input.column === 'b'
+    ? input.items.filter((item) => (
+      item.column === input.column
+      && isInRange(recommendationDate(item), start, end)
+    ))
+    : recommendations;
   const interviews = uniqueCandidates(ownerCandidates.filter((candidate) => interviewedInRange(candidate, start, end)));
   const offers = uniqueCandidates(activeOffers(ownerCandidates, start, end));
   const onboards = uniqueCandidates(activeOnboards(ownerCandidates, start, end));
@@ -252,7 +258,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
     return created;
   };
 
-  for (const item of recommendations) {
+  for (const item of departmentRecommendations) {
     const jd = findJD(input.jds, item.jdId, item.jdTitle, item.department, item.organization);
     const responsibleDepartment = responsibleDepartmentFor(item, input.jds);
     if (!responsibleDepartment) continue;

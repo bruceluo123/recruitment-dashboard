@@ -54,7 +54,8 @@ export function WeeklyReportModal({ column, name, items, candidates, jds, onClos
 
         <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
           <div className="text-xs leading-5 text-gray-400">
-            周一至周六 · 推荐 {report.recommendationCount} 人 · 面试 {report.interviewCount} 人 · Offer {report.offerCount} 人 · 入职 {report.onboardCount} 人。推荐仅统计实际送达的首次推荐，复推不计入。
+            周一至周六 · {column === 'b' ? '首次推荐' : '推荐'} {report.recommendationCount} 人 · 面试 {report.interviewCount} 人 · Offer {report.offerCount} 人 · 入职 {report.onboardCount} 人。
+            {column === 'b' ? '负责编制的推荐人数包含同周实际送达的复推。' : '推荐仅统计实际送达的首次推荐，复推不计入。'}
           </div>
           <textarea
             className="h-96 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm leading-relaxed focus:border-indigo-300 focus:outline-none"
