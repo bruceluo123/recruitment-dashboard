@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { secureStringEqual, SESSION_COOKIE, sessionSecrets, verifySessionToken, type OwnerId, type SessionUser } from '@/lib/auth-core';
 import { sameOriginGuard } from '@/lib/api-guard';
 
+export function effectiveOwners(owners: OwnerId[]): OwnerId[] {
+  // 麦满分（a）负责统筹，可管理啵啵（b）的业务数据；啵啵仍只管理自己的数据。
+  return owners.includes('a') ? ['a', 'b'] : owners;
+}
+
 export function hasValidServiceToken(request: NextRequest): boolean {
   const serviceToken = process.env.SERVICE_API_TOKEN || '';
   const authorization = request.headers.get('authorization') || '';
@@ -16,7 +21,8 @@ export async function apiSessionUser(request: NextRequest): Promise<SessionUser 
 
 export async function permittedOwners(request: NextRequest): Promise<OwnerId[] | null> {
   if (hasValidServiceToken(request)) return ['a', 'b'];
-  return (await apiSessionUser(request))?.owners || null;
+  const user = await apiSessionUser(request);
+  return user ? effectiveOwners(user.owners) : null;
 }
 
 export async function requireApiSession(request: NextRequest): Promise<NextResponse | null> {
@@ -34,7 +40,7 @@ export async function requireOwnerSession(
   if (hasValidServiceToken(request)) return null;
   const user = await apiSessionUser(request);
   if (!user) return NextResponse.json({ error: '未授权，请先登录' }, { status: 401 });
-  if (!user.owners.includes(owner)) return NextResponse.json({ error: '无权访问该所属人的数据' }, { status: 403 });
+  if (!effectiveOwners(user.owners).includes(owner)) return NextResponse.json({ error: '无权访问该所属人的数据' }, { status: 403 });
   return mutation ? sameOriginGuard(request) : null;
 }
 
