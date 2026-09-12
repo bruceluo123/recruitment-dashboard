@@ -51,6 +51,12 @@ function dayLabel(iso: string): string {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
 }
 
+function offerSalaryPart(value: string | undefined, label: '试用期' | '转正'): string {
+  if (!value) return '';
+  const match = value.match(new RegExp(`${label}\\s*([^/]+)`));
+  return match?.[1]?.trim() || '';
+}
+
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -102,19 +108,30 @@ export function InterviewCalendarPage() {
   }, [copyMsg]);
 
   const startEdit = (c: typeof candidates[0]) => {
+    const legacyProbationSalary = offerSalaryPart(c.salary, '试用期');
+    const legacyRegularSalary = offerSalaryPart(c.salary, '转正');
     setEditingId(c.id);
     setEditForm({
       name: c.name, jdTitle: c.jdTitle, organization: c.organization || '', department: c.department || '',
       score: String(c.score ?? ''),
       interviewDate: c.interviewDate ? toLocalDatetime(c.interviewDate) : '',
       interviewer: c.interviewer || '', contactEmail: c.contactEmail || '', notes: c.notes || '',
-      salary: c.salary || '', probationSalary: c.probationSalary || '', regularSalary: c.regularSalary || '',
+      salary: c.salary || '',
+      probationSalary: c.probationSalary || legacyProbationSalary,
+      regularSalary: c.regularSalary || legacyRegularSalary || (c.salary && !c.salary.includes('/') ? c.salary : ''),
       onboardDate: c.onboardDate ? toLocalDatetime(c.onboardDate).slice(0, 10) : '',
     });
   };
 
   const saveEdit = () => {
     if (!editingId) return;
+    const probationSalary = editForm.probationSalary.trim()
+      || selected?.probationSalary
+      || offerSalaryPart(selected?.salary, '试用期');
+    const regularSalary = editForm.regularSalary.trim()
+      || selected?.regularSalary
+      || offerSalaryPart(selected?.salary, '转正')
+      || (selected?.salary && !selected.salary.includes('/') ? selected.salary : '');
     updateCandidate(editingId, {
       name: editForm.name,
       jdTitle: editForm.jdTitle,
@@ -126,10 +143,10 @@ export function InterviewCalendarPage() {
       contactEmail: editForm.contactEmail || undefined,
       notes: editForm.notes || undefined,
       salary: selected?.stage === 'offer'
-        ? [`试用期 ${editForm.probationSalary}`, `转正 ${editForm.regularSalary}`].filter((part) => !part.endsWith(' ')).join(' / ') || undefined
+        ? [probationSalary && `试用期 ${probationSalary}`, regularSalary && `转正 ${regularSalary}`].filter(Boolean).join(' / ') || selected.salary
         : editForm.salary || undefined,
-      probationSalary: selected?.stage === 'offer' ? editForm.probationSalary || undefined : undefined,
-      regularSalary: selected?.stage === 'offer' ? editForm.regularSalary || undefined : undefined,
+      probationSalary: selected?.stage === 'offer' ? probationSalary || undefined : undefined,
+      regularSalary: selected?.stage === 'offer' ? regularSalary || undefined : undefined,
       onboardDate: editForm.onboardDate ? new Date(editForm.onboardDate).toISOString() : undefined,
     });
     setEditingId(null);
