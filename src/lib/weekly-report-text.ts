@@ -283,9 +283,15 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
       const bTotal = b.recommendations.size + b.interviews.size + b.offers.size + b.onboards.size;
       return bTotal - aTotal || a.name.localeCompare(b.name, 'zh-CN');
     })
-    .map((row, index) => (
-      `${index + 1}. ${row.name}：推荐${row.recommendations.size}人，面试${row.interviews.size}人，Offer ${row.offers.size}人，入职${row.onboards.size}人`
-    ));
+    .map((row, index) => {
+      const activity = [
+        `推荐${row.recommendations.size}人`,
+        row.interviews.size > 0 ? `面试${row.interviews.size}人` : '',
+        row.offers.size > 0 ? `Offer ${row.offers.size}人` : '',
+        row.onboards.size > 0 ? `入职${row.onboards.size}人` : '',
+      ].filter(Boolean).join('，');
+      return `${index + 1}. ${row.name}：${activity}`;
+    });
   if (departmentLines.length === 0) departmentLines.push('暂无本周负责部门推荐记录');
 
   const dateLabel = `${monthDay(start)}-${monthDay(end)}`;
