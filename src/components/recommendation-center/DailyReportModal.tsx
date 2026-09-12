@@ -48,7 +48,7 @@ const countPriority = <T extends { priority?: string }>(rows: T[], priority: str
 const sumPriority = (rows: JobLine[], priority: string) => rows.reduce((total, row) => total + (row.priority === priority ? Number(row.qty) || 0 : 0), 0);
 
 // ── 草稿自动暂存：误关/切走/点到外面时不丢失填写，按「录入人 + 日期」隔离，提交成功后清除 ──
-const DRAFT_VERSION = 5;
+const DRAFT_VERSION = 6;
 interface DraftState {
   v: number;
   recommendExcludesRepush?: boolean;

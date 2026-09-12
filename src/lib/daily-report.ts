@@ -6,8 +6,7 @@
 //
 // 数据来源全部取自本系统的「今日数据」：
 //  - 推荐明细：今日录入的推荐（按岗位聚合计数）
-//  - 收取明细：在推荐明细基础上，任取一个岗位 +1~2（新收简历总数随之增大）
-//  - 新增沟通人数：新收简历总数 +1~2
+//  - 新收简历 / 新增沟通：按当天首次推荐的候选人去重计数
 //  - 约面/业务面试明细：今日面试日历中安排在今天的面试
 
 import type { RepushItem } from '@/store/repush-store';
@@ -340,9 +339,21 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
   const recommendDetail = aggregateRecommendations(opts.recommendations)
     .map((j, i) => ({ ...j, channel: pickChannelForRow(i), priority: pickRandomPriority(rng) }));
   const recommendTotal = sum(recommendDetail);
-  const cvDetail = buildCvDetail(recommendDetail, rng); // 深拷贝自推荐，渠道/优先级随之带入
-  const cvTotal = sum(cvDetail);
-  const screenNew = cvTotal > 0 ? cvTotal + rand1to2(rng) : 0;
+  const seenCandidates = new Set<string>();
+  const uniqueCandidateRecommendations = opts.recommendations.filter((item) => {
+    const candidateKey = item.candidateIdentityId
+      || item.candidateCode
+      || item.candidateName?.trim().toLowerCase()
+      || item.applicationId
+      || item.id;
+    if (seenCandidates.has(candidateKey)) return false;
+    seenCandidates.add(candidateKey);
+    return true;
+  });
+  const cvDetail = aggregateRecommendations(uniqueCandidateRecommendations)
+    .map((j, i) => ({ ...j, channel: pickChannelForRow(i), priority: pickRandomPriority(rng) }));
+  const cvTotal = uniqueCandidateRecommendations.length;
+  const screenNew = cvTotal;
 
   const scheduledSource = opts.scheduled ?? opts.interviews;
   const scheduledDetail: ScheduledLine[] = scheduledSource.map((c, i) => ({
