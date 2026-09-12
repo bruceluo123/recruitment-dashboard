@@ -13,14 +13,8 @@ interface StageKanbanBoardProps {
 export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate, onEarlyDeparture }: StageKanbanBoardProps) {
   const interviewStages = DEFAULT_STAGES.filter((stage) => stage.id !== 'offer');
   const offerStage = DEFAULT_STAGES.find((stage) => stage.id === 'offer');
-  const offerCandidates = candidates.filter((candidate) => candidate.stage === 'offer');
-  const augustOffers = sortCandidatesByDate(
-    offerCandidates.filter((candidate) => isAugustPerformanceOffer(candidate.onboardDate)),
-    (candidate) => candidate.onboardDate,
-    true,
-  );
-  const septemberOffers = sortCandidatesByDate(
-    offerCandidates.filter((candidate) => !isAugustPerformanceOffer(candidate.onboardDate)),
+  const offerCandidates = sortCandidatesByDate(
+    candidates.filter((candidate) => candidate.stage === 'offer' && !isLegacyAugustOffer(candidate.onboardDate)),
     (candidate) => candidate.onboardDate,
     true,
   );
@@ -39,32 +33,21 @@ export function StageKanbanBoard({ candidates, onCandidateClick, onFailCandidate
         );
       })}
       {offerStage && (
-        <>
-          <StageKanbanColumn
-            stage={offerStage}
-            title="9月 Offer"
-            subtitle="8/26起"
-            candidates={septemberOffers}
-            onCandidateClick={onCandidateClick}
-            onFailCandidate={onFailCandidate}
-            onEarlyDeparture={onEarlyDeparture}
-          />
-          <StageKanbanColumn
-            stage={offerStage}
-            title="8月 Offer"
-            subtitle="7/26-8/25"
-            candidates={augustOffers}
-            onCandidateClick={onCandidateClick}
-            onFailCandidate={onFailCandidate}
-            onEarlyDeparture={onEarlyDeparture}
-          />
-        </>
+        <StageKanbanColumn
+          stage={offerStage}
+          title="Offer"
+          subtitle="按新提成制度自动核算"
+          candidates={offerCandidates}
+          onCandidateClick={onCandidateClick}
+          onFailCandidate={onFailCandidate}
+          onEarlyDeparture={onEarlyDeparture}
+        />
       )}
     </div>
   );
 }
 
-function isAugustPerformanceOffer(onboardDate: string | undefined): boolean {
+function isLegacyAugustOffer(onboardDate: string | undefined): boolean {
   if (!onboardDate) return false;
   const date = onboardDate.slice(0, 10);
   return date >= '2026-07-26' && date <= '2026-08-25';

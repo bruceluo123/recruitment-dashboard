@@ -13,6 +13,7 @@ import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
 import { buildRecruitmentReportRows, buildRecruitmentReportText, parseInterviewReport } from '@/lib/interview-report';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
+import { formatCommissionAmount, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
 
 function dateKey(iso: string): string {
   const d = new Date(iso);
@@ -71,7 +72,7 @@ export function InterviewCalendarPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', jdTitle: '', organization: '', department: '', score: '', interviewDate: '',
-    interviewer: '', contactEmail: '', notes: '', salary: '', onboardDate: '',
+    interviewer: '', contactEmail: '', notes: '', salary: '', probationSalary: '', regularSalary: '', onboardDate: '',
   });
 
   const candidates = useInterviewStore((s) => s.candidates);
@@ -106,7 +107,8 @@ export function InterviewCalendarPage() {
       score: String(c.score ?? ''),
       interviewDate: c.interviewDate ? toLocalDatetime(c.interviewDate) : '',
       interviewer: c.interviewer || '', contactEmail: c.contactEmail || '', notes: c.notes || '',
-      salary: c.salary || '', onboardDate: c.onboardDate ? toLocalDatetime(c.onboardDate).slice(0, 10) : '',
+      salary: c.salary || '', probationSalary: c.probationSalary || '', regularSalary: c.regularSalary || '',
+      onboardDate: c.onboardDate ? toLocalDatetime(c.onboardDate).slice(0, 10) : '',
     });
   };
 
@@ -122,7 +124,11 @@ export function InterviewCalendarPage() {
       interviewer: editForm.interviewer || undefined,
       contactEmail: editForm.contactEmail || undefined,
       notes: editForm.notes || undefined,
-      salary: editForm.salary || undefined,
+      salary: selected?.stage === 'offer'
+        ? [`试用期 ${editForm.probationSalary}`, `转正 ${editForm.regularSalary}`].filter((part) => !part.endsWith(' ')).join(' / ') || undefined
+        : editForm.salary || undefined,
+      probationSalary: selected?.stage === 'offer' ? editForm.probationSalary || undefined : undefined,
+      regularSalary: selected?.stage === 'offer' ? editForm.regularSalary || undefined : undefined,
       onboardDate: editForm.onboardDate ? new Date(editForm.onboardDate).toISOString() : undefined,
     });
     setEditingId(null);
@@ -130,15 +136,11 @@ export function InterviewCalendarPage() {
 
   // 标记候选人最终结果（Offer 之后的闭环）。淘汰/退出时可填原因，供复推决策参考。
   const handleSetOutcome = (id: string, outcome: CandidateOutcome | null) => {
-    const candidate = candidates.find((item) => item.id === id);
-    const originalScore = candidate?.scoreBeforeEarlyDeparture;
     if (outcome === null) {
       updateCandidate(id, {
         outcome: undefined,
         outcomeReason: undefined,
         outcomeAt: undefined,
-        score: originalScore ?? candidate?.score ?? 0,
-        scoreBeforeEarlyDeparture: undefined,
       });
       return;
     }
@@ -150,8 +152,6 @@ export function InterviewCalendarPage() {
       outcome,
       outcomeReason: reason,
       outcomeAt: new Date().toISOString(),
-      score: originalScore ?? candidate?.score ?? 0,
-      scoreBeforeEarlyDeparture: undefined,
     });
   };
 
@@ -166,19 +166,13 @@ export function InterviewCalendarPage() {
   const handleEarlyDeparture = (period: 'within-30' | 'within-7') => {
     const candidate = candidates.find((item) => item.id === earlyDepartureId);
     if (!candidate) return;
-    const originalScore = candidate.scoreBeforeEarlyDeparture ?? candidate.score;
-    const nextScore = period === 'within-7'
-      ? 0
-      : Number((originalScore / 2).toFixed(2));
     updateCandidate(candidate.id, {
       outcome: period === 'within-7' ? 'early-departure-7' : 'early-departure-30',
-      outcomeReason: period === 'within-7' ? '入职7天内提前离职，分数归零' : '入职30天内提前离职，分数减半',
+      outcomeReason: period === 'within-7' ? '入职7天内提前离职，提成取消或追回' : '入职30天内提前离职，提成取消或追回',
       outcomeAt: new Date().toISOString(),
-      scoreBeforeEarlyDeparture: originalScore,
-      score: nextScore,
     });
     setEarlyDepartureId(null);
-    setCopyMsg(`已记录 ${candidate.name} 提前离职，分数调整为 ${nextScore}`);
+    setCopyMsg(`已记录 ${candidate.name} 提前离职，该 Offer 不再计入提成`);
   };
 
   const handleCopyToday = async () => {
@@ -310,8 +304,7 @@ export function InterviewCalendarPage() {
       ? `${Number(reportMonth.slice(5))}月招聘情况`
       : '本周招聘情况';
     const onboardCount = reportRows.filter((row) => row.onboardDate).length;
-    const totalScore = reportRows.reduce((sum, row) => sum + (Number(row.score) || 0), 0);
-    return `${label}（${onboardCount}位入职，${Number(totalScore.toFixed(2))}分）`;
+    return `${label}（${onboardCount}位入职）`;
   }, [reportMonth, reportPreset, reportRows]);
 
   useEffect(() => {
@@ -332,12 +325,16 @@ export function InterviewCalendarPage() {
 
   const selected = candidates.find((c) => c.id === selectedId);
   const earlyDepartureCandidate = candidates.find((c) => c.id === earlyDepartureId);
-  const earlyDepartureBaseScore = earlyDepartureCandidate
-    ? earlyDepartureCandidate.scoreBeforeEarlyDeparture ?? earlyDepartureCandidate.score
-    : 0;
+  const selectedCommission = selected?.stage === 'offer'
+    ? getOfferCommissionForCandidate(selected, ownerCandidates)
+    : null;
   const firstInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-1').length;
   const secondInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-2').length;
-  const offerCount = activeOwnerCandidates.filter((c) => c.stage === 'offer').length;
+  const offerCount = activeOwnerCandidates.filter((c) => {
+    if (c.stage !== 'offer') return false;
+    const date = c.onboardDate?.slice(0, 10) || '';
+    return !(date >= '2026-07-26' && date <= '2026-08-25');
+  }).length;
   const isEditing = editingId === selectedId;
   useEscapeClose(() => setShowImport(false), showImport);
   useEscapeClose(() => setShowExcelPicker(false), showExcelPicker);
@@ -564,20 +561,14 @@ export function InterviewCalendarPage() {
                 className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-left transition-colors hover:border-amber-300 hover:bg-amber-50"
               >
                 <span className="text-sm font-semibold text-amber-800">30 天之内</span>
-                <span className="mt-1 block text-xs text-amber-700/80">分数减半</span>
-                <span className="mt-3 block text-lg font-bold tabular-nums text-gray-900">
-                  {earlyDepartureBaseScore} → {Number((earlyDepartureBaseScore / 2).toFixed(2))}
-                </span>
+                <span className="mt-1 block text-xs text-amber-700/80">取消计提，并从当月有效入职人数中剔除</span>
               </button>
               <button
                 onClick={() => handleEarlyDeparture('within-7')}
                 className="rounded-xl border border-rose-200 bg-rose-50/70 p-4 text-left transition-colors hover:border-rose-300 hover:bg-rose-50"
               >
                 <span className="text-sm font-semibold text-rose-700">7 天之内</span>
-                <span className="mt-1 block text-xs text-rose-600/80">分数归零</span>
-                <span className="mt-3 block text-lg font-bold tabular-nums text-gray-900">
-                  {earlyDepartureBaseScore} → 0
-                </span>
+                <span className="mt-1 block text-xs text-rose-600/80">取消计提，并从当月有效入职人数中剔除</span>
               </button>
             </div>
 
@@ -645,8 +636,13 @@ export function InterviewCalendarPage() {
               <div><label className="block text-xs text-gray-500 mb-1">岗位</label><input value={editForm.jdTitle} onChange={(e) => setEditForm({ ...editForm, jdTitle: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">编制</label><input list="org-options" value={editForm.organization} onChange={(e) => setEditForm({ ...editForm, organization: e.target.value })} placeholder="选择或输入编制" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">部门</label><input list="dept-options" value={editForm.department} onChange={(e) => setEditForm({ ...editForm, department: e.target.value })} placeholder="选择或输入部门" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">分数</label><input type="text" inputMode="decimal" value={editForm.score} onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) setEditForm({ ...editForm, score: v }); }} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={editForm.salary || ''} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+              {selected.stage !== 'offer' && <div><label className="block text-xs text-gray-500 mb-1">分数</label><input type="text" inputMode="decimal" value={editForm.score} onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) setEditForm({ ...editForm, score: v }); }} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>}
+              {selected.stage === 'offer' ? (
+                <>
+                  <div><label className="block text-xs text-gray-500 mb-1">试用期薪资</label><input value={editForm.probationSalary} onChange={(e) => setEditForm({ ...editForm, probationSalary: e.target.value })} placeholder="如 28K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">转正薪资（提成基数）</label><input value={editForm.regularSalary} onChange={(e) => setEditForm({ ...editForm, regularSalary: e.target.value })} placeholder="如 30K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+                </>
+              ) : <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={editForm.salary || ''} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>}
               <div><label className="block text-xs text-gray-500 mb-1">面试时间</label><input type="datetime-local" value={editForm.interviewDate} onChange={(e) => setEditForm({ ...editForm, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">面试官</label><input value={editForm.interviewer} onChange={(e) => setEditForm({ ...editForm, interviewer: e.target.value })} placeholder="面试官姓名" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">入职时间</label><input type="date" value={editForm.onboardDate} onChange={(e) => setEditForm({ ...editForm, onboardDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
@@ -658,7 +654,15 @@ export function InterviewCalendarPage() {
               <Stat label="编制" value={selected.organization || '-'} />
               <Stat label="部门" value={selected.department || '-'} />
               <Stat label="薪资" value={selected.salary || '-'} />
-              <Stat label="分数" value={`${selected.score} 分`} />
+              {selected.stage === 'offer' ? (
+                <>
+                  <Stat label="岗位类别" value={selectedCommission?.jobCategory || '待补转正薪资'} />
+                  <Stat label="薪资档位" value={selectedCommission?.salaryTier || '-'} />
+                  <Stat label="难度系数" value={selectedCommission ? String(selectedCommission.difficultyCoefficient) : '-'} />
+                  <Stat label="本月提成比例" value={selectedCommission ? `${selectedCommission.commissionRate * 100}%（${selectedCommission.onboardCount}人）` : '-'} />
+                  <Stat label="预计提成" value={selectedCommission?.eligible ? `¥${formatCommissionAmount(selectedCommission.commissionAmount)}` : '暂不计提'} />
+                </>
+              ) : <Stat label="分数" value={`${selected.score} 分`} />}
               <div className="p-3 rounded-lg bg-gray-50"><p className="text-xs text-gray-400 mb-0.5">面试时间</p><p className="text-base font-bold text-gray-800">{selected.interviewDate ? formatInterviewDate(selected.interviewDate) : '未安排'}</p></div>
               <Stat label="面试官" value={selected.interviewer || '待定'} />
               <Stat label="投递时间" value={new Date(selected.appliedAt).toLocaleDateString('zh-CN')} />

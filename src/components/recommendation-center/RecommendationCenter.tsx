@@ -20,7 +20,6 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useTalentStore } from '@/store/talent-store';
 import { scheduleRecommendation, findRecommendationCandidate } from '@/lib/schedule';
 import { matchJDByTitle } from '@/lib/recommendation';
-import { getOfferGrade } from '@/lib/offer-compensation';
 import { exportDailyReportExcel } from '@/lib/daily-report-excel';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
@@ -530,18 +529,17 @@ export function RecommendationCenter() {
     const probationSalary = values.probationSalary.trim();
     const regularSalary = values.regularSalary.trim();
     const onboardDate = values.onboardDate ? new Date(values.onboardDate).toISOString() : undefined;
-    const grade = getOfferGrade(regularSalary);
     const salary = [probationSalary && `试用期 ${probationSalary}`, regularSalary && `转正 ${regularSalary}`].filter(Boolean).join(' / ');
     const partial = {
       stage: 'offer' as const,
       owner: offering.column,
       candidateCode: offering.candidateCode || linkedCandidate?.candidateCode,
-      score: grade?.score || 0,
+      score: 0,
       probationSalary: probationSalary || undefined,
       regularSalary: regularSalary || undefined,
       probationMonths: '2',
       onboardDate,
-      jobLevel: grade?.level,
+      jobLevel: undefined,
       salary: salary || undefined,
       offerAppliedAt,
       organization: offering.organization || linkedCandidate?.organization || jd?.organization?.trim() || undefined,
@@ -801,6 +799,7 @@ export function RecommendationCenter() {
         <OfferModal
           item={offering}
           candidate={findRecommendationCandidate(offering, candidates)}
+          candidates={candidates}
           onClose={() => setOffering(null)}
           onConfirm={confirmOffer}
         />

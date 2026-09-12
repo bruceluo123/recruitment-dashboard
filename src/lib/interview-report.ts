@@ -4,7 +4,7 @@
 
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import type { InterviewEvent, InterviewRound } from '@/types/interview';
-import { getOfferGrade } from '@/lib/offer-compensation';
+import { getOfferCommissionForCandidate } from '@/lib/offer-compensation';
 
 // 列顺序固定，导出与导入共用同一套表头
 const HEADERS = ['日期', '时间', '姓名', '岗位', '编制', '部门', '面试官', '阶段'] as const;
@@ -94,15 +94,15 @@ export interface RecruitmentReportRow {
   department: string;
   onboardDate: string;
   workMode: string;
-  jobLevel: string;
-  score: string;
+  salaryTier: string;
+  commission: string;
   source: string;
   sortAt: number;
 }
 
 export const RECRUITMENT_REPORT_HEADERS = [
   '候选人', '岗位', '面试阶段', '面试日期', '面试状态', 'Offer薪资',
-  '部门', '入职日期', '远程', '等级', '分数', '来源',
+  '部门', '入职日期', '远程', '薪资档位', '预计提成', '来源',
 ] as const;
 
 function localDateKey(iso: string): string {
@@ -201,7 +201,7 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       (latest, event) => roundRank(event.round) > roundRank(latest) ? event.round : latest,
       '一面',
     );
-    const grade = getOfferGrade(offerCandidate.regularSalary);
+    const commission = getOfferCommissionForCandidate(offerCandidate, candidates);
     return {
       key,
       candidateIds: group.candidates.map((candidate) => candidate.id),
@@ -214,8 +214,8 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       department: latestCandidate.department || latestCandidate.organization || '',
       onboardDate: formatOnboardDay(offerCandidate.onboardDate),
       workMode: latestCandidate.workMode || '远程',
-      jobLevel: offerCandidate.jobLevel || grade?.level || '',
-      score: offerCandidate.score ? String(offerCandidate.score) : grade ? String(grade.score) : '',
+      salaryTier: commission?.salaryTier || '',
+      commission: commission?.eligible ? String(commission.commissionAmount) : '',
       source: latestCandidate.recommendationSource === 'repush' ? '转推荐' : '人才库',
       sortAt: uniqueEvents.length ? new Date(uniqueEvents[0].interviewDate).getTime() : Number.MAX_SAFE_INTEGER,
     };
@@ -233,8 +233,8 @@ export function buildRecruitmentReportText(rows: RecruitmentReportRow[], title?:
     row.department,
     row.onboardDate,
     row.workMode,
-    row.jobLevel,
-    row.score,
+    row.salaryTier,
+    row.commission,
     row.source,
   ].join('\t'));
   return [title, RECRUITMENT_REPORT_HEADERS.join('\t'), ...body].filter(Boolean).join('\n');

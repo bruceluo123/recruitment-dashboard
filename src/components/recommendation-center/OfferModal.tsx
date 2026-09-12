@@ -5,7 +5,7 @@ import { BriefcaseBusiness, X } from 'lucide-react';
 import type { Candidate } from '@/types/interview';
 import type { RepushItem } from '@/store/repush-store';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
-import { getOfferGrade } from '@/lib/offer-compensation';
+import { calculateOfferCommission, countEffectiveOnboards, formatCommissionAmount, isEffectiveOnboard } from '@/lib/offer-compensation';
 
 export interface OfferFormValues {
   probationSalary: string;
@@ -16,11 +16,12 @@ export interface OfferFormValues {
 interface OfferModalProps {
   item: RepushItem;
   candidate?: Candidate;
+  candidates: Candidate[];
   onClose: () => void;
   onConfirm: (values: OfferFormValues) => void;
 }
 
-export function OfferModal({ item, candidate, onClose, onConfirm }: OfferModalProps) {
+export function OfferModal({ item, candidate, candidates, onClose, onConfirm }: OfferModalProps) {
   const [form, setForm] = useState<OfferFormValues>({
     probationSalary: candidate?.probationSalary || '',
     regularSalary: candidate?.regularSalary || '',
@@ -30,8 +31,21 @@ export function OfferModal({ item, candidate, onClose, onConfirm }: OfferModalPr
   useEscapeClose(onClose, true);
 
   const patch = (partial: Partial<OfferFormValues>) => setForm((current) => ({ ...current, ...partial }));
-  const grade = getOfferGrade(form.regularSalary);
-  const canConfirm = Boolean(form.probationSalary.trim() && form.regularSalary.trim() && grade);
+  const onboardIso = form.onboardDate ? new Date(form.onboardDate).toISOString() : undefined;
+  const currentCount = countEffectiveOnboards(candidates, onboardIso, item.column);
+  const candidateAlreadyCounted = Boolean(
+    candidate
+    && isEffectiveOnboard(candidate)
+    && candidate.onboardDate?.slice(0, 7) === onboardIso?.slice(0, 7),
+  );
+  const projectedCount = currentCount + (onboardIso && !candidateAlreadyCounted ? 1 : 0);
+  const commission = calculateOfferCommission({
+    regularSalary: form.regularSalary,
+    jobTitle: item.jdTitle || candidate?.jdTitle || '',
+    onboardCount: projectedCount,
+    hasOnboardDate: Boolean(onboardIso),
+  });
+  const canConfirm = Boolean(form.probationSalary.trim() && form.regularSalary.trim() && commission);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -69,15 +83,32 @@ export function OfferModal({ item, candidate, onClose, onConfirm }: OfferModalPr
           </Field>
         </div>
 
-        <div className="mt-4 flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
-          <span className="text-xs font-medium text-emerald-700">转正薪资自动匹配</span>
-          {grade ? (
-            <span className="flex items-baseline gap-2 text-emerald-700">
-              <span className="text-sm font-semibold">{grade.level}</span>
-              <span className="text-lg font-bold tabular-nums">{grade.score}<span className="ml-0.5 text-xs font-medium">分</span></span>
-            </span>
-          ) : (
-            <span className="text-xs text-gray-400">填写后显示等级和分数</span>
+        <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-emerald-700">新提成制度自动核算</span>
+            {commission ? (
+              <span className="text-lg font-bold tabular-nums text-emerald-700">
+                {commission.eligible ? `¥${formatCommissionAmount(commission.commissionAmount)}` : '暂不计提'}
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400">填写转正薪资后核算</span>
+            )}
+          </div>
+          {commission && (
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 sm:grid-cols-4">
+              <span>{commission.jobCategory}</span>
+              <span>{commission.salaryTier}</span>
+              <span>难度系数 {commission.difficultyCoefficient}</span>
+              <span>{onboardIso ? `本月 ${projectedCount} 人 · ${commission.commissionRate * 100}%` : '待填写入职日期'}</span>
+            </div>
+          )}
+          {commission?.eligible && (
+            <p className="mt-2 text-[11px] text-emerald-700/80">
+              满 3 个月后按 70% / 20% / 10% 分三个月发放，单人封顶 ¥8,000。
+            </p>
+          )}
+          {commission?.status === 'below-minimum' && (
+            <p className="mt-2 text-[11px] text-amber-700">本月有效入职不足 3 人，达到门槛后会自动联动重算。</p>
           )}
         </div>
 

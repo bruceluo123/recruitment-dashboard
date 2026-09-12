@@ -2,12 +2,13 @@
 import { useState } from 'react';
 import { CalendarClock, CircleX, LogOut, Mail, Pencil, UserRound } from 'lucide-react';
 import { cn, formatInterviewDate } from '@/lib/utils';
-import { getOfferGrade } from '@/lib/offer-compensation';
+import { formatCommissionAmount, type OfferCommission } from '@/lib/offer-compensation';
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
 
 interface StageKanbanCardProps {
   candidate: Candidate;
+  offerCommission?: OfferCommission;
   onClick: () => void;
   onFail: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
@@ -27,28 +28,9 @@ function formatOnboardDate(isoStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}号(周${week})`;
 }
 
-function getScoreColor(score: number): string {
-  if (score <= 5) {
-    if (score >= 4) return 'text-emerald-600';
-    if (score >= 3) return 'text-amber-600';
-    return 'text-rose-500';
-  }
-  if (score >= 80) return 'text-emerald-600';
-  if (score >= 60) return 'text-amber-600';
-  return 'text-rose-500';
-}
-
-export function StageKanbanCard({ candidate, onClick, onFail, onEarlyDeparture }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onEarlyDeparture }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const accent = STAGE_ACCENTS[candidate.stage];
-  const inferredGrade = candidate.stage === 'offer'
-    ? getOfferGrade(candidate.regularSalary || (candidate.salary?.includes('/') ? undefined : candidate.salary))
-    : null;
-  const offerLevel = candidate.jobLevel || inferredGrade?.level;
-  const displayScore = candidate.outcome === 'early-departure-7' || candidate.outcome === 'early-departure-30'
-    ? candidate.score
-    : candidate.score || inferredGrade?.score || 0;
-  const showScore = candidate.stage === 'offer' || displayScore > 0;
   const roundLabel = candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
 
   return (
@@ -69,15 +51,9 @@ export function StageKanbanCard({ candidate, onClick, onFail, onEarlyDeparture }
             </span>
           )}
         </div>
-        {showScore && (
-          <span className="flex shrink-0 items-center gap-1.5 leading-none">
-            {candidate.stage === 'offer' && offerLevel && (
-              <span className="rounded-md bg-emerald-50 px-1.5 py-1 text-[11px] font-semibold text-emerald-700">{offerLevel}</span>
-            )}
-            <span className="flex items-baseline gap-0.5">
-              <span className={cn('text-base font-extrabold tabular-nums', getScoreColor(displayScore))}>{displayScore}</span>
-              <span className="text-[10px] font-medium text-gray-400">分</span>
-            </span>
+        {candidate.stage === 'offer' && (
+          <span className={cn('shrink-0 text-sm font-extrabold tabular-nums', offerCommission?.eligible ? 'text-emerald-600' : 'text-amber-600')}>
+            {offerCommission?.eligible ? `¥${formatCommissionAmount(offerCommission.commissionAmount)}` : '暂不计提'}
           </span>
         )}
       </div>
@@ -107,6 +83,11 @@ export function StageKanbanCard({ candidate, onClick, onFail, onEarlyDeparture }
             </span>
           )}
         </div>
+        {candidate.stage === 'offer' && offerCommission && (
+          <p className="truncate text-[11px] text-gray-500" title={`${offerCommission.jobCategory} · ${offerCommission.salaryTier}`}>
+            {offerCommission.jobCategory} · {offerCommission.difficultyCoefficient}系数 · {offerCommission.commissionRate * 100}%
+          </p>
+        )}
         {candidate.contactEmail && (
           <p className="flex items-center gap-1 text-xs text-gray-400">
             <Mail className="h-3 w-3 shrink-0" />

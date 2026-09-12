@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { StageKanbanCard } from './StageKanbanCard';
 import { STAGE_COLORS } from '@/types/interview';
 import type { InterviewStage, Candidate, CandidateStatus } from '@/types/interview';
+import { formatCommissionAmount, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
 
 interface StageKanbanColumnProps {
   stage: InterviewStage;
@@ -27,8 +28,10 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
-  const scoreSum = candidates.reduce((sum, candidate) => sum + (candidate.score || 0), 0);
-  const badgeValue = isOffer ? Number(scoreSum.toFixed(2)) : candidates.length;
+  const commissions = isOffer
+    ? new Map(candidates.map((candidate) => [candidate.id, getOfferCommissionForCandidate(candidate, candidates)]))
+    : new Map();
+  const commissionSum = Array.from(commissions.values()).reduce((sum, item) => sum + (item?.commissionAmount || 0), 0);
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -49,7 +52,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
           <h3 className="text-sm font-semibold text-gray-800">{title || stage.name}</h3>
           {subtitle && <span className="text-xs text-gray-400">{subtitle}</span>}
           <span className="rounded-md border border-white bg-white/90 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-600 shadow-sm">
-            {badgeValue}{isOffer && <span className="ml-0.5 text-[10px] font-medium text-gray-400">分</span>}
+            {isOffer ? `${candidates.length} 人 · ¥${formatCommissionAmount(commissionSum)}` : candidates.length}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -66,6 +69,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
           <StageKanbanCard
             key={candidate.id}
             candidate={candidate}
+            offerCommission={commissions.get(candidate.id) || undefined}
             onClick={() => onCandidateClick(candidate.id)}
             onFail={onFailCandidate}
             onEarlyDeparture={onEarlyDeparture}
