@@ -25,7 +25,7 @@ export interface WeeklyReportResult {
 
 interface DepartmentRow {
   name: string;
-  priority: number;
+  recommendationPriority: number;
   recommendations: Set<string>;
   interviews: Set<string>;
   offers: Set<string>;
@@ -219,15 +219,12 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
   );
 
   const departments = new Map<string, DepartmentRow>();
-  const departmentRow = (name: string, jd?: JD): DepartmentRow => {
+  const departmentRow = (name: string): DepartmentRow => {
     const existing = departments.get(name);
-    if (existing) {
-      existing.priority = Math.min(existing.priority, priorityRank(jd?.priority));
-      return existing;
-    }
+    if (existing) return existing;
     const created: DepartmentRow = {
       name,
-      priority: priorityRank(jd?.priority),
+      recommendationPriority: 99,
       recommendations: new Set<string>(),
       interviews: new Set<string>(),
       offers: new Set<string>(),
@@ -239,24 +236,32 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
 
   for (const item of recommendations) {
     const jd = findJD(input.jds, item.jdId, item.jdTitle, item.department, item.organization);
-    departmentRow(departmentFor(item, input.jds), jd).recommendations.add(recommendationKey(item));
+    const row = departmentRow(departmentFor(item, input.jds));
+    row.recommendations.add(recommendationKey(item));
+    row.recommendationPriority = Math.min(row.recommendationPriority, priorityRank(jd?.priority));
   }
   for (const candidate of interviews) {
-    const jd = findJD(input.jds, candidate.jdId, candidate.jdTitle, candidate.department, candidate.organization);
-    departmentRow(departmentFor(candidate, input.jds), jd).interviews.add(candidateKey(candidate));
+    departmentRow(departmentFor(candidate, input.jds)).interviews.add(candidateKey(candidate));
   }
   for (const candidate of offers) {
-    const jd = findJD(input.jds, candidate.jdId, candidate.jdTitle, candidate.department, candidate.organization);
-    departmentRow(departmentFor(candidate, input.jds), jd).offers.add(candidateKey(candidate));
+    departmentRow(departmentFor(candidate, input.jds)).offers.add(candidateKey(candidate));
   }
   for (const candidate of onboards) {
-    const jd = findJD(input.jds, candidate.jdId, candidate.jdTitle, candidate.department, candidate.organization);
-    departmentRow(departmentFor(candidate, input.jds), jd).onboards.add(candidateKey(candidate));
+    departmentRow(departmentFor(candidate, input.jds)).onboards.add(candidateKey(candidate));
   }
 
-  const departmentLines = Array.from(departments.values())
+  const recommendedDepartments = Array.from(departments.values())
+    .filter((row) => row.recommendations.size > 0);
+  const priorityRecommendedDepartments = recommendedDepartments
+    .filter((row) => row.recommendationPriority <= 1);
+  const visibleDepartments = priorityRecommendedDepartments.length > 0
+    ? priorityRecommendedDepartments
+    : recommendedDepartments;
+  const departmentLines = visibleDepartments
     .sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
+      if (a.recommendationPriority !== b.recommendationPriority) {
+        return a.recommendationPriority - b.recommendationPriority;
+      }
       const aTotal = a.recommendations.size + a.interviews.size + a.offers.size + a.onboards.size;
       const bTotal = b.recommendations.size + b.interviews.size + b.offers.size + b.onboards.size;
       return bTotal - aTotal || a.name.localeCompare(b.name, 'zh-CN');
