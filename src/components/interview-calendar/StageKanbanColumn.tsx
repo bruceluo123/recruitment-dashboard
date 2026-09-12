@@ -40,7 +40,8 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, onCandid
   const commissionRate = getMonthlyCommissionRate(effectiveOnboards.length);
   const advancedOnboardCount = effectiveOnboards.filter((candidate) => {
     const tier = commissions.get(candidate.id)?.salaryTier;
-    return tier === '高级/主管/经理' || tier === '专家/总监' || tier === '特殊人才/CEO';
+    const advancedTitle = /高级|资深|主管|经理|负责人|专家|总监|架构|首席|\blead(?:er)?\b|\bhead\b|\bprincipal\b|\bstaff\b/i.test(candidate.jdTitle);
+    return advancedTitle || tier === '高级/主管/经理' || tier === '专家/总监' || tier === '特殊人才/CEO';
   }).length;
   const headerSubtitle = isOffer
     ? [subtitle, `入职 ${effectiveOnboards.length} 人`, `高级岗位 ${advancedOnboardCount} 人`].filter(Boolean).join(' · ')
