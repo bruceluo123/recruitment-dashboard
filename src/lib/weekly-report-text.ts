@@ -263,7 +263,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult 
     const responsibleDepartment = responsibleDepartmentFor(item, input.jds);
     if (!responsibleDepartment) continue;
     const row = departmentRow(responsibleDepartment);
-    row.recommendations.add(recommendationKey(item));
+    row.recommendations.add(input.column === 'b' ? (item.applicationId || item.id) : recommendationKey(item));
     row.recommendationPriority = Math.min(row.recommendationPriority, priorityRank(jd?.priority));
   }
   for (const candidate of interviews) {
