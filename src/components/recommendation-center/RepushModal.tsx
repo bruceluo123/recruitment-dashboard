@@ -9,7 +9,6 @@ import { displayName } from '@/lib/repush-format';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
 import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
-import { ensureRepushSourceSynced } from '@/lib/sync';
 
 export interface RepushArgs {
   record?: RepushItem;
@@ -168,7 +167,6 @@ export function RepushModal({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [sendProgress, setSendProgress] = useState('');
-  const [retryAvailable, setRetryAvailable] = useState(false);
   useEscapeClose(onClose);
 
   useEffect(() => {
@@ -287,16 +285,6 @@ export function RepushModal({
     if (close) onClose();
   };
 
-  const readDelivery = async (requestId: string): Promise<DeliveryStatusResponse | null> => {
-    const response = await fetch(`/api/tg/send?id=${encodeURIComponent(requestId)}`, {
-      cache: 'no-store', signal: AbortSignal.timeout(15_000),
-    });
-    if (response.status === 404) return null;
-    const result = await response.json().catch(() => ({})) as DeliveryStatusResponse;
-    if (!response.ok || !result.ok) throw new Error(result.error || '发送结果暂时无法读取');
-    return { ...result, id: result.id || requestId };
-  };
-
   const enqueueDelivery = async (body: object) => {
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -310,9 +298,12 @@ export function RepushModal({
           signal: controller.signal,
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
+        if (!response.ok || !data.ok) throw Object.assign(new Error(data.error || 'TG 发送失败'), {
+          retryable: response.status >= 500 || response.status === 408 || response.status === 429,
+        });
         return data;
       } catch (error) {
+        if (error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
         lastError = error;
         if (attempt === 0) await wait(800);
       } finally {
@@ -328,7 +319,6 @@ export function RepushModal({
     if (selectedJds.length === 0 || !item.resumeUrl || !recipient.trim() || sending) return;
     setSending(true);
     setSendError('');
-    setRetryAvailable(false);
     try {
       const payload = {
         sender: item.column,
@@ -356,47 +346,17 @@ export function RepushModal({
       };
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
       const key = `recruit:repush-delivery:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-      let requestId = localStorage.getItem(key) || '';
-      let retry = false;
-      if (requestId) {
-        const previous = await readDelivery(requestId);
-        if (!previous) {
-          localStorage.removeItem(key);
-          requestId = '';
-        } else if (previous.status === 'sent') {
-          persistRepush(previous);
-          localStorage.removeItem(key);
-          return;
-        } else if (previous.status === 'failed' || previous.status === 'partial_failed') {
-          retry = true;
-        }
-      }
-      requestId ||= crypto.randomUUID();
+      const previousId = localStorage.getItem(key);
+      const requestId = previousId || crypto.randomUUID();
       localStorage.setItem(key, requestId);
-      if (repushSourceId) {
-        setSendProgress('正在核对并同步原推荐记录…');
-        await ensureRepushSourceSynced(item);
-      }
-      setSendProgress(retry ? '正在重新加入未发送项…' : '正在加入发送队列…');
-      const response = await enqueueDelivery({ ...payload, requestId, retry }) as DeliveryStatusResponse;
-      const enqueued = { ...response, id: response.id || requestId };
-      persistRepush(enqueued, false);
-      let completed: DeliveryStatusResponse | null = null;
-      for (let attempt = 0; attempt < 48; attempt++) {
-        const result = await readDelivery(requestId);
-        if (!result) throw new Error('未找到发送任务，请重新提交');
-        persistRepush(result, false);
-        setSendProgress(result.status === 'queued' ? '已排队，等待发送器处理…' : `已发送 ${result.sent || 0}/${selectedJds.length} 个岗位`);
-        if (result.status === 'sent') { completed = result; break; }
-        if (result.status === 'failed' || result.status === 'partial_failed') {
-          setRetryAvailable(true);
-          throw new Error(`发送中断，已发送 ${result.sent || 0}/${selectedJds.length} 个岗位。${result.error || ''} 再次点击只会重试未发送项。`);
-        }
-        await wait(2500);
-      }
-      if (!completed) throw new Error('发送仍在进行，再次点击会继续查看同一任务，不会重复入队');
-      persistRepush(completed);
-      localStorage.removeItem(key);
+      setSendProgress('正在加入发送队列…');
+      const response = await enqueueDelivery({
+        ...payload, requestId, retryIfFailed: Boolean(previousId),
+        sourceSnapshot: repushSourceId ? item : undefined,
+      }) as DeliveryStatusResponse;
+      // Keep the request ID until the user changes the payload. Closing the modal
+      // must not allow a second click to create another task for the same send.
+      persistRepush({ ...response, id: response.id || requestId });
     } catch (error) {
       setSendProgress('');
       setSendError((error as Error).message || 'TG 发送失败');
@@ -536,10 +496,8 @@ export function RepushModal({
               <button type="button" onClick={handleSendAndRepush} disabled={selectedJds.length === 0 || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {sending
-                  ? `正在发送 ${selectedJds.length} 个岗位`
-                  : retryAvailable
-                    ? '仅重试未发送项'
-                    : `发送并复推${selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}`}
+                  ? `正在提交 ${selectedJds.length} 个岗位…`
+                  : `发送并复推${selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}`}
               </button>
             </div>
           </div>

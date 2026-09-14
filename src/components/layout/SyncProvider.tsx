@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { bootstrapSyncedData, startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, type DataType } from '@/lib/sync';
+import { bootstrapSyncedData, startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, applyRemoteStoreUpdate, type DataType } from '@/lib/sync';
 import { isMockJds } from '@/lib/mock-guard';
 import { mergeUniqueJDs } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
@@ -32,9 +32,57 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [message, setMessage] = useState('');
   const [conflictCount, setConflictCount] = useState(0);
   const [resolvingConflict, setResolvingConflict] = useState(false);
+  const [deliveryMessage, setDeliveryMessage] = useState('');
   const pathname = usePathname();
 
   useEffect(() => { requestSyncTypes(routeTypes(pathname)); }, [pathname]);
+
+  useEffect(() => {
+    let active = true;
+    let reading = false;
+    let offset = 0;
+    const controller = new AbortController();
+    const pollDeliveries = async () => {
+      if (reading || document.hidden) return;
+      const ids = Array.from(new Set(useRepushStore.getState().items
+        .filter(row => row.deliveryId && (row.deliveryStatus === 'queued' || row.deliveryStatus === 'sending'))
+        .map(row => row.deliveryId!)));
+      if (!ids.length) return;
+      reading = true;
+      const selected = [...ids.slice(offset), ...ids.slice(0, offset)].slice(0, 10);
+      offset = (offset + selected.length) % ids.length;
+      try {
+        const params = new URLSearchParams();
+        selected.forEach(id => params.append('ids', id));
+        const response = await fetch(`/api/tg/send?${params}`, {
+          cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
+        });
+        if (!response.ok) throw new Error('读取失败');
+        const result = await response.json() as { ok?: boolean; results?: Array<{
+          ok?: boolean; status?: string; records?: RepushItem[];
+        }> };
+        if (!active || !result.ok) return;
+        const completed = result.results?.filter(row => row.ok) || [];
+        applyRemoteStoreUpdate('repush', () => {
+          for (const task of completed) for (const record of task.records || []) {
+            useRepushStore.getState().upsertDeliveryRecommendation(record);
+          }
+          return useRepushStore.getState().items;
+        });
+        const failed = completed.some(row => row.status === 'failed' || row.status === 'partial_failed');
+        const pending = useRepushStore.getState().items.some(row => row.deliveryStatus === 'queued' || row.deliveryStatus === 'sending');
+        setDeliveryMessage(previous => failed ? '部分 TG 发送未完成，请到推荐中心核对失败记录后重试。'
+          : previous.startsWith('部分 TG') ? previous
+            : completed.length === 0 ? 'TG 进度暂时无法核对，请到推荐中心查看任务。'
+              : pending ? 'TG 正在后台发送，可继续处理其他人选。' : 'TG 后台发送已完成。');
+      } catch {
+        if (active) setDeliveryMessage('TG 进度暂时无法读取，稍后自动重查，请勿重复新建发送任务。');
+      } finally { reading = false; }
+    };
+    void pollDeliveries();
+    const interval = setInterval(() => void pollDeliveries(), 5_000);
+    return () => { active = false; controller.abort(); clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     // Suppress only the synchronous store notification caused by a remote apply.
@@ -104,6 +152,10 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     return () => { active = false; clearInterval(interval); stopSync(); unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, []);
   return <>
+    {deliveryMessage && <div role="status" className="flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-sm text-indigo-700">
+      <span>{deliveryMessage}</span>
+      <button type="button" onClick={() => setDeliveryMessage('')} className="shrink-0 underline">知道了</button>
+    </div>}
     {message && <div role="status" className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
       <span>{message}</span>
       {conflictCount > 0 ? (

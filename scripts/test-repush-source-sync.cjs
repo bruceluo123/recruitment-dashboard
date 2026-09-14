@@ -1,62 +1,169 @@
-// Offline regression tests: no real candidate records or Telegram requests.
+// Offline regression: exercise the actual send route with an atomic in-memory store.
+// No real candidate data, network requests, or Telegram sends.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
-const path = require('node:path');
-const source = fs.readFileSync(path.join(__dirname, '../src/lib/sync.ts'), 'utf8');
-const ast = ts.createSourceFile('sync.ts', source, ts.ScriptTarget.Latest, true);
-const fn = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'ensureRepushSourceSynced');
-const code = ts.transpileModule(fn.getText(ast).replace(/^export /, ''), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const item = { id: 'legacy-source', column: 'a', candidateCode: 'TEST00170', candidateName: 'Example',
-  resumeUrl: 'https://example.invalid/resume.pdf', fileName: 'Example.pdf', uploadedAt: '2026-09-08', feedback: 'pending' };
-async function scenario({ snapshots, status = 200, readError, writeError }) {
-  const writes = [];
-  let readIndex = 0;
-  const context = vm.createContext({
-    parse: raw => raw ? JSON.parse(raw) : null,
-    readKeys: async () => {
-      if (readError) throw new Error(readError);
-      const snapshot = snapshots[Math.min(readIndex++, snapshots.length - 1)];
-      return { repush: JSON.stringify(snapshot.rows), tombstones: JSON.stringify(snapshot.tombstones || {}) };
-    },
-    crypto: { randomUUID: () => 'test-mutation-id' }, AbortSignal,
-    fetch: async (url, options) => {
-      assert.equal(url, '/api/sync/records');
-      writes.push(JSON.parse(options.body));
-      if (writeError) throw new Error(writeError);
-      return { ok: status === 200, status, json: async () => ({ error: '保存被拒绝' }) };
+const { randomUUID } = require('node:crypto');
+const root = path.resolve(__dirname, '..');
+const clone = value => JSON.parse(JSON.stringify(value));
+function load(relative, mocks) {
+  const exports = {};
+  const code = ts.transpileModule(fs.readFileSync(path.join(root, relative), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  vm.runInNewContext(code, { exports, require: name => {
+    if (!(name in mocks)) throw new Error('Unexpected import: ' + name);
+    return mocks[name];
+  }, crypto: { randomUUID }, Date, URL, console });
+  return exports;
+}
+const identity = load('src/lib/resume-identity.ts', {});
+function fixture(suffix = 'one', owner = 'a') {
+  const source = { id: 'source-' + suffix, column: owner, candidateName: 'Example' + suffix,
+    candidateCode: 'TEST' + suffix, fileName: 'Example' + suffix + '.pdf',
+    resumeFileName: 'Example' + suffix + '.pdf', resumeUrl: 'https://example.invalid/' + suffix + '.pdf',
+    uploadedAt: '2026-09-08T10:00:00.000Z', feedback: 'done' };
+  return { requestId: 'request-' + suffix, sender: owner, target: '@test', fileUrl: source.resumeUrl,
+    sourceSnapshot: source, deliveries: [{ text: 'Recommendation ' + suffix, fileName: source.fileName,
+      application: { jdId: 'job-one', jdTitle: 'Test job', candidateName: source.candidateName,
+        candidateCode: source.candidateCode, resumeFileName: source.resumeFileName,
+        source: 'repush', repushSourceId: source.id } }] };
+}
+function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'], race, lost = false } = {}) {
+  const db = new Map([
+    ['recruit:repush', JSON.stringify(rows)], ['recruit:tombstones', JSON.stringify({ repush: deleted })],
+    ['recruit:tg-delivery-worker-heartbeat', JSON.stringify({ at: online ? new Date().toISOString() : '2000-01-01' })],
+    ['recruit:tg-delivery-worker-heartbeat-b', JSON.stringify({ at: online ? new Date().toISOString() : '2000-01-01' })],
+  ]);
+  const queued = [];
+  let reads = 0, transactions = 0;
+  const api = load('src/app/api/tg/send/route.ts', {
+    'next/server': { NextResponse: { json: (data, options) => ({ data: clone(data), status: options?.status || 200 }) } },
+    '@vercel/blob': { del: async () => { throw new Error('Unexpected file cleanup'); } },
+    '@/lib/api-guard': { guardApi: () => null, blobUrlError: url => url.startsWith('https://example.invalid/') ? '' : 'Invalid URL' },
+    '@/lib/auth-api': { requireApiSession: async () => null,
+      requireOwnerSession: async (_, owner) => allowed.includes(owner) ? null : { status: 403 } },
+    '@/lib/resume-identity': identity,
+    '@/lib/kv-server': {
+      kvCommandStrict: async (command, ...keys) => {
+        reads++;
+        if (command === 'MGET') return keys.map(key => db.get(key) ?? null);
+        if (command === 'GET') return db.get(keys[0]) ?? null;
+        throw new Error('Unexpected command ' + command);
+      },
+      kvTransaction: async payload => {
+        transactions++;
+        if (race) { const hook = race; race = null; hook(db); }
+        for (const expected of payload.expected || []) {
+          if (db.has(expected.key) !== expected.exists
+            || expected.value !== undefined && db.get(expected.key) !== expected.value) return { ok: false };
+        }
+        for (const write of payload.writes || []) db.set(write.key, write.value);
+        for (const operation of payload.lists || []) queued.push(operation);
+        if (lost) { lost = false; throw new Error('Response lost after commit'); }
+        return { ok: true };
+      },
     },
   });
-  vm.runInContext(code, context);
-  let error;
-  try { await context.ensureRepushSourceSynced(item); } catch (e) { error = e.message; }
-  return { writes, error };
+  return { db, queued, post: body => api.POST({ json: async () => clone(body) }),
+    get: ids => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?' + ids.map(id => 'ids=' + id).join('&')) }),
+    counts: () => ({ reads, transactions }) };
 }
+let passed = 0;
+async function test(name, run) { await run(); console.log('PASS ' + name); passed++; }
 (async () => {
-  const existing = await scenario({ snapshots: [{ rows: [{ ...item, feedback: 'done' }] }] });
-  assert.equal(existing.error, undefined); assert.equal(existing.writes.length, 0);
-  const restored = await scenario({ snapshots: [{ rows: [] }, { rows: [item] }] });
-  assert.equal(restored.error, undefined);
-  assert.deepEqual(restored.writes[0].changes, [{ id: item.id, before: null, after: item }]);
-  assert.equal(restored.writes[0].resolution, undefined);
-  const deleted = await scenario({ snapshots: [{ rows: [], tombstones: { repush: { [item.id]: 1 } } }] });
-  assert.match(deleted.error, /已被删除/); assert.equal(deleted.writes.length, 0);
-  const corrupt = await scenario({ snapshots: [{ rows: null }] });
-  assert.match(corrupt.error, /读取失败/); assert.equal(corrupt.writes.length, 0);
-  const outage = await scenario({ readError: 'offline' });
-  assert.equal(outage.error, 'offline'); assert.equal(outage.writes.length, 0);
-  const denied = await scenario({ snapshots: [{ rows: [] }], status: 403 });
-  assert.equal(denied.error, '保存被拒绝');
-  const vanished = await scenario({ snapshots: [{ rows: [] }] });
-  assert.match(vanished.error, /尚未同步成功/);
-  const raced = await scenario({ snapshots: [{ rows: [] }, { rows: [item] }], status: 409 });
-  assert.equal(raced.error, undefined);
-  const concurrentDelete = await scenario({ snapshots: [{ rows: [] }, { rows: [], tombstones: { repush: { [item.id]: 1 } } }], status: 409 });
-  assert.match(concurrentDelete.error, /已被删除/);
-  const timeout = await scenario({ snapshots: [{ rows: [] }], writeError: 'timeout' });
-  assert.equal(timeout.error, 'timeout');
-  console.log('PASS: 10 repush source synchronization regressions');
+  await test('10 candidates use one read and one atomic commit', async () => {
+    const h = harness(), jobs = Array.from({ length: 10 }, (_, i) => fixture('batch' + i));
+    const response = await h.post({ sender: 'a', batch: jobs });
+    assert.equal(response.data.results.filter(row => row.ok).length, 10);
+    assert.deepEqual(h.counts(), { reads: 1, transactions: 1 });
+    assert.equal(h.queued.length, 10);
+    const stored = JSON.parse(h.db.get('recruit:repush'));
+    assert.equal(stored.length, 20);
+    assert.deepEqual(stored.find(row => row.id === jobs[0].sourceSnapshot.id), jobs[0].sourceSnapshot);
+  });
+  await test('same request is never enqueued twice, including a lost response', async () => {
+    const h = harness({ lost: true }), job = fixture();
+    assert.equal((await h.post(job)).status, 503);
+    assert.equal((await h.post(job)).data.ok, true);
+    assert.equal(h.queued.length, 1);
+  });
+  await test('cloud source wins over stale local snapshot', async () => {
+    const job = fixture(), cloud = { ...job.sourceSnapshot, feedback: 'pending' };
+    const h = harness({ rows: [cloud] });
+    assert.equal((await h.post(job)).data.ok, true);
+    assert.deepEqual(JSON.parse(h.db.get('recruit:repush'))[0], cloud);
+  });
+  await test('deleted source cannot be resurrected', async () => {
+    const job = fixture(), h = harness({ deleted: { [job.sourceSnapshot.id]: 1 } });
+    assert.match((await h.post(job)).data.error, /已被删除/);
+    assert.equal(h.queued.length, 0); assert.equal(h.counts().transactions, 0);
+  });
+  await test('a concurrent deletion blocks restoration and enqueue together', async () => {
+    const job = fixture(), h = harness({ race: db => db.set('recruit:tombstones', JSON.stringify({ repush: { [job.sourceSnapshot.id]: 1 } })) });
+    assert.match((await h.post(job)).data.error, /已被删除/);
+    assert.equal(h.queued.length, 0);
+    assert.equal(JSON.parse(h.db.get('recruit:repush')).length, 0);
+  });
+  await test('wrong file, wrong owner, and missing source are rejected', async () => {
+    for (const variant of ['file', 'owner', 'missing']) {
+      const job = fixture(), h = harness();
+      if (variant === 'file') job.fileUrl = 'https://example.invalid/wrong.pdf';
+      if (variant === 'owner') job.sourceSnapshot.column = 'b';
+      if (variant === 'missing') delete job.sourceSnapshot;
+      assert.equal((await h.post(job)).data.ok, false);
+      assert.equal(h.queued.length, 0);
+      assert.equal(JSON.parse(h.db.get('recruit:repush')).length, 0);
+    }
+  });
+  await test('valid batch items commit while invalid ones remain unqueued', async () => {
+    const h = harness(), bad = fixture('bad'); delete bad.sourceSnapshot;
+    const response = await h.post({ sender: 'a', batch: [fixture('good'), bad] });
+    assert.deepEqual(response.data.results.map(row => row.ok), [true, false]);
+    assert.equal(h.queued.length, 1);
+  });
+  await test('only failed deliveries are requeued; receipt-backed success stays sent', async () => {
+    const h = harness(), job = fixture();
+    job.deliveries.push({ ...clone(job.deliveries[0]), application: { ...job.deliveries[0].application, jdId: 'job-two' } });
+    await h.post(job);
+    const key = 'recruit:tg-delivery:' + job.requestId;
+    const task = JSON.parse(h.db.get(key)); task.status = 'failed';
+    task.deliveries.forEach(row => { row.status = 'failed'; });
+    h.db.set(key, JSON.stringify(task));
+    const rows = JSON.parse(h.db.get('recruit:repush'));
+    const receipt = rows.find(row => row.deliveryIndex === 0);
+    receipt.telegramMessageId = '123'; receipt.deliveryStatus = 'sent';
+    h.db.set('recruit:repush', JSON.stringify(rows));
+    const response = await h.post({ ...job, retryIfFailed: true });
+    assert.equal(response.data.sent, 1);
+    assert.deepEqual(response.data.deliveries.map(row => row.status), ['sent', 'pending']);
+    await h.post({ ...job, retryIfFailed: true });
+    assert.equal(h.queued.length, 2);
+  });
+  await test('offline worker never commits source or queued records', async () => {
+    const h = harness({ online: false });
+    assert.match((await h.post(fixture())).data.error, /离线/);
+    assert.equal(h.counts().transactions, 0);
+  });
+  await test('batch status uses one read and enforces account permissions', async () => {
+    const h = harness({ allowed: ['a'] });
+    await h.post(fixture());
+    const before = h.counts().reads;
+    const result = await h.get(['request-one']);
+    assert.equal(result.data.results[0].status, 'queued');
+    assert.equal(h.counts().reads - before, 1);
+    h.db.set('recruit:tg-delivery:request-other', JSON.stringify({ id: 'request-other', sender: 'b' }));
+    const denied = await h.get(['request-other']);
+    assert.equal(denied.data.results[0].ok, false);
+    assert.equal(denied.data.results[0].records, undefined);
+  });
+  await test('duplicate IDs and cross-account batches fail before database access', async () => {
+    const h = harness(), job = fixture();
+    assert.equal((await h.post({ sender: 'a', batch: [job, job] })).status, 400);
+    assert.equal((await h.post({ sender: 'a', batch: [fixture('other', 'b')] })).status, 400);
+    assert.equal(h.counts().reads, 0);
+  });
+  console.log('Passed ' + passed + ' send-route regression scenarios.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { del } from '@vercel/blob';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
 import { requireApiSession, requireOwnerSession } from '@/lib/auth-api';
-import { kvGet } from '@/lib/kv';
-import { kvCommandStrict, kvFindRepushRecords, kvTransaction } from '@/lib/kv-server';
+import { kvCommandStrict, kvTransaction } from '@/lib/kv-server';
 import { resumeFileMatchesCandidate } from '@/lib/resume-identity';
 
 export const runtime = 'nodejs';
@@ -17,75 +16,6 @@ function accountKeys(sender: 'a' | 'b') {
   return sender === 'b'
     ? { queue: 'recruit:tg-delivery-pending-b', heartbeat: 'recruit:tg-delivery-worker-heartbeat-b' }
     : { queue: 'recruit:tg-delivery-pending', heartbeat: 'recruit:tg-delivery-worker-heartbeat' };
-}
-
-async function enqueueDelivery(
-  record: DeliveryRecord,
-  additions: BusinessRecommendation[],
-  sender: 'a' | 'b',
-): Promise<number> {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const repushRaw = await kvCommandStrict<string | null>('GET', 'recruit:repush');
-    let repush: BusinessRecommendation[];
-    try { repush = parseBusinessRecommendations(repushRaw); }
-    catch { return -1; }
-    const ids = new Set(repush.flatMap((item) => [item.id, item.applicationId].filter(Boolean) as string[]));
-    if (additions.some((item) => !item.id || ids.has(item.id))) return -2;
-    const committed = await kvTransaction({
-      expected: [
-        { key: recordKey(record.id), exists: false },
-        { key: 'recruit:repush', exists: Boolean(repushRaw), ...(repushRaw ? { value: repushRaw } : {}) },
-      ],
-      writes: [
-        { key: recordKey(record.id), value: JSON.stringify(record), ttlSeconds: DELIVERY_TTL_SECONDS },
-        { key: 'recruit:repush', value: JSON.stringify([...repush, ...additions]) },
-      ],
-      lists: [{ op: 'push', key: accountKeys(sender).queue, value: record.id }],
-      increments: ['recruit:version'],
-    });
-    if (committed.ok) return 1;
-    if (await kvCommandStrict<number>('EXISTS', recordKey(record.id))) return 0;
-  }
-  return 0;
-}
-
-async function requeueDelivery(record: DeliveryRecord, expectedRaw: string, sender: 'a' | 'b'): Promise<boolean> {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const repushRaw = await kvCommandStrict<string | null>('GET', 'recruit:repush');
-    let repush: BusinessRecommendation[];
-    try { repush = parseBusinessRecommendations(repushRaw); }
-    catch { return false; }
-    let changed = false;
-    const nextRepush = repush.map((item) => {
-      if (item.deliveryId !== record.id) return item;
-      const delivery = record.deliveries[Number(item.deliveryIndex) || 0];
-      if (!delivery || delivery.status === 'sent') return item;
-      changed = true;
-      return {
-        ...item,
-        deliveryStatus: 'queued' as const,
-        telegramMessageId: undefined,
-        deliveredAt: undefined,
-        deliveryUpdatedAt: record.updatedAt,
-      };
-    });
-    const committed = await kvTransaction({
-      expected: [
-        { key: recordKey(record.id), exists: true, value: expectedRaw },
-        { key: 'recruit:repush', exists: Boolean(repushRaw), ...(repushRaw ? { value: repushRaw } : {}) },
-      ],
-      writes: [
-        { key: recordKey(record.id), value: JSON.stringify(record), ttlSeconds: DELIVERY_TTL_SECONDS },
-        ...(changed ? [{ key: 'recruit:repush', value: JSON.stringify(nextRepush) }] : []),
-      ],
-      lists: [{ op: 'push', key: accountKeys(sender).queue, value: record.id }],
-      increments: changed ? ['recruit:version'] : [],
-    });
-    if (committed.ok) return true;
-    const latest = await kvCommandStrict<string | null>('GET', recordKey(record.id));
-    if (latest !== expectedRaw) return false;
-  }
-  return false;
 }
 
 type DeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed';
@@ -194,12 +124,6 @@ function publicStatus(record: DeliveryRecord, deliveries: DeliveryItem[]): Deliv
   return record.status;
 }
 
-async function workerIsOnline(sender: 'a' | 'b'): Promise<boolean> {
-  const heartbeat = parseHeartbeat(await kvGet<WorkerHeartbeat | string>(accountKeys(sender).heartbeat));
-  const heartbeatAt = heartbeat?.at ? new Date(heartbeat.at).getTime() : 0;
-  return Boolean(heartbeatAt && Date.now() - heartbeatAt <= 45_000);
-}
-
 function deliveryResults(deliveries: DeliveryItem[]) {
   return deliveries.map((delivery, index) => ({
     index,
@@ -254,24 +178,15 @@ function sameOptionalValue(left: unknown, right: unknown): boolean {
   return !normalizedLeft || !normalizedRight || normalizedLeft === normalizedRight;
 }
 
-async function repushResumeError(
+function repushResumeError(
   deliveries: Array<{ application?: DeliveryApplicationInput }>,
   fileUrl: string,
   sender: 'a' | 'b',
-): Promise<string> {
+  records: RepushSourceRecord[],
+): string {
   const repushDeliveries = deliveries.filter((item) => item.application?.source === 'repush');
   if (!repushDeliveries.length) return '';
 
-  const sourceIds = repushDeliveries
-    .map((item) => cleanText(item.application?.repushSourceId, 240))
-    .filter(Boolean);
-  const records = await kvFindRepushRecords({
-    sourceIds,
-    candidateCodes: repushDeliveries.map((item) => cleanText(item.application?.candidateCode, 80)),
-    candidateIdentityIds: repushDeliveries.map((item) => cleanText(item.application?.candidateIdentityId, 300)),
-    resumeUrls: [fileUrl],
-    column: sender,
-  }) as RepushSourceRecord[];
   const sourceById = new Map(records.map((record) => [record.id, record]));
 
   for (const item of repushDeliveries) {
@@ -354,110 +269,28 @@ function deliverySnapshot(
   };
 }
 
-export async function POST(request: NextRequest) {
-  const unauthorized = await requireApiSession(request);
-  if (unauthorized) return unauthorized;
 
-  let body: {
-    requestId?: string;
-    retry?: boolean;
-    target?: string;
-    text?: string;
-    fileUrl?: string;
-    fileName?: string;
-    deliveries?: Array<{ text?: string; fileName?: string; application?: DeliveryApplicationInput }>;
-    sender?: 'a' | 'b';
-  };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: '请求格式错误' }, { status: 400 });
-  }
+interface SendInput {
+  requestId?: string;
+  retry?: boolean;
+  retryIfFailed?: boolean;
+  target?: string;
+  text?: string;
+  fileUrl?: string;
+  fileName?: string;
+  deliveries?: Array<{ text?: string; fileName?: string; application?: DeliveryApplicationInput }>;
+  sender?: 'a' | 'b';
+  sourceSnapshot?: RepushSourceRecord;
+}
 
-  const target = body.target?.trim() || '';
-  const sender: 'a' | 'b' = body.sender === 'b' ? 'b' : 'a';
-  const ownerBlocked = await requireOwnerSession(request, sender, true);
-  if (ownerBlocked) return ownerBlocked;
-  const rateBlocked = guardApi(request, 'tg-send-recommendation', 12, 60_000);
-  if (rateBlocked) return rateBlocked;
-  const fileUrl = body.fileUrl?.trim() || '';
-  const requestId = body.requestId?.trim() || '';
-  if (requestId && !/^[A-Za-z0-9-]{8,80}$/.test(requestId)) {
-    return NextResponse.json({ ok: false, error: '发送请求编号无效' }, { status: 400 });
-  }
-  const id = requestId || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-  const existingRaw = await kvCommandStrict<string | null>('GET', recordKey(id));
-  const existing = parseRecord(existingRaw);
-  if (existing) {
-    const existingSender: 'a' | 'b' = existing.sender === 'b' ? 'b' : 'a';
-    const existingOwnerBlocked = await requireOwnerSession(request, existingSender, Boolean(body.retry));
-    if (existingOwnerBlocked) return existingOwnerBlocked;
-    if (existingSender !== sender) {
-      return NextResponse.json({ ok: false, error: '发送任务所属人与请求不一致' }, { status: 409 });
-    }
-    let businessRecords: BusinessRecommendation[];
-    try { businessRecords = await deliveryBusinessRecords(existing); }
-    catch { return NextResponse.json({ ok: false, error: '推荐记录格式异常，已停止发送' }, { status: 503 }); }
-    const reconciled = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(existing), businessRecords);
-    const deliveries = reconciled.deliveries;
-    const sent = sentCount(deliveries);
-    const status = publicStatus(existing, deliveries);
-    if (body.retry && (status === 'failed' || status === 'partial_failed')) {
-      if (!await workerIsOnline(existingSender)) {
-        return NextResponse.json(
-          { ok: false, error: 'TG 发送器当前离线，请确认工作站代理已连接后重试' },
-          { status: 503 },
-        );
-      }
-      existing.deliveries = deliveries.map((delivery) => {
-        if (delivery.status === 'sent') return delivery;
-        const pending = { ...delivery, status: 'pending' as const };
-        delete pending.error;
-        return pending;
-      });
-      existing.status = 'queued';
-      existing.sent = sent;
-      existing.sender = existingSender;
-      existing.updatedAt = new Date().toISOString();
-      existing.queuedAt = existing.updatedAt;
-      existing.retryCount = (existing.retryCount || 0) + 1;
-      delete existing.error;
-      delete existing.finishedAt;
-      delete existing.lease;
-      const queued = await requeueDelivery(existing, existingRaw || '', existingSender);
-      if (!queued) {
-        return NextResponse.json({ ok: false, error: '发送任务状态已更新，请重试' }, { status: 409 });
-      }
-      businessRecords = await deliveryBusinessRecords(existing);
-      return NextResponse.json({
-        ok: true,
-        queued: true,
-        ...deliverySnapshot(existing, existing.deliveries, businessRecords),
-      });
-    }
-    if (status === 'failed' || status === 'partial_failed') {
-      return NextResponse.json({
-        ok: false,
-        ...deliverySnapshot(existing, deliveries, businessRecords),
-        error: existing.error || 'TG 发送失败',
-      }, { status: 502 });
-    }
-    return NextResponse.json({
-      ok: true,
-      queued: status === 'queued' || status === 'sending',
-      ...deliverySnapshot(existing, deliveries, businessRecords),
-    });
-  }
-
-  if (body.retry) {
-    return NextResponse.json({ ok: false, error: '未找到可重试的发送记录' }, { status: 404 });
-  }
-
+function prepareDelivery(body: SendInput, id: string, sender: 'a' | 'b') {
+  const target = cleanText(body.target, 300);
+  const fileUrl = cleanText(body.fileUrl, 1000);
   const requestedDeliveries = body.deliveries?.length
     ? body.deliveries
     : [{ text: body.text, fileName: body.fileName }];
   if (requestedDeliveries.length > 10) {
-    return NextResponse.json({ ok: false, error: '一次最多发送 10 个岗位' }, { status: 400 });
+    throw new Error('一次最多发送 10 个岗位');
   }
   if (!body.deliveries?.length || requestedDeliveries.some((item) => (
     !item.application || !cleanText(item.application.jdId, 240)
@@ -465,11 +298,11 @@ export async function POST(request: NextRequest) {
     || !cleanText(item.application.jdTitle, 300)
     || !cleanText(item.text, 1000)
   ))) {
-    return NextResponse.json({ ok: false, error: '缺少岗位投递信息，未加入发送队列' }, { status: 400 });
+    throw new Error('缺少岗位投递信息，未加入发送队列');
   }
   const jdIds = requestedDeliveries.map((item) => cleanText(item.application?.jdId, 240));
   if (new Set(jdIds).size !== jdIds.length) {
-    return NextResponse.json({ ok: false, error: '同一发送任务中岗位不能重复' }, { status: 400 });
+    throw new Error('同一发送任务中岗位不能重复');
   }
   const deliveries: DeliveryItem[] = requestedDeliveries
     .map((item) => ({
@@ -478,24 +311,10 @@ export async function POST(request: NextRequest) {
       status: 'pending' as const,
     }));
   if (!target || !fileUrl || deliveries.length === 0) {
-    return NextResponse.json({ ok: false, error: '接收人、推荐文案和简历均不能为空' }, { status: 400 });
+    throw new Error('接收人、推荐文案和简历均不能为空');
   }
   const urlError = blobUrlError(fileUrl);
-  if (urlError) return NextResponse.json({ ok: false, error: urlError }, { status: 400 });
-
-  try {
-    const identityError = await repushResumeError(requestedDeliveries, fileUrl, sender);
-    if (identityError) return NextResponse.json({ ok: false, error: identityError }, { status: 409 });
-  } catch {
-    return NextResponse.json({ ok: false, error: '复推简历核对失败，已停止发送，请稍后重试' }, { status: 503 });
-  }
-
-  if (!await workerIsOnline(sender)) {
-    return NextResponse.json(
-      { ok: false, error: 'TG 发送器当前离线，请确认工作站代理已连接后重试' },
-      { status: 503 },
-    );
-  }
+  if (urlError) throw new Error(urlError);
 
   const createdAt = new Date().toISOString();
   const applications: DeliveryApplication[] = requestedDeliveries.map((item, index) => ({
@@ -550,18 +369,153 @@ export async function POST(request: NextRequest) {
     applications,
     sender,
   };
-  const queued = await enqueueDelivery(record, businessRecords, sender);
-  if (queued < 0) {
-    return NextResponse.json({ ok: false, error: queued === -2 ? '投递记录已存在，请刷新后核对' : '推荐记录格式异常，已停止发送' }, { status: queued === -2 ? 409 : 503 });
+
+  return { record, businessRecords };
+}
+
+// One read and one compare-and-swap for the whole batch. A lost response can be
+// retried with the same IDs: existing tasks are returned without re-enqueueing.
+async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
+  const jobs = inputs.map(input => ({
+    ...input,
+    requestId: cleanText(input.requestId, 80) || crypto.randomUUID(),
+  }));
+  const keys = ['recruit:repush', 'recruit:tombstones', accountKeys(sender).heartbeat,
+    ...jobs.map(job => recordKey(job.requestId))];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await kvCommandStrict<(string | null)[]>('MGET', ...keys);
+    let repush = parseBusinessRecommendations(raw[0]);
+    const tombstones = raw[1] ? JSON.parse(raw[1]) : {};
+    const heartbeat = parseHeartbeat(raw[2]);
+    const online = Boolean(heartbeat?.at && Date.now() - Date.parse(heartbeat.at) <= 45_000);
+    const writes: NonNullable<Parameters<typeof kvTransaction>[0]['writes']> = [];
+    const expected: NonNullable<Parameters<typeof kvTransaction>[0]['expected']> = [];
+    const lists: NonNullable<Parameters<typeof kvTransaction>[0]['lists']> = [];
+    const results: Array<ReturnType<typeof deliverySnapshot> & { ok: boolean; error?: string } | { id: string; ok: false; error: string }> = [];
+    for (const [index, body] of Array.from(jobs.entries())) {
+      const id = body.requestId;
+      try {
+        const existing = parseRecord(raw[index + 3]);
+        if (existing) {
+          if ((existing.sender || 'a') !== sender) throw new Error('发送任务所属人与请求不一致');
+          if (body.target && existing.target !== body.target.trim()
+            || body.fileUrl && existing.fileUrl !== body.fileUrl.trim()) {
+            throw new Error('发送任务内容已变化，请重新选择推荐岗位');
+          }
+          const records = repush.filter(row => row.deliveryId === id && row.column === sender);
+          const deliveries = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(existing), records).deliveries;
+          const status = publicStatus(existing, deliveries);
+          if ((body.retry || body.retryIfFailed) && (status === 'failed' || status === 'partial_failed')) {
+            if (!online) throw new Error('TG 发送器当前离线，请确认工作站代理已连接后重试');
+            const now = new Date().toISOString();
+            const retryRecord: DeliveryRecord = {
+              ...existing, deliveries: deliveries.map(delivery => {
+                if (delivery.status === 'sent') return delivery;
+                const next = { ...delivery, status: 'pending' as const };
+                delete next.error;
+                return next;
+              }),
+              sent: sentCount(deliveries), status: 'queued', updatedAt: now, queuedAt: now,
+              retryCount: (existing.retryCount || 0) + 1,
+            };
+            delete retryRecord.error; delete retryRecord.finishedAt; delete retryRecord.lease;
+            repush = repush.map(row => row.deliveryId === id && row.column === sender
+              && retryRecord.deliveries[Number(row.deliveryIndex)]?.status === 'pending'
+              ? { ...row, deliveryStatus: 'queued', deliveryUpdatedAt: now, telegramMessageId: undefined, deliveredAt: undefined }
+              : row);
+            writes.push({ key: recordKey(id), value: JSON.stringify(retryRecord), ttlSeconds: DELIVERY_TTL_SECONDS });
+            expected.push({ key: recordKey(id), exists: true, value: raw[index + 3]! });
+            lists.push({ op: 'push', key: accountKeys(sender).queue, value: id });
+            results.push({ ok: true, ...deliverySnapshot(retryRecord, retryRecord.deliveries,
+              repush.filter(row => row.deliveryId === id && row.column === sender)) });
+          } else {
+            results.push({ ok: status !== 'failed' && status !== 'partial_failed',
+              ...deliverySnapshot(existing, deliveries, records), error: existing.error });
+          }
+          continue;
+        }
+        if (body.retry) throw new Error('未找到可重试的发送记录');
+        const { record, businessRecords } = prepareDelivery(body, id, sender);
+        if (!online) throw new Error('TG 发送器当前离线，请确认工作站代理已连接后重试');
+        const deliveries = body.deliveries!;
+        const sourceIds = deliveries.filter(row => row.application?.source === 'repush')
+          .map(row => cleanText(row.application?.repushSourceId, 240));
+        if (sourceIds.some(sourceId => tombstones?.repush?.[sourceId])) {
+          throw new Error('原推荐已被删除，已停止发送，请核对推荐记录');
+        }
+        let source: RepushSourceRecord | undefined;
+        const snapshot = body.sourceSnapshot;
+        if (snapshot && sourceIds.includes(snapshot.id) && !repush.some(row => row.id === snapshot.id)) {
+          if (snapshot.column !== sender || !cleanText(snapshot.candidateName, 200)
+            || !cleanText(snapshot.fileName, 180) || !Number.isFinite(Date.parse(String(snapshot.uploadedAt || '')))
+            || JSON.stringify(snapshot).length > 50_000
+            || Object.keys(snapshot).some(key => ['__proto__', 'constructor', 'prototype'].includes(key))) {
+            throw new Error('原推荐记录不完整或所属人不一致，请核对后重试');
+          }
+          source = snapshot;
+        }
+        const identityError = repushResumeError(deliveries, record.fileUrl, sender,
+          [...repush, ...(source ? [source] : [])] as RepushSourceRecord[]);
+        if (identityError) throw new Error(identityError);
+        const ids = new Set(repush.flatMap(row => [row.id, row.applicationId].filter(Boolean)));
+        if (businessRecords.some(row => ids.has(row.id) || source?.id === row.id)) {
+          throw new Error('投递记录已存在，请刷新后核对');
+        }
+        // Restore source and enqueue only after every check succeeds, in the same transaction.
+        repush = [...repush, ...(source ? [source] : []), ...businessRecords];
+        writes.push({ key: recordKey(id), value: JSON.stringify(record), ttlSeconds: DELIVERY_TTL_SECONDS });
+        expected.push({ key: recordKey(id), exists: false });
+        lists.push({ op: 'push', key: accountKeys(sender).queue, value: id });
+        results.push({ ok: true, ...deliverySnapshot(record, record.deliveries, businessRecords) });
+      } catch (error) {
+        results.push({ id, ok: false, error: error instanceof Error ? error.message : '发送信息无效' });
+      }
+    }
+    if (!writes.length) return results;
+    const committed = await kvTransaction({
+      expected: [
+        { key: keys[0], exists: raw[0] !== null, ...(raw[0] !== null ? { value: raw[0] } : {}) },
+        { key: keys[1], exists: raw[1] !== null, ...(raw[1] !== null ? { value: raw[1] } : {}) },
+        ...expected,
+      ],
+      writes: [...writes, { key: keys[0], value: JSON.stringify(repush) }],
+      lists, increments: ['recruit:version'],
+    });
+    if (committed.ok) return results;
   }
-  if (queued !== 1) {
-    return NextResponse.json({ ok: false, error: '相同发送任务已创建，请重试读取状态' }, { status: 409 });
+  throw new Error('推荐数据正在更新，请重试；同一任务不会重复入队');
+}
+
+export async function POST(request: NextRequest) {
+  const unauthorized = await requireApiSession(request);
+  if (unauthorized) return unauthorized;
+  let body: SendInput & { batch?: SendInput[] };
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ ok: false, error: '请求格式错误' }, { status: 400 }); }
+  if (!body || typeof body !== 'object') return NextResponse.json({ ok: false, error: '请求格式错误' }, { status: 400 });
+  const sender = body.sender === 'b' ? 'b' : 'a';
+  const ownerBlocked = await requireOwnerSession(request, sender, true);
+  if (ownerBlocked) return ownerBlocked;
+  const rateBlocked = guardApi(request, 'tg-send-recommendation', 12, 60_000);
+  if (rateBlocked) return rateBlocked;
+  const jobs = body.batch === undefined ? [body] : body.batch;
+  if (!Array.isArray(jobs) || !jobs.length || jobs.length > 10 || jobs.some(job => !job
+    || typeof job !== 'object' || job.sender && job.sender !== sender
+    || job.requestId !== undefined && (typeof job.requestId !== 'string' || !/^[A-Za-z0-9-]{8,80}$/.test(job.requestId))
+    || body.batch !== undefined && !job.requestId)) {
+    return NextResponse.json({ ok: false, error: '发送任务格式无效，一次最多 10 位人选' }, { status: 400 });
   }
-  return NextResponse.json({
-    ok: true,
-    queued: true,
-    ...deliverySnapshot(record, deliveries, businessRecords),
-  });
+  const ids = jobs.map(job => job.requestId).filter(Boolean);
+  if (new Set(ids).size !== ids.length) return NextResponse.json({ ok: false, error: '发送任务编号重复' }, { status: 400 });
+  try {
+    const results = await submitDeliveries(jobs, sender);
+    if (body.batch !== undefined) return NextResponse.json({ ok: true, results });
+    const result = results[0];
+    return NextResponse.json({ ...result, queued: result.ok && 'status' in result
+      && (result.status === 'queued' || result.status === 'sending') }, { status: result.ok ? 200 : 409 });
+  } catch {
+    return NextResponse.json({ ok: false, error: '发送任务暂时无法确认，请重试；已提交的任务不会重复入队' }, { status: 503 });
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -569,6 +523,31 @@ export async function GET(request: NextRequest) {
   if (unauthorized) return unauthorized;
   const blocked = guardApi(request, 'tg-send-status', 60, 60_000);
   if (blocked) return blocked;
+  const batchIds = request.nextUrl.searchParams.getAll('ids');
+  if (batchIds.length) {
+    if (batchIds.length > 10 || batchIds.some(id => !/^[A-Za-z0-9-]{8,80}$/.test(id))) {
+      return NextResponse.json({ ok: false, error: '发送编号无效' }, { status: 400 });
+    }
+    try {
+      const values = await kvCommandStrict<(string | null)[]>('MGET', 'recruit:repush', ...batchIds.map(recordKey));
+      const records = parseBusinessRecommendations(values[0]);
+      const permissions = new Map<'a' | 'b', boolean>();
+      const results = [];
+      for (const [index, id] of Array.from(batchIds.entries())) {
+        const record = parseRecord(values[index + 1]);
+        if (!record) { results.push({ id, ok: false, error: '未找到发送记录' }); continue; }
+        const sender = record.sender === 'b' ? 'b' : 'a';
+        if (!permissions.has(sender)) permissions.set(sender, !await requireOwnerSession(request, sender));
+        if (!permissions.get(sender)) { results.push({ id, ok: false, error: '无权读取该发送任务' }); continue; }
+        const business = records.filter(row => row.deliveryId === id && row.column === sender);
+        const deliveries = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(record), business).deliveries;
+        results.push({ ok: true, ...deliverySnapshot(record, deliveries, business), error: record.error || '' });
+      }
+      return NextResponse.json({ ok: true, results });
+    } catch {
+      return NextResponse.json({ ok: false, error: '发送进度读取失败，已保留上次结果' }, { status: 503 });
+    }
+  }
   const id = request.nextUrl.searchParams.get('id')?.trim() || '';
   if (!id || !/^[A-Za-z0-9-]+$/.test(id)) {
     return NextResponse.json({ ok: false, error: '发送编号无效' }, { status: 400 });

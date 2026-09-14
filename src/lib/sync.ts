@@ -1,6 +1,5 @@
 import { diffRecords, recordsEqual, type RecordChange, type SyncRecord } from './record-changes';
 import type { JD } from '@/types/jd';
-import type { RepushItem } from '@/store/repush-store';
 
 export type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies' | 'performance';
 type ChangeHandler = (type: DataType, data: unknown[], version: number, readOk: boolean) => void;
@@ -124,32 +123,6 @@ async function refresh(force = false) {
 export async function refreshSyncedData(): Promise<void> {
   while (reading) await new Promise((resolve) => setTimeout(resolve, 50));
   await refresh(true);
-}
-/** Save a locally retained source before repush validation; never overwrite cloud records. */
-export async function ensureRepushSourceSynced(item: RepushItem): Promise<void> {
-  const readSource = async () => {
-    const values = await readKeys(['repush', 'tombstones']);
-    const rows: unknown = parse(values.repush);
-    if (!Array.isArray(rows)) throw new Error('原推荐读取失败，已停止发送，请稍后重试');
-    const deleted = parse(values.tombstones) as Record<string, Record<string, number>> | null;
-    if (deleted?.repush?.[item.id]) throw new Error('原推荐已被删除，已停止发送，请核对推荐记录');
-    return rows.some((row: SyncRecord) => row.id === item.id);
-  };
-  if (await readSource()) return;
-  // Reuse the original ID/date/file/owner. A create-only mutation cannot replace a
-  // newer record or resurrect a tombstone; the send API still validates identity.
-  const response = await fetch('/api/sync/records', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'repush', mutationId: crypto.randomUUID(),
-      changes: [{ id: item.id, before: null, after: item }] }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok && response.status !== 409) {
-    const result = await response.json().catch(() => ({})) as { error?: string };
-    throw new Error(result.error || '原推荐尚未同步成功，已停止发送，请稍后重试');
-  }
-  // A concurrent save may win the create; only an actual read-back allows sending.
-  if (!await readSource()) throw new Error('原推荐尚未同步成功，已停止发送，请稍后重试');
 }
 export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown[]>>): Promise<DataType[]> {
   const failed: DataType[] = [];

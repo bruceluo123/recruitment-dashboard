@@ -1,5 +1,4 @@
 'use client';
-import { ensureRepushSourceSynced } from '@/lib/sync';
 
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarCheck, Check, CircleX, Clock3, FileText, Loader2, Repeat2, Search, Send, Users, X } from 'lucide-react';
@@ -62,8 +61,6 @@ interface TgDialogOption {
   username: string;
 }
 
-const POLL_INTERVAL_MS = 12_000;
-const MAX_POLL_ROUNDS = 30;
 const SHANGHAI_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
 });
@@ -272,7 +269,7 @@ export function BulkRepushModal({
   ), [availableCandidates, checkAlreadyRecommended, selectedJd]);
   const selectedDuplicateCount = candidates.filter((candidate) => duplicateKeys.has(candidate.key)).length;
   const sendableCandidates = candidates.filter((candidate) => !duplicateKeys.has(candidate.key));
-  const remainingCandidates = sendableCandidates.filter((candidate) => sendStates[candidate.key]?.status !== 'sent');
+  const remainingCandidates = sendableCandidates.filter((candidate) => !['queued', 'sending', 'sent'].includes(sendStates[candidate.key]?.status || 'idle'));
   const sentCount = sendableCandidates.length - remainingCandidates.length;
   const failedCount = remainingCandidates.filter((candidate) => sendStates[candidate.key]?.status === 'failed').length;
   const targetLocked = Object.values(sendStates).some((state) => state.status !== 'idle');
@@ -298,44 +295,6 @@ export function BulkRepushModal({
 
   const syncResponse = (response: DeliveryStatusResponse) => {
     if (response.records?.length) onRecords(response.records);
-  };
-
-  const readDelivery = async (requestId: string): Promise<DeliveryStatusResponse | null> => {
-    const response = await fetch(`/api/tg/send?id=${encodeURIComponent(requestId)}`, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (response.status === 404) return null;
-    const result = await response.json().catch(() => ({})) as DeliveryStatusResponse;
-    if (!response.ok || !result.ok) throw new Error(result.error || '发送结果暂时无法读取');
-    return { ...result, id: result.id || requestId };
-  };
-
-  const enqueueDelivery = async (body: object): Promise<DeliveryStatusResponse> => {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), 20_000);
-      try {
-        const response = await fetch('/api/tg/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        const data = await response.json().catch(() => ({})) as DeliveryStatusResponse;
-        if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
-        return data;
-      } catch (sendError) {
-        lastError = sendError;
-        if (attempt === 0) await wait(800);
-      } finally {
-        window.clearTimeout(timer);
-      }
-    }
-    throw new Error(lastError instanceof Error && lastError.name !== 'AbortError'
-      ? lastError.message
-      : '加入发送队列超时，请稍后重试');
   };
 
   const payloadFor = (candidate: BulkRepushCandidate, jd: JD) => {
@@ -384,75 +343,57 @@ export function BulkRepushModal({
     if (!selectedJd || remainingCandidates.length === 0 || !recipient.trim() || sending) return;
     setSending(true);
     setError('');
-    const pending = new Map<string, { candidate: BulkRepushCandidate; requestId: string; storageKey: string }>();
-
-    for (const candidate of remainingCandidates) {
-      try {
+    try {
+      const tasks = await Promise.all(remainingCandidates.map(async candidate => {
         const payload = payloadFor(candidate, selectedJd);
         const storageKey = await storageKeyFor(payload);
-        let requestId = window.localStorage.getItem(storageKey) || '';
-        let response: DeliveryStatusResponse | null = null;
-        if (requestId) {
-          response = await readDelivery(requestId);
-          if (!response) {
-            window.localStorage.removeItem(storageKey);
-            requestId = '';
-          }
+        const previousId = window.localStorage.getItem(storageKey);
+        const requestId = previousId || crypto.randomUUID();
+        window.localStorage.setItem(storageKey, requestId);
+        return { candidate, body: { ...payload, requestId, retryIfFailed: Boolean(previousId),
+          sourceSnapshot: candidate.item } };
+      }));
+      const body = JSON.stringify({ sender: owner, batch: tasks.map(task => task.body) });
+      let result: { ok?: boolean; results?: DeliveryStatusResponse[]; error?: string } | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await fetch('/api/tg/send', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+            signal: AbortSignal.timeout(25_000),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw Object.assign(new Error(data.error || '加入发送队列失败'), {
+            retryable: response.status >= 500 || response.status === 408 || response.status === 429,
+          });
+          result = data;
+          break;
+        } catch (error) {
+          if (attempt === 1 || error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
+          await wait(800);
         }
-        if (response?.status === 'sent') {
-          syncResponse(response);
-          updateCandidateState(candidate.key, { status: 'sent' });
-          window.localStorage.removeItem(storageKey);
-          continue;
-        }
-        if (!requestId) {
-          await ensureRepushSourceSynced(candidate.item);
-          requestId = typeof crypto.randomUUID === 'function'
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-          window.localStorage.setItem(storageKey, requestId);
-          response = await enqueueDelivery({ ...payload, requestId });
-        } else if (response?.status === 'failed' || response?.status === 'partial_failed') {
-          await ensureRepushSourceSynced(candidate.item);
-          response = await enqueueDelivery({ ...payload, requestId, retry: true });
-        }
-        if (response) syncResponse(response);
-        updateCandidateState(candidate.key, { status: response?.status === 'sending' ? 'sending' : 'queued' });
-        pending.set(candidate.key, { candidate, requestId, storageKey });
-      } catch (sendError) {
-        updateCandidateState(candidate.key, {
-          status: 'failed',
-          error: sendError instanceof Error ? sendError.message : '发送失败',
-        });
       }
-    }
-
-    for (let round = 0; pending.size > 0 && round < MAX_POLL_ROUNDS; round += 1) {
-      await wait(round === 0 ? 2_500 : POLL_INTERVAL_MS);
-      const current = Array.from(pending.entries());
-      const results = await Promise.allSettled(current.map(([, task]) => readDelivery(task.requestId)));
-      results.forEach((result, index) => {
-        const [key, task] = current[index];
-        if (result.status === 'rejected' || !result.value) return;
-        const response = result.value;
-        syncResponse(response);
-        if (response.status === 'sent') {
-          updateCandidateState(key, { status: 'sent' });
-          window.localStorage.removeItem(task.storageKey);
-          pending.delete(key);
-        } else if (response.status === 'failed' || response.status === 'partial_failed') {
-          updateCandidateState(key, { status: 'failed', error: response.error || 'TG 发送失败' });
-          pending.delete(key);
+      const byId = new Map((result?.results || []).map(row => [row.id, row]));
+      let failed = 0;
+      for (const task of tasks) {
+        const response = byId.get(task.body.requestId);
+        if (response?.ok) {
+          syncResponse(response);
+          updateCandidateState(task.candidate.key, {
+            status: response.status === 'sent' ? 'sent' : response.status === 'sending' ? 'sending' : 'queued',
+          });
         } else {
-          updateCandidateState(key, { status: response.status === 'sending' ? 'sending' : 'queued' });
+          failed++;
+          updateCandidateState(task.candidate.key, { status: 'failed',
+            error: response?.error || '任务暂未确认，请重试查看同一任务' });
         }
-      });
+      }
+      if (!failed) onClose();
+      else setError(`已入队 ${tasks.length - failed}/${tasks.length} 位人选，剩余项请查看错误后重试。`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '任务暂未确认，请重试查看同一任务');
+    } finally {
+      setSending(false);
     }
-
-    if (pending.size > 0) {
-      setError('部分人选仍在发送队列中，可稍后再次点击继续查看，不会重复发送。');
-    }
-    setSending(false);
   };
 
   const allSent = sendableCandidates.length > 0 && remainingCandidates.length === 0;
@@ -478,7 +419,7 @@ export function BulkRepushModal({
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800"><Users className="h-4 w-4 text-indigo-500" />选择复推人选</h3>
-                <p className="mt-1 text-xs text-slate-400">已选 {candidates.length}/10 · {sentCount}/{sendableCandidates.length} 已发送</p>
+                <p className="mt-1 text-xs text-slate-400">已选 {candidates.length}/10 · {sentCount}/{sendableCandidates.length} 已入队</p>
               </div>
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-2 text-xs text-indigo-600">
                 {(ranking || loadingResumes) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -661,9 +602,9 @@ export function BulkRepushModal({
               <button type="button" onClick={() => void handleSend()} disabled={!selectedJd || !recipient.trim() || sendableCandidates.length === 0 || sending || allSent} className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : allSent ? <Check className="h-4 w-4" /> : <Send className="h-4 w-4" />}
                 {sending
-                  ? `正在发送 ${sentCount}/${sendableCandidates.length}`
+                  ? `正在提交 ${sendableCandidates.length} 位人选…`
                   : allSent
-                    ? '全部发送成功'
+                    ? '全部已入队'
                     : failedCount > 0
                       ? `重试未完成（${remainingCandidates.length}）`
                       : `发送并复推（${sendableCandidates.length}）`}
