@@ -62,7 +62,7 @@ const replacement = load('src/app/api/sync/jds/route.ts');
 const records = load('src/app/api/sync/records/route.ts');
 const bootstrap = load('src/app/api/sync/bootstrap/route.ts');
 const tg = load('src/lib/tg-sync.ts');
-const request = (body) => ({ json: async () => body });
+const request = (body, url = 'https://example.test/api/sync/jds') => ({ json: async () => body, nextUrl: new URL(url) });
 const row = (id, title = id) => ({ id, title, reqKey: `REQ-${id}`, categories: ['frontend'], responsibilities: [], requirements: [], gap: '1' });
 const keep = row('keep', 'Keep'), removed = row('removed');
 function reset() { db.clear(); db.set('recruit:jds', JSON.stringify([keep, removed])); failRead = failWrite = false; beforeCommit = undefined; }
@@ -162,10 +162,57 @@ async function test(name, run) { reset(); await run(); count++; console.log(`PAS
     let calls = 0, applied = 0;
     const client = loader({}, { fetch: async () => { calls++; return Response.json({ error: 'offline' }, { status: 503 }); } })('src/lib/sync.ts');
     await assert.rejects(client.replaceSyncedJDs({ jds: [], epoch: '0', revision: 'x' }, [keep], () => applied++));
-    assert.equal(calls, 2); assert.equal(applied, 0);
+    assert.equal(calls, 4); assert.equal(applied, 0);
     const good = loader({}, { fetch: async () => Response.json({ ok: true, epoch: 'new', jds: [keep] }) })('src/lib/sync.ts');
     await good.replaceSyncedJDs({ jds: [], epoch: '0', revision: 'x' }, [keep], () => applied++);
     assert.equal(applied, 1);
+  });
+  await test('both write responses lost: exact receipt confirms success without another replacement', async () => {
+    const base = await snapshot();
+    let applied = 0, writes = 0, reads = 0;
+    const client = loader({}, { fetch: async (url, options) => {
+      if (options.method === 'POST') {
+        writes++;
+        assert.equal((await replacement.POST(request(JSON.parse(options.body)))).status, 200);
+        throw new TypeError('Failed to fetch');
+      }
+      reads++;
+      return replacement.GET(request(undefined, `https://example.test${url}`));
+    } })('src/lib/sync.ts');
+    const result = await client.replaceSyncedJDs(base, [keep], () => applied++);
+    assert.equal(result.length, 1); assert.equal(applied, 1);
+    assert.equal(writes, 2); assert.equal(reads, 1);
+    assert.equal(db.get('recruit:version'), '1');
+  });
+  await test('truncated response body is recovered through the read-only receipt', async () => {
+    const base = await snapshot();
+    let applied = 0;
+    const client = loader({}, { fetch: async (url, options) => {
+      if (options.method === 'POST') {
+        await replacement.POST(request(JSON.parse(options.body)));
+        return { ok: true, status: 200, json: async () => { throw new TypeError('Failed to fetch'); } };
+      }
+      return replacement.GET(request(undefined, `https://example.test${url}`));
+    } })('src/lib/sync.ts');
+    await client.replaceSyncedJDs(base, [keep], () => applied++);
+    assert.equal(applied, 1);
+  });
+  await test('same count alone is not success: missing receipt remains unconfirmed', async () => {
+    const base = await snapshot();
+    let applied = 0;
+    const client = loader({}, { fetch: async (url, options) => {
+      if (options.method === 'POST') throw new TypeError('Failed to fetch');
+      return replacement.GET(request(undefined, `https://example.test${url}`));
+    } })('src/lib/sync.ts');
+    await assert.rejects(client.replaceSyncedJDs(base, [keep, removed], () => applied++), client.JDImportUnconfirmedError);
+    assert.equal(applied, 0);
+  });
+  await test('receipt query never reapplies stale jobs over a later panel', async () => {
+    const base = await snapshot(), mutationId = randomUUID();
+    await replacement.POST(request({ ...base, jds: [keep], mutationId }));
+    await replace([row('later')], await snapshot());
+    assert.equal((await replacement.GET(request(undefined, `https://example.test/api/sync/jds?mutationId=${mutationId}`))).status, 409);
+    assert.equal(JSON.parse(db.get('recruit:jds'))[0].id, 'later');
   });
   console.log(`${count} JD rollback regressions passed`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });

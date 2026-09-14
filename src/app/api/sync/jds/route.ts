@@ -21,6 +21,16 @@ export async function GET(request: NextRequest) {
   const denied = await requireApiSession(request);
   if (denied) return denied;
   try {
+    const mutationId = request.nextUrl.searchParams.get('mutationId');
+    if (mutationId !== null) {
+      if (!/^[a-zA-Z0-9-]{8,80}$/.test(mutationId)) return NextResponse.json({ error: '无效导入编号' }, { status: 400 });
+      const [raw, epoch, receiptRaw] = await kvCommandStrict<(string | null)[]>('MGET', KEY, EPOCH, `recruit:jd-import:${mutationId}`);
+      if (!receiptRaw) return NextResponse.json({ status: 'unconfirmed' }, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+      const receipt = JSON.parse(receiptRaw);
+      if (receipt.epoch !== epoch) return NextResponse.json({ status: 'superseded', error: '本次导入已保存，但已有更新的岗位版本，请刷新查看' }, { status: 409 });
+      const unchanged = revision(raw) === receipt.payloadHash;
+      return NextResponse.json({ ok: true, epoch, unchanged, ...(unchanged ? {} : { jds: parseRows(raw) }) }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     const [raw, epoch] = await kvCommandStrict<(string | null)[]>('MGET', KEY, EPOCH);
     return NextResponse.json({ jds: parseRows(raw), revision: revision(raw), epoch: epoch || '0' }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
@@ -53,7 +63,8 @@ export async function POST(request: NextRequest) {
         if (saved.payloadHash !== payloadHash || saved.epoch !== epoch) {
           return NextResponse.json({ error: '该导入已被后续版本取代，请重新读取岗位' }, { status: 409 });
         }
-        return NextResponse.json({ ok: true, epoch, jds: parseRows(raw) });
+        const unchanged = revision(raw) === payloadHash;
+        return NextResponse.json({ ok: true, epoch, unchanged, ...(unchanged ? {} : { jds: parseRows(raw) }) });
       }
       if (revision(raw) !== body.revision || (epoch || '0') !== body.epoch) {
         return NextResponse.json({ error: '导入期间云端岗位发生变化，本次未覆盖，请重新导入' }, { status: 409 });
@@ -83,7 +94,7 @@ export async function POST(request: NextRequest) {
         ],
         increments: ['recruit:version'],
       });
-      if (committed.ok) return NextResponse.json({ ok: true, epoch: nextEpoch, jds: body.jds });
+      if (committed.ok) return NextResponse.json({ ok: true, epoch: nextEpoch, unchanged: true });
     }
     return NextResponse.json({ error: '岗位正在更新，本次未覆盖，请重试' }, { status: 409 });
   } catch {

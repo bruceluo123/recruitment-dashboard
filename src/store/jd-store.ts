@@ -11,7 +11,7 @@ import { isMockJds } from '@/lib/mock-guard';
 import { currentOperatorName } from '@/lib/operator';
 import { useRecycleStore } from '@/store/recycle-store';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
-import { pushImportDiff, pushWeeklyAdded, syncPush, readJDImportSnapshot, replaceSyncedJDs } from '@/lib/sync';
+import { pushImportDiff, pushWeeklyAdded, syncPush, readJDImportSnapshot, replaceSyncedJDs, JDImportUnconfirmedError } from '@/lib/sync';
 import {
   analyzeColumns,
   classifyJD,
@@ -456,6 +456,7 @@ export const useJDStore = create<JDStore>()(
           return result;
         } catch (err) {
           set({ isImporting: false });
+          if (err instanceof JDImportUnconfirmedError) return { success: 0, failed: 0, pendingConfirmation: true, errors: [err.message] };
           return { success: 0, failed: 1, errors: [`导入未完成: ${(err as Error)?.message || '未知'}`] };
         }
       },

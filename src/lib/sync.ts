@@ -363,6 +363,7 @@ export function stopSync() {
 }
 
 export interface JDImportSnapshot { jds: JD[]; revision: string; epoch: string }
+export class JDImportUnconfirmedError extends Error {}
 export async function readJDImportSnapshot(): Promise<JDImportSnapshot> {
   if (busy || jdReplacing || pending.some((item) => item.type === 'jds')) {
     throw new Error('还有岗位修改正在保存或等待处理，请完成同步后再导入');
@@ -381,28 +382,42 @@ export async function replaceSyncedJDs(snapshot: JDImportSnapshot, jds: JD[], ap
   }
   jdReplacing = true;
   editGeneration++;
-  const payload = JSON.stringify({ jds, revision: snapshot.revision, epoch: snapshot.epoch, mutationId: crypto.randomUUID() });
+  const mutationId = crypto.randomUUID();
+  const payload = JSON.stringify({ jds, revision: snapshot.revision, epoch: snapshot.epoch, mutationId });
+  const acceptResult = (result: { ok?: boolean; epoch?: string; unchanged?: boolean; jds?: JD[] }): JD[] => {
+    const saved = result.unchanged === true ? jds : result.jds;
+    if (!result.ok || typeof result.epoch !== 'string' || !Array.isArray(saved)) throw new Error('云端保存结果无效');
+    jdEpoch = result.epoch;
+    applyRemoteStoreUpdate('jds', () => { apply(saved); return saved; });
+    return saved;
+  };
   try {
     // 响应丢失时使用同一回执重试，不能重复覆盖后来的修改。
     for (let attempt = 0; attempt < 2; attempt++) {
-      let response: Response;
+      let response: Response, result;
       try {
         response = await fetch('/api/sync/jds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, signal: AbortSignal.timeout(30_000) });
-      } catch (error) {
-        if (attempt === 0) continue;
-        throw error;
+        result = await response.json();
+      } catch {
+        continue;
       }
-      const result = await response.json();
       if (!response.ok) {
-        if (response.status === 503 && attempt === 0) continue;
+        if (response.status >= 500 || response.status === 408) continue;
         throw new Error(result.error || '云端未确认保存，请重试');
       }
-      if (!result.ok || typeof result.epoch !== 'string' || !Array.isArray(result.jds)) throw new Error('云端保存结果无效');
-      jdEpoch = result.epoch;
-      applyRemoteStoreUpdate('jds', () => { apply(result.jds); return result.jds; });
-      return result.jds;
+      return acceptResult(result);
     }
-    throw new Error('未能确认云端保存，请重试');
+    // 写入响应/正文丢失不等于写入失败。用独立的只读请求核对同一回执。
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let response: Response, result;
+      try {
+        response = await fetch(`/api/sync/jds?mutationId=${mutationId}`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
+        result = await response.json();
+      } catch { continue; }
+      if (response.ok) return acceptResult(result);
+      if (response.status === 409) throw new JDImportUnconfirmedError(result.error || '已有更新的岗位版本，请刷新查看');
+    }
+    throw new JDImportUnconfirmedError('网络中断，暂时无法确认保存结果。请恢复网络后刷新查看，无需重复导入。');
   } finally {
     jdReplacing = false;
     void retrySync();

@@ -217,11 +217,11 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
 
           {/* Result summary */}
           {result && !isImporting && (
-            <div className={`p-4 rounded-xl border ${result.failed === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+            <div className={`p-4 rounded-xl border ${result.failed === 0 && !result.pendingConfirmation ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
               <div className="flex items-center gap-2 mb-2">
-                {result.failed === 0 ? <Check className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
+                {result.failed === 0 && !result.pendingConfirmation ? <Check className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
                 <span className="text-sm font-medium text-gray-800">
-                  {result.replaced !== undefined
+                  {result.pendingConfirmation ? '保存结果待确认' : result.replaced !== undefined
                     ? `已覆盖：岗位库现为 ${result.replaced} 个岗位`
                     : `新增 ${result.success} 条`}
                   {result.failed > 0 && `，失败 ${result.failed} 条`}
