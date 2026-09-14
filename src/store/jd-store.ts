@@ -11,8 +11,7 @@ import { isMockJds } from '@/lib/mock-guard';
 import { currentOperatorName } from '@/lib/operator';
 import { useRecycleStore } from '@/store/recycle-store';
 import { parseMultipleJDs, type ParsedJD } from '@/lib/jd-parser';
-import { pushImportDiff, pushWeeklyAdded, syncPush } from '@/lib/sync';
-import { diffRecords, type SyncRecord } from '@/lib/record-changes';
+import { pushImportDiff, pushWeeklyAdded, syncPush, readJDImportSnapshot, replaceSyncedJDs } from '@/lib/sync';
 import {
   analyzeColumns,
   classifyJD,
@@ -33,7 +32,7 @@ import {
 
 export interface ImportProgress {
   current: number; total: number; percent: number;
-  status: 'idle' | 'reading' | 'parsing' | 'done';
+  status: 'idle' | 'reading' | 'parsing' | 'saving' | 'done';
 }
 
 interface JDStore {
@@ -165,51 +164,13 @@ export const useJDStore = create<JDStore>()(
       },
 
       backupToKV: async () => {
-        const jds = get().jds;
-        if (isMockJds(jds)) {
-          alert('当前为示例数据，不能备份。请先导入真实岗位数据。');
-          return;
-        }
-        if (!confirm(`即将把当前 ${jds.length} 条岗位合并备份到云端。\n\n系统会先读取云端已有岗位，再合并去重后写回，避免直接覆盖导致数据丢失。是否继续？`)) {
-          return;
-        }
-        try {
-          let dataToBackup = jds;
-          let remoteJds: JD[] = [];
-          const remoteRes = await fetch('/api/data?type=jds');
-          if (remoteRes.ok) {
-            const remote = await remoteRes.json();
-            remoteJds = Array.isArray(remote?.jds) ? remote.jds as JD[] : [];
-            dataToBackup = mergeUniqueJDs(remoteJds, jds).jds;
-          } else {
-            throw new Error('云端岗位读取失败，已停止备份');
-          }
-          const changes = diffRecords(remoteJds as unknown as SyncRecord[], dataToBackup as unknown as SyncRecord[]);
-          if (!changes.length) {
-            alert(`无需备份：云端 ${dataToBackup.length} 条岗位已是最新。`);
-            return;
-          }
-          const res = await fetch('/api/sync/records', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'jds', mutationId: crypto.randomUUID(), changes }),
-          });
-          if (res.ok) {
-            alert(`备份完成：云端当前共 ${dataToBackup.length} 条岗位。`);
-          } else {
-            const result = await res.json().catch(() => ({})) as { error?: string };
-            console.error('backupToKV: 写入失败', res.status);
-            alert(`备份失败：${result.error || `云端接口返回 ${res.status}`}。`);
-          }
-        } catch (err) {
-          console.error('backupToKV failed', err);
-          alert('备份失败：当前网络或云端接口不可用。');
-        }
+        alert('岗位已自动保存到云端；旧缓存合并备份已停用。请使用完整面板覆盖导入更新岗位库。');
       },
 
       importFromExcel: async (file: File, mode: 'merge' | 'replace' = 'merge') => {
         set({ isImporting: true, importCancelled: false, importProgress: { current: 0, total: 0, percent: 0, status: 'reading' } });
         try {
+          const snapshot = mode === 'replace' ? await readJDImportSnapshot() : null;
           const buf = await file.arrayBuffer();
           if (!buf?.byteLength) { set({ isImporting: false }); return { success: 0, failed: 0, errors: ['文件为空'] }; }
 
@@ -366,7 +327,7 @@ export const useJDStore = create<JDStore>()(
             const deduped = mergeUniqueJDs([], cleanBatch);
             // 每日面板只有摘要列（岗位名/薪资/部门/编制），没有职责/要求。
             // 覆盖时若新行缺职责/要求，则沿用库中同一岗位的旧内容，避免覆盖把 JD 详情清空。
-            const prevJds = get().jds;
+            const prevJds = snapshot!.jds;
             const oldByKey = new Map(prevJds.map((j) => [getJDKey(j), j]));
             const oldById = new Map(prevJds.map((j) => [j.id, j]));
             // 标题兜底：REQ-Key 变化时仍能认出同一岗位，避免覆盖导入把 createdAt 重置成 now
@@ -432,11 +393,13 @@ export const useJDStore = create<JDStore>()(
                 return acc;
               }, []);
 
-            useJDStore.setState({ jds: nextJds });
+            if (get().importCancelled) throw new Error('导入已取消，岗位库未修改');
+            set({ importProgress: { current: total, total, percent: 100, status: 'saving' } });
+            const savedJds = await replaceSyncedJDs(snapshot!, nextJds, (jds) => set({ jds }));
             result.success = enriched.length;
             result.failed = 0;
             result.errors = [];
-            result.replaced = nextJds.length;
+            result.replaced = savedJds.length;
             if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
             // 持久化今日增改，供工具栏"今日增改"按钮调取；同时推送到 KV 供其他用户查看
             const importDiff = { ...result, date: new Date().toISOString() };
@@ -493,7 +456,7 @@ export const useJDStore = create<JDStore>()(
           return result;
         } catch (err) {
           set({ isImporting: false });
-          return { success: 0, failed: 0, errors: [`解析失败: ${(err as Error)?.message || '未知'}`] };
+          return { success: 0, failed: 1, errors: [`导入未完成: ${(err as Error)?.message || '未知'}`] };
         }
       },
     }),

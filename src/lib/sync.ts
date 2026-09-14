@@ -1,4 +1,5 @@
 import { diffRecords, recordsEqual, type RecordChange, type SyncRecord } from './record-changes';
+import type { JD } from '@/types/jd';
 
 export type DataType = 'jds' | 'candidates' | 'talents' | 'repush' | 'todos' | 'companies' | 'performance';
 type ChangeHandler = (type: DataType, data: unknown[], version: number, readOk: boolean) => void;
@@ -9,6 +10,7 @@ interface Mutation {
   createdAt: number;
   conflicts?: string[];
   resolution?: 'local';
+  jdEpoch?: string;
 }
 const TYPES: DataType[] = ['jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance'];
 const OUTBOX = 'recruit:record-outbox:v1';
@@ -24,6 +26,8 @@ let pending: Mutation[] = [];
 const observed: Partial<Record<DataType, SyncRecord[]>> = {};
 const remoteApplyDepth: Partial<Record<DataType, number>> = {};
 let remoteVersion = -1;
+let jdEpoch: string | undefined;
+let jdReplacing = false;
 let tombstones: Record<string, Record<string, number>> = {};
 let onChange: ChangeHandler | null = null;
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -58,6 +62,14 @@ function persistMutation(mutation: Mutation) {
   try { localStorage.setItem(`${OUTBOX}:${mutation.id}`, JSON.stringify(mutation)); }
   catch { announce('本机存储空间不足，请保持页面打开并重试同步'); }
 }
+function quarantineJDMutations(stale: Mutation[]) {
+  for (const item of stale) {
+    localStorage.setItem(`recruit:rejected-jd:${item.id}`, JSON.stringify(item));
+    localStorage.removeItem(`${OUTBOX}:${item.id}`);
+    pending = pending.filter((queued) => queued.id !== item.id);
+  }
+  if (stale.length) editGeneration++;
+}
 async function readKeys(keys: string[]): Promise<Record<string, string | null>> {
   const params = new URLSearchParams(); keys.forEach((key) => params.append('key', key));
   const response = await fetch(`/api/sync/read?${params}`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
@@ -78,20 +90,27 @@ async function refresh(force = false) {
       && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return;
     const types = Array.from(requestedTypes);
     if (!types.length) return;
-    const values = await readKeys([...types, 'tombstones']);
+    const values = await readKeys([...types, 'tombstones', ...(types.includes('jds') ? ['jds-epoch'] : [])]);
     if (generation !== editGeneration) return;
     tombstones = parse(values.tombstones) as typeof tombstones || {};
+    const staleJDs = types.includes('jds') && !jdReplacing && !busy
+      ? pending.filter((item) => item.type === 'jds' && item.jdEpoch !== (values['jds-epoch'] || '0'))
+      : [];
+    quarantineJDMutations(staleJDs);
     for (const type of types) {
+      if (type === 'jds' && jdReplacing) continue;
       if (pending.some((mutation) => mutation.type === type)) continue;
       const rows = values[type] === null ? [] : parse(values[type]);
       if (!Array.isArray(rows)) throw new Error('数据格式异常');
       const data = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
+      if (type === 'jds') jdEpoch = values['jds-epoch'] || '0';
       observed[type] = data;
       loadedVersions[type] = version;
       onChange?.(type, data, version, true);
     }
     remoteVersion = version;
-    if (!pending.length) announce('');
+    if (staleJDs.length) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
+    else if (!pending.length) announce('');
   } catch { announce('云端读取失败，已保留当前数据；连接恢复后重试'); }
   finally {
     reading = false;
@@ -108,6 +127,7 @@ export async function refreshSyncedData(): Promise<void> {
 export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown[]>>): Promise<DataType[]> {
   const failed: DataType[] = [];
   for (const type of TYPES) {
+    if (type === 'jds') continue;
     const rows = data[type];
     if (!Array.isArray(rows) || !rows.length) continue;
     try {
@@ -123,9 +143,10 @@ export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown
   return failed;
 }
 export async function retrySync() {
-  if (busy) return;
+  if (busy || jdReplacing) return;
   busy = true;
   let drainCompleted = false;
+  let jdRejected = false;
   try {
     while (pending.some((mutation) => !mutation.conflicts?.length)) {
       const mutationIndex = pending.findIndex((mutation) => !mutation.conflicts?.length);
@@ -138,11 +159,20 @@ export async function retrySync() {
           mutationId: mutation.id,
           changes: mutation.changes,
           resolution: mutation.resolution,
+          ...(mutation.type === 'jds' ? { jdEpoch: mutation.jdEpoch } : {}),
         }),
         signal: AbortSignal.timeout(30_000),
       });
       if (!response.ok) {
-        const result = await response.json().catch(() => ({})) as { error?: string; conflicts?: string[]; forbidden?: string[] };
+        const result = await response.json().catch(() => ({})) as { error?: string; code?: string; conflicts?: string[]; forbidden?: string[] };
+        if (mutation.type === 'jds' && result.code === 'JD_SNAPSHOT_EXPIRED') {
+          // 隔离旧代次队列，保留副本但不允许“保留本机”自动重新提交。
+          const stale = pending.filter((item) => item.type === 'jds' && item.jdEpoch === mutation.jdEpoch);
+          quarantineJDMutations(stale);
+          jdRejected = true;
+          requestedTypes.add('jds');
+          continue;
+        }
         if (response.status === 403 && Array.isArray(result.forbidden) && result.forbidden.length) {
           const forbiddenIds = new Set(result.forbidden);
           const readyChanges = mutation.changes.filter((change) => !forbiddenIds.has(change.id));
@@ -201,6 +231,7 @@ export async function retrySync() {
     }
     announce(conflictCount() ? '检测到同步冲突，请选择保留本机修改或采用云端版本' : '');
     await refresh(true);
+    if (jdRejected) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
     drainCompleted = true;
   } catch (error) { announce(error instanceof Error ? error.message : '保存失败，请重试'); }
   finally {
@@ -280,13 +311,18 @@ export async function resolveSyncConflicts(strategy: 'local' | 'remote') {
   await retrySync();
 }
 export function syncPush(type: DataType, data: unknown[], before?: unknown[]) {
+  if (type === 'jds' && jdEpoch === undefined) {
+    announce('岗位库尚未读取完成，请稍后再编辑');
+    void refresh(true);
+    return;
+  }
   const baseline = (before || observed[type]) as SyncRecord[] | undefined;
   if (!baseline) { announce('云端尚未读取完成，请稍后再保存'); return; }
   const changes = diffRecords(baseline, data as SyncRecord[]);
   observed[type] = data as SyncRecord[];
   if (!changes.length) return;
   editGeneration++;
-  const mutation = { id: crypto.randomUUID(), type, changes, createdAt: Math.max(Date.now(), (pending.at(-1)?.createdAt || 0) + 1) };
+  const mutation = { id: crypto.randomUUID(), type, changes, ...(type === 'jds' ? { jdEpoch } : {}), createdAt: Math.max(Date.now(), (pending.at(-1)?.createdAt || 0) + 1) };
   pending.push(mutation);
   persistMutation(mutation); void retrySync();
 }
@@ -298,7 +334,8 @@ export function startSync(handler: ChangeHandler, initialTypes: DataType[] = TYP
       .map((key) => JSON.parse(localStorage.getItem(key)!)).sort((a, b) => a.createdAt - b.createdAt);
   }
   catch { announce('本机待同步记录无法读取，请勿清除浏览器数据'); }
-  void (pending.length ? retrySync() : refresh(true));
+  if (pending.some((item) => item.type === 'jds')) requestedTypes.add('jds');
+  void refresh(true).then(() => { if (pending.length) void retrySync(); });
   timer = setInterval(() => { void refresh(); }, 30_000);
   window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', onVisible);
@@ -322,6 +359,54 @@ export function stopSync() {
   loadedVersions = {};
   refreshQueued = false;
   remoteVersion = -1;
+  jdEpoch = undefined;
+}
+
+export interface JDImportSnapshot { jds: JD[]; revision: string; epoch: string }
+export async function readJDImportSnapshot(): Promise<JDImportSnapshot> {
+  if (busy || jdReplacing || pending.some((item) => item.type === 'jds')) {
+    throw new Error('还有岗位修改正在保存或等待处理，请完成同步后再导入');
+  }
+  const response = await fetch('/api/sync/jds', { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+  const result = await response.json();
+  if (!response.ok || !Array.isArray(result.jds) || typeof result.revision !== 'string' || typeof result.epoch !== 'string') {
+    throw new Error(result.error || '读取云端岗位失败，已停止覆盖');
+  }
+  return result;
+}
+
+export async function replaceSyncedJDs(snapshot: JDImportSnapshot, jds: JD[], apply: (saved: JD[]) => void): Promise<JD[]> {
+  if (busy || jdReplacing || pending.some((item) => item.type === 'jds')) {
+    throw new Error('导入期间有岗位编辑尚未保存，请完成同步后重新导入');
+  }
+  jdReplacing = true;
+  editGeneration++;
+  const payload = JSON.stringify({ jds, revision: snapshot.revision, epoch: snapshot.epoch, mutationId: crypto.randomUUID() });
+  try {
+    // 响应丢失时使用同一回执重试，不能重复覆盖后来的修改。
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let response: Response;
+      try {
+        response = await fetch('/api/sync/jds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, signal: AbortSignal.timeout(30_000) });
+      } catch (error) {
+        if (attempt === 0) continue;
+        throw error;
+      }
+      const result = await response.json();
+      if (!response.ok) {
+        if (response.status === 503 && attempt === 0) continue;
+        throw new Error(result.error || '云端未确认保存，请重试');
+      }
+      if (!result.ok || typeof result.epoch !== 'string' || !Array.isArray(result.jds)) throw new Error('云端保存结果无效');
+      jdEpoch = result.epoch;
+      applyRemoteStoreUpdate('jds', () => { apply(result.jds); return result.jds; });
+      return result.jds;
+    }
+    throw new Error('未能确认云端保存，请重试');
+  } finally {
+    jdReplacing = false;
+    void retrySync();
+  }
 }
 async function sideWrite(key: string, value: unknown) {
   const response = await fetch('/api/sync/write', { method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -4,7 +4,7 @@ import { permittedOwners, requireApiSession } from '@/lib/auth-api';
 import { filterAccessibleRecords } from '@/lib/data-ownership';
 export const dynamic = 'force-dynamic';
 const KEYS: Record<string, string> = Object.fromEntries([
-  'jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance', 'version', 'tombstones', 'last-import-diff', 'weekly-added',
+  'jds', 'jds-epoch', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance', 'version', 'tombstones', 'last-import-diff', 'weekly-added',
 ].map((key) => [key, `recruit:${key}`]));
 export async function GET(request: NextRequest) {
   const unauthorized = await requireApiSession(request);

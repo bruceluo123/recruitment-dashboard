@@ -4,7 +4,8 @@
 
 import type { JD } from '@/types/jd';
 import { fetchTgPriority, normalizeTitle } from '@/lib/tg-priority';
-import { kvGet, kvSet, SYNC_KEYS } from '@/lib/kv';
+import { SYNC_KEYS } from '@/lib/kv';
+import { kvCommandStrict, kvTransaction } from '@/lib/kv-server';
 
 export interface TgSyncSummary {
   ok: boolean;
@@ -18,12 +19,9 @@ export interface TgSyncSummary {
 
 function safeParseArray(raw: string | null): JD[] {
   if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as JD[]) : [];
-  } catch {
-    return [];
-  }
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('岗位数据异常，已停止同步');
+  return parsed as JD[];
 }
 
 /**
@@ -38,7 +36,7 @@ export async function runTgSync(): Promise<TgSyncSummary> {
   const { gapMap, totalEntries, messageCount } = await fetchTgPriority();
 
   // 2. 读取当前 KV 数据
-  const rawJds = await kvGet<string>(SYNC_KEYS.jds);
+  const rawJds = await kvCommandStrict<string | null>('GET', SYNC_KEYS.jds);
   const existing = safeParseArray(rawJds);
 
   // 3. 应用缺口更新
@@ -58,12 +56,13 @@ export async function runTgSync(): Promise<TgSyncSummary> {
     return { ok: true, updated: 0, tgEntries: totalEntries, messages: messageCount, total: next.length };
   }
 
-  const wrote = await kvSet(SYNC_KEYS.jds, next);
-  if (!wrote) throw new Error('写入 KV 失败');
-
-  const rawVer = await kvGet<string>(SYNC_KEYS.version);
-  const version = (parseInt(rawVer || '0') || 0) + 1;
-  await kvSet(SYNC_KEYS.version, version);
+  const committed = await kvTransaction({
+    expected: [{ key: SYNC_KEYS.jds, exists: rawJds !== null, ...(rawJds !== null ? { value: rawJds } : {}) }],
+    writes: [{ key: SYNC_KEYS.jds, value: JSON.stringify(next) }],
+    increments: [SYNC_KEYS.version],
+  });
+  if (!committed.ok) throw new Error('岗位库已更新，本轮缺口同步已取消，请重试');
+  const version = committed.increments?.[SYNC_KEYS.version];
 
   return { ok: true, updated, tgEntries: totalEntries, messages: messageCount, total: next.length, version };
 }

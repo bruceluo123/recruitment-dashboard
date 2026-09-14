@@ -107,6 +107,11 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
         </div>
 
         <div className="p-6 space-y-4">
+          {isImporting && progress.status === 'saving' && (
+            <div className="flex items-center justify-center gap-3 py-4 text-sm text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin" />正在保存到云端，请稍候…
+            </div>
+          )}
           {/* Progress bar */}
           {isImporting && progress.status === 'parsing' && (
             <div className="space-y-2">
@@ -173,7 +178,7 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
                     }
                   }}
                   rows={8}
-                  placeholder="在需求汇总面板里全选（Ctrl+A）整页表格，Ctrl+C 复制，然后在此处 Ctrl+V 粘贴。每页粘一次、可多页累加，重复内容自动去重。"
+                  placeholder="在需求汇总面板中复制完整表格，在此粘贴。覆盖模式请一次粘贴完整面板；分批追加请关闭覆盖模式。"
                   className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-xs font-mono leading-relaxed focus:outline-none focus:border-indigo-300 transition-all resize-y"
                 />
                 <p className="text-xs text-gray-400 mt-1.5">

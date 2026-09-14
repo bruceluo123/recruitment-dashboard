@@ -5,15 +5,8 @@ import { kvGetRaw, kvTransaction } from '@/lib/kv-server';
 
 export const dynamic = 'force-dynamic';
 
-const TYPES = new Set(['jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance']);
-
-function updatedAt(value: unknown): number {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
-  const raw = (value as { updatedAt?: unknown }).updatedAt;
-  if (typeof raw !== 'string') return 0;
-  const timestamp = Date.parse(raw);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
+// JD 的本机缓存只能读取云端，绝不能通过初始化恢复成为新增岗位。
+const TYPES = new Set(['candidates', 'talents', 'repush', 'todos', 'companies', 'performance']);
 
 export async function POST(request: NextRequest) {
   const unauthorized = await requireMutationSession(request);
@@ -39,12 +32,7 @@ export async function POST(request: NextRequest) {
         const incoming = new Map(rows.map((row) => [(row as { id: string }).id, row]));
         let changed = 0;
         const merged = current.map((row) => {
-          const local = incoming.get(row.id);
           incoming.delete(row.id);
-          if (type === 'jds' && local && updatedAt(local) > updatedAt(row)) {
-            changed++;
-            return local;
-          }
           return row;
         });
         const additions = Array.from(incoming.values());

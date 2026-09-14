@@ -26,11 +26,12 @@ export async function POST(request: NextRequest) {
   const blocked = hasValidServiceToken(request) ? null : guardApi(request, 'sync-records', 120, 60_000);
   if (blocked) return blocked;
   try {
-    const { type, mutationId, changes, resolution } = await request.json() as {
+    const { type, mutationId, changes, resolution, jdEpoch } = await request.json() as {
       type: string;
       mutationId: string;
       changes: RecordChange[];
       resolution?: 'local';
+      jdEpoch?: string;
     };
     if (!TYPES.has(type) || !/^[a-zA-Z0-9-]{8,80}$/.test(mutationId || '')
       || (resolution !== undefined && resolution !== 'local')
@@ -42,9 +43,13 @@ export async function POST(request: NextRequest) {
     const key = `recruit:${type}`, receipt = `recruit:mutation:${mutationId}`;
     for (let attempt = 0; attempt < 3; attempt++) {
       if (await kvCommandStrict<number>('EXISTS', receipt)) return NextResponse.json({ ok: true });
-      const [raw, tombRaw] = await Promise.all([
+      const [raw, tombRaw, epochRaw] = await Promise.all([
         kvCommandStrict<string | null>('GET', key), kvCommandStrict<string | null>('GET', 'recruit:tombstones'),
+        type === 'jds' ? kvCommandStrict<string | null>('GET', 'recruit:jds-epoch') : Promise.resolve(null),
       ]);
+      if (type === 'jds' && jdEpoch !== (epochRaw || '0')) {
+        return NextResponse.json({ code: 'JD_SNAPSHOT_EXPIRED', error: '岗位库已更新，旧版本修改已拦截，请采用云端最新岗位' }, { status: 409 });
+      }
       const current = raw ? JSON.parse(raw) : [];
       if (!Array.isArray(current)) throw new Error('远端数据格式异常，已停止保存');
       const currentById = new Map(current.map((record: SyncRecord) => [record.id, record]));
@@ -78,21 +83,25 @@ export async function POST(request: NextRequest) {
         }
       }
       const tombstones = tombRaw ? JSON.parse(tombRaw) : {};
-      const resurrected = resolution === 'local'
+      const resurrected = resolution === 'local' && type !== 'jds'
         ? []
         : changes.filter((change) => change.after && tombstones[type]?.[change.id]).map((change) => change.id);
       const result = applyRecordChanges(current, changes);
+      if (type === 'jds' && resurrected.length) {
+        return NextResponse.json({ code: 'JD_SNAPSHOT_EXPIRED', error: '已拦截被移除岗位的恢复，请通过新的完整面板导入恢复在招岗位' }, { status: 409 });
+      }
       const conflicts = Array.from(new Set([...resurrected, ...result.conflicts]));
       if (conflicts.length) return NextResponse.json({ error: '其他设备已修改这些记录，本次修改已保留，请核对后再保存', conflicts }, { status: 409 });
       for (const change of changes) if (!change.after) {
         tombstones[type] ||= {};
         tombstones[type][change.id] = Date.now();
       }
-      if (resolution === 'local' && tombstones[type]) {
+      if (resolution === 'local' && type !== 'jds' && tombstones[type]) {
         for (const change of changes) if (change.after) delete tombstones[type][change.id];
       }
       const committed = await kvTransaction({
         expected: [
+          ...(type === 'jds' ? [{ key: 'recruit:jds-epoch', exists: epochRaw !== null, ...(epochRaw !== null ? { value: epochRaw } : {}) }] : []),
           { key, exists: Boolean(raw), ...(raw ? { value: raw } : {}) },
           { key: 'recruit:tombstones', exists: Boolean(tombRaw), ...(tombRaw ? { value: tombRaw } : {}) },
           { key: receipt, exists: false },
