@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { JD, JDFilter, JDCategory, JDImportResult, JDDiffItem, JDStatus, WeeklyAdded } from '@/types/jd';
@@ -212,7 +213,6 @@ export const useJDStore = create<JDStore>()(
           const buf = await file.arrayBuffer();
           if (!buf?.byteLength) { set({ isImporting: false }); return { success: 0, failed: 0, errors: ['文件为空'] }; }
 
-          const XLSX = await import('xlsx');
           const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
           if (!wb.SheetNames?.length) { set({ isImporting: false }); return { success: 0, failed: 0, errors: ['无工作表'] }; }
 

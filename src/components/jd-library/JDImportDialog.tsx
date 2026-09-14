@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { X, Upload, Link, FileSpreadsheet, AlertCircle, Check, Loader2, FileText, ClipboardPaste } from 'lucide-react';
 import { useJDStore } from '@/store/jd-store';
 import type { JDImportResult } from '@/types/jd';
@@ -50,7 +51,6 @@ export function JDImportDialog({ isOpen, onClose }: JDImportDialogProps) {
       const blob = await res.blob();
       if (blob.type.startsWith('text/')) {
         const text = await blob.text();
-        const XLSX = await import('xlsx');
         const ws = XLSX.utils.json_to_sheet([{ '岗位名称': '', '岗位内容': text }]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');

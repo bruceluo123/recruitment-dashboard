@@ -1,4 +1,6 @@
 // ─── 需求面板「竖排复制」格式还原 ───
+import * as XLSX from 'xlsx';
+
 // 该面板禁用导出，复制下来是「每个单元格独占一行、空行分隔」的竖排文本：
 //   - 每个非空单元格值占一行，后跟 1 个空行作分隔
 //   - 空单元格 = 多一个空行（连续 N 个空行 = 1 个分隔符 + (N-1) 个空单元格）
@@ -137,7 +139,6 @@ export function parsePastedTable(plain: string, html?: string): string[][] {
 
 /** 把还原出的二维表格写成 xlsx File，交给 importFromExcel 走统一的列解析/去重管线。 */
 export async function pastedRowsToFile(rows: string[][], fileName = 'pasted-table.xlsx'): Promise<File> {
-  const XLSX = await import('xlsx');
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
