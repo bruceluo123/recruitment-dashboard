@@ -36,7 +36,6 @@ export function JDLibraryPage() {
   const [serviceFilter, setServiceFilter] = useState<Set<string>>(new Set());
   const [gapOnly, setGapOnly] = useState(false);
   const [rawJDText, setRawJDText] = useState('');
-  const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [tgSyncing, setTgSyncing] = useState(false);
   const [addForm, setAddForm] = useState({ title: '', department: '', responsibilities: '', requirements: '', categories: [] as string[], location: 'remote', salary: '' });
@@ -148,31 +147,6 @@ export function JDLibraryPage() {
     setBatchMode(false);
   };
 
-  const handleSync = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    setSyncMsg('同步中…');
-    try {
-      const res = await fetch('/api/sync/google-run', { method: 'POST' });
-      const data = await res.json();
-      if (data.ok) {
-        const parts = [
-          data.added ? `新增 ${data.added}` : '',
-          data.updated ? `更新 ${data.updated}` : '',
-          (data.closed || data.deleted) ? `暂停 ${data.closed || data.deleted}` : '',
-        ].filter(Boolean);
-        setSyncMsg(parts.length ? `同步完成：${parts.join(' · ')}（共 ${data.total}）` : `已是最新（共 ${data.total}）`);
-      } else {
-        setSyncMsg(`同步失败：${data.error || '未知错误'}`);
-      }
-    } catch (err) {
-      setSyncMsg(`同步失败：${(err as Error).message}`);
-    } finally {
-      setSyncing(false);
-      setTimeout(() => setSyncMsg(''), 8000);
-    }
-  };
-
   const handleTgSync = async () => {
     if (tgSyncing) return;
     setTgSyncing(true);
@@ -256,7 +230,6 @@ export function JDLibraryPage() {
           <button onClick={() => setRecycleOpen(true)} className="text-gray-500 hover:text-gray-700 underline text-xs">回收站</button> ·{' '}
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
           <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}
-          <button onClick={handleSync} disabled={syncing} className="text-blue-600 hover:text-blue-700 underline text-xs disabled:opacity-50">{syncing ? '同步中…' : '立即同步源表'}</button> ·{' '}
           <button onClick={handleTgSync} disabled={tgSyncing} className="text-orange-600 hover:text-orange-700 underline text-xs disabled:opacity-50">{tgSyncing ? '同步中…' : '同步 TG 缺口'}</button> ·{' '}
           <button onClick={() => { if (window.confirm(`确定要清空全部 ${jds.length} 个岗位吗？此操作不可撤销。`)) { deleteJDBatch(jds.map((j) => j.id)); } }} className="text-red-600 hover:text-red-700 underline text-xs font-medium">清空全部</button>
         </p>
