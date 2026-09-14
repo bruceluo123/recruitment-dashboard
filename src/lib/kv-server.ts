@@ -70,7 +70,7 @@ export async function kvFindRepushRecords(args: {
   const candidateCodes = Array.from(new Set(args.candidateCodes.map((id) => id.trim().toLowerCase()).filter(Boolean)));
   const candidateIdentityIds = Array.from(new Set(args.candidateIdentityIds.map((id) => id.trim().toLowerCase()).filter(Boolean)));
   const resumeUrls = Array.from(new Set(args.resumeUrls.map((url) => url.trim()).filter(Boolean)));
-  if (!sourceIds.length && (!resumeUrls.length || (!candidateCodes.length && !candidateIdentityIds.length))) return [];
+  if (!sourceIds.length && !resumeUrls.length) return [];
   if (supabaseConfigured()) {
     const records = await supabaseRpc<unknown>(
       'recruit_repush_lookup',

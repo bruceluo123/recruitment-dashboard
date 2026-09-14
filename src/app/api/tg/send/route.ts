@@ -279,27 +279,32 @@ async function repushResumeError(
     const sourceId = cleanText(application.repushSourceId, 240);
     const candidateCode = cleanText(application.candidateCode, 80).toLowerCase();
     const candidateIdentityId = cleanText(application.candidateIdentityId, 300).toLowerCase();
+    const candidateName = cleanText(application.candidateName, 200).toLowerCase();
+    const resumeFileName = cleanText(application.resumeFileName, 180).toLowerCase();
     const source = sourceById.get(sourceId) || records.find((record) => (
       record.column === sender
       && cleanText(record.resumeUrl, 1000) === fileUrl
       && (
         Boolean(candidateCode) && cleanText(record.candidateCode, 80).toLowerCase() === candidateCode
         || Boolean(candidateIdentityId) && cleanText(record.candidateIdentityId, 300).toLowerCase() === candidateIdentityId
+        || Boolean(candidateName) && candidateName === cleanText(record.candidateName, 200).toLowerCase()
+          && Boolean(resumeFileName)
+          && resumeFileName === cleanText(record.resumeFileName || record.fileName, 180).toLowerCase()
       )
     ));
     if (!sourceId || !source || source.column !== sender) return '复推来源无法核对，已停止发送，请刷新后重试';
 
-    const candidateName = cleanText(application.candidateName, 200);
-    const resumeFileName = cleanText(application.resumeFileName, 180);
-    const sourceCandidateName = cleanText(source.candidateName, 200) || candidateName;
+    const originalCandidateName = cleanText(application.candidateName, 200);
+    const originalResumeFileName = cleanText(application.resumeFileName, 180);
+    const sourceCandidateName = cleanText(source.candidateName, 200) || originalCandidateName;
     const sourceResumeFileName = cleanText(source.resumeFileName || source.fileName, 180);
-    if (!sameOptionalValue(candidateName, source.candidateName)
+    if (!sameOptionalValue(originalCandidateName, source.candidateName)
       || !sameOptionalValue(application.candidateCode, source.candidateCode)
       || !sameOptionalValue(application.candidateIdentityId, source.candidateIdentityId)
       || cleanText(source.resumeUrl, 1000) !== fileUrl
-      || !sameOptionalValue(resumeFileName, sourceResumeFileName)
+      || !sameOptionalValue(originalResumeFileName, sourceResumeFileName)
       || !resumeFileMatchesCandidate(sourceCandidateName, sourceResumeFileName)) {
-      return `${candidateName || '该候选人'}的身份与简历文件不一致，已停止发送，请先核对简历`;
+      return `${originalCandidateName || '该候选人'}的身份与简历文件不一致，已停止发送，请先核对简历`;
     }
   }
   return '';

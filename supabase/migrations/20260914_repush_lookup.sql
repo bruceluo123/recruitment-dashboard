@@ -23,10 +23,6 @@ as $$
       item->>'id' = any(p_source_ids)
       or (
         item->>'resumeUrl' = any(p_resume_urls)
-        and (
-          lower(item->>'candidateCode') = any(p_candidate_codes)
-          or lower(item->>'candidateIdentityId') = any(p_candidate_identity_ids)
-        )
       )
     );
 $$;
