@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 把「人才录入」结果直接写入企鹅求职岛系统的人才库（Upstash KV）。
-// 系统是唯一数据源；本脚本走浏览器同款的 KV REST 直连读-改-写 + 版本号自增，
-// 与 src/lib/sync.ts 的合并策略一致：按姓名 upsert、绝不整组覆盖，避免抹掉别人新增。
+// 系统是唯一数据源；本脚本按姓名 upsert，并用 KV CAS 与版本自增原子提交；
+// 快照已变化时拒绝覆盖，由调用方基于最新数据重试。
 //
 // 供 zz-hunteragent-talent-entry skill 在整理好人选信息后调用：
 //   node scripts/skill-bridge/write-talent-to-system.mjs --file talent.json
@@ -36,9 +36,10 @@
 //   }
 // }
 
-const KV_URL = process.env.RECRUIT_KV_URL || 'https://positive-mongrel-70521.upstash.io';
-const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
+const KV_URL = process.env.RECRUIT_KV_URL || '';
+const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || '';
 const APP_URL = (process.env.RECRUIT_APP_URL || 'https://qieqiuzhidao.vercel.app').replace(/\/$/, '');
+const APP_SERVICE_TOKEN = process.env.RECRUIT_SERVICE_TOKEN || process.env.SERVICE_API_TOKEN || '';
 const TALENTS_KEY = 'recruit:talents';
 const VERSION_KEY = 'recruit:version';
 const TALENT_TEXT_PREFIX = 'recruit:talent-text:';
@@ -56,13 +57,16 @@ async function kvGet(key) {
   return data.result;
 }
 
-async function kvSet(key, value) {
-  const res = await fetch(`${KV_URL}/set/${encodeURIComponent(key)}`, {
+async function kvEval(script, keys, args) {
+  const res = await fetch(KV_URL, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'text/plain' },
-    body: value,
+    headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(['EVAL', script, keys.length, ...keys, ...args]),
   });
-  if (!res.ok) throw new Error(`KV set ${key} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`KV transaction failed: ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`KV transaction failed: ${data.error}`);
+  return data.result;
 }
 
 // 干净字符串：trim 后为空则返回 undefined（避免写入空串）
@@ -86,13 +90,18 @@ function buildLinks(raw) {
 
 // 上传本地简历文件到系统的 /api/talent/upload（Vercel Blob），返回 { url, fileName }
 async function uploadResume(filePath) {
+  if (!APP_SERVICE_TOKEN) throw new Error('缺少 RECRUIT_SERVICE_TOKEN，无法通过登录边界上传简历');
   const fs = await import('node:fs/promises');
   const path = await import('node:path');
   const buf = await fs.readFile(filePath);
   const fileName = path.basename(filePath);
   const fd = new FormData();
   fd.append('file', new Blob([buf]), fileName);
-  const res = await fetch(`${APP_URL}/api/talent/upload`, { method: 'POST', body: fd });
+  const res = await fetch(`${APP_URL}/api/talent/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${APP_SERVICE_TOKEN}` },
+    body: fd,
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data?.url) throw new Error(`简历上传失败：${data?.error || res.status}`);
   return { url: data.downloadUrl || data.url, fileName: data.fileName || fileName };
@@ -110,6 +119,9 @@ async function readPayload() {
 }
 
 async function main() {
+  if (!KV_URL || !KV_TOKEN) {
+    throw new Error('缺少 RECRUIT_KV_URL 或 RECRUIT_KV_TOKEN，已拒绝使用源码内置凭据');
+  }
   const payload = await readPayload();
   if (!payload || !payload.name || !String(payload.name).trim()) {
     console.error('错误：缺少姓名 name');
@@ -120,8 +132,8 @@ async function main() {
 
   const raw = await kvGet(TALENTS_KEY);
   let list = [];
-  try { list = raw ? JSON.parse(raw) : []; } catch { list = []; }
-  if (!Array.isArray(list)) list = [];
+  try { list = raw ? JSON.parse(raw) : []; } catch { throw new Error('人才库数据格式异常，已停止写入'); }
+  if (!Array.isArray(list)) throw new Error('人才库数据格式异常，已停止写入');
 
   const idx = list.findIndex((t) => t && String(t.name || '').trim() === name);
   const targetId = idx !== -1 && list[idx].id ? list[idx].id : genId();
@@ -190,7 +202,6 @@ async function main() {
   // 简历正文：写入独立 KV 文字键，并在列表项标记已扫描 + 字数
   const resumeText = typeof payload.resumeText === 'string' ? payload.resumeText : '';
   if (resumeText.trim()) {
-    await kvSet(`${TALENT_TEXT_PREFIX}${targetId}`, resumeText);
     fields.hasResumeText = true;
     fields.resumeChars = resumeText.replace(/\s+/g, '').length;
   }
@@ -212,13 +223,19 @@ async function main() {
     action = '新建';
   }
 
-  await kvSet(TALENTS_KEY, JSON.stringify(list));
+  const textKey = `${TALENT_TEXT_PREFIX}${targetId}`;
+  const keys = resumeText.trim() ? [TALENTS_KEY, VERSION_KEY, textKey] : [TALENTS_KEY, VERSION_KEY];
+  const [committed, v] = await kvEval(`
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then
+  return {0, tonumber(redis.call('GET', KEYS[2]) or '0')}
+end
+redis.call('SET', KEYS[1], ARGV[2])
+if KEYS[3] then redis.call('SET', KEYS[3], ARGV[3]) end
+local version = redis.call('INCR', KEYS[2])
+return {1, version}`, keys, [raw || '', JSON.stringify(list), ...(resumeText.trim() ? [resumeText] : [])]);
+  if (Number(committed) !== 1) throw new Error('人才库在写入期间已更新，本轮未覆盖；请重试');
 
-  const rawV = await kvGet(VERSION_KEY);
-  const v = (parseInt(rawV || '0', 10) || 0) + 1;
-  await kvSet(VERSION_KEY, String(v));
-
-  console.log(`✅ 已${action}人选「${name}」到系统人才库（version=${v}，共 ${list.length} 人）`);
+  console.log(`✅ 已${action}人选「${name}」到系统人才库（version=${Number(v)}，共 ${list.length} 人）`);
   console.log('   打开 https://qieqiuzhidao.vercel.app/talent-pool 查看');
 }
 

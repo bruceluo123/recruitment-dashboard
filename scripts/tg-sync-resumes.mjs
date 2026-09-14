@@ -1,25 +1,133 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { put } from '@vercel/blob';
 
 const ROOT = process.cwd();
-const ENV_PATH = path.join(ROOT, '.env.local');
+const CODE_PREFIXES = {
+  a: 'XYMMF00',
+  b: 'XYBB00',
+};
+const IMPORT_COMMIT_SCRIPT = `
+local snapshotCount = tonumber(ARGV[1])
+local candidateEntries = cjson.decode(ARGV[2 + snapshotCount * 2])
+local versionKey = KEYS[snapshotCount + 1]
+local usedKey = KEYS[snapshotCount + 2]
+local sequenceKey = KEYS[snapshotCount + 3]
+local identitiesKey = KEYS[snapshotCount + 4]
+local identityNamesKey = KEYS[snapshotCount + 5]
+
+local function keyType(key)
+  local result = redis.call('TYPE', key)
+  if type(result) == 'table' then return result.ok end
+  return result
+end
+
+local usedType = keyType(usedKey)
+if usedType ~= 'none' and usedType ~= 'set' then
+  return redis.error_reply('candidate code used key has invalid type')
+end
+local identitiesType = keyType(identitiesKey)
+if identitiesType ~= 'none' and identitiesType ~= 'hash' then
+  return redis.error_reply('candidate code identities key has invalid type')
+end
+local identityNamesType = keyType(identityNamesKey)
+if identityNamesType ~= 'none' and identityNamesType ~= 'hash' then
+  return redis.error_reply('candidate code identity names key has invalid type')
+end
+local sequenceRaw = redis.call('GET', sequenceKey)
+if sequenceRaw and not string.match(sequenceRaw, '^%d+$') then
+  return redis.error_reply('candidate code sequence is invalid')
+end
+local sequence = tonumber(sequenceRaw or '0')
+if not sequence then return redis.error_reply('candidate code sequence is invalid') end
+local versionRaw = redis.call('GET', versionKey)
+if versionRaw and not string.match(versionRaw, '^%d+$') then return redis.error_reply('version is invalid') end
+
+local identityUpdates = {}
+local identityNameUpdates = {}
+local identityConflicts = {}
+local maximum = sequence
+for _, entry in ipairs(candidateEntries) do
+  local code = tostring(entry[1] or '')
+  local suffix = tonumber(entry[2]) or 0
+  local candidateIdentityId = tostring(entry[3] or '')
+  local identityName = tostring(entry[4] or '')
+  if suffix < 1 or suffix > 999999999 then return redis.error_reply('candidate code suffix is out of range') end
+  if suffix > maximum then maximum = suffix end
+  local used = redis.call('SISMEMBER', usedKey, code)
+  local knownTalentId = redis.call('HGET', identitiesKey, code)
+  local knownName = redis.call('HGET', identityNamesKey, code)
+  -- Before this registry existed, identities stored normalized names.  A matching
+  -- legacy value can be promoted to the stable talent id in this same CAS.
+  local legacyName = knownTalentId and knownTalentId == identityName
+  local identityMismatch = knownTalentId and not legacyName and knownTalentId ~= candidateIdentityId
+  local nameMismatch = knownName and knownName ~= identityName
+  local duplicateMismatch = (identityUpdates[code] and identityUpdates[code] ~= candidateIdentityId)
+    or (identityNameUpdates[code] and identityNameUpdates[code] ~= identityName)
+  if candidateIdentityId == ''
+    or identityName == ''
+    or candidateIdentityId == '!conflict'
+    or identityName == '!conflict'
+    or knownTalentId == '!conflict'
+    or knownName == '!conflict'
+    or identityMismatch
+    or nameMismatch
+    or duplicateMismatch
+    or (used == 1 and not knownTalentId) then
+    table.insert(identityConflicts, code)
+  else
+    identityUpdates[code] = candidateIdentityId
+    identityNameUpdates[code] = identityName
+  end
+end
+
+for index = 1, snapshotCount do
+  local expectedHash = ARGV[1 + index]
+  local current = redis.call('GET', KEYS[index]) or ''
+  if redis.sha1hex(current) ~= expectedHash then return {0, index} end
+end
+if #identityConflicts > 0 then
+  return {-1, identityConflicts[1]}
+end
+for index = 1, snapshotCount do
+  redis.call('SET', KEYS[index], ARGV[1 + snapshotCount + index])
+end
+for _, entry in ipairs(candidateEntries) do
+  local code = tostring(entry[1] or '')
+  redis.call('SADD', usedKey, code)
+  if identityUpdates[code] then
+    redis.call('HSET', identitiesKey, code, identityUpdates[code])
+    redis.call('HSET', identityNamesKey, code, identityNameUpdates[code])
+  end
+end
+if maximum > sequence then redis.call('SET', sequenceKey, tostring(maximum)) end
+local version = redis.call('INCR', versionKey)
+return {1, version}
+`;
+const EMPTY_RUN_COMMIT_SCRIPT = `
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return {0, 1} end
+if (redis.call('GET', KEYS[2]) or '') ~= ARGV[3] then return {0, 2} end
+redis.call('SET', KEYS[1], ARGV[2])
+return {1, 0}
+`;
 
 function loadEnv() {
-  if (!fs.existsSync(ENV_PATH)) return;
-  const raw = fs.readFileSync(ENV_PATH, 'utf8');
-  for (const line of raw.split(/\r?\n/)) {
-    const m = line.match(/^\s*([^#][^=]+)=\s*(.*)\s*$/);
-    if (!m) continue;
-    const key = m[1].trim();
-    let value = m[2].trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
+  for (const fileName of ['.env.local', '.env.supabase.local']) {
+    const envPath = path.join(ROOT, fileName);
+    if (!fs.existsSync(envPath)) continue;
+    const raw = fs.readFileSync(envPath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const m = line.match(/^\s*([^#][^=]+)=\s*(.*)\s*$/);
+      if (!m) continue;
+      const key = m[1].trim();
+      let value = m[2].trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+      if (!process.env[key]) process.env[key] = value;
     }
-    if (!process.env[key]) process.env[key] = value;
   }
 }
 
@@ -36,8 +144,71 @@ function clean(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function normalizeIdentity(value) {
+  return String(value || '').normalize('NFKC').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '');
+}
+
+function snapshotString(value, key) {
+  if (value == null) return '';
+  if (typeof value !== 'string') throw new Error(`KV ${key} is not a string snapshot`);
+  return value;
+}
+
+function parseArraySnapshot(raw, key) {
+  if (!raw) return [];
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error(`KV ${key} contains invalid JSON`);
+  }
+  if (!Array.isArray(value)) throw new Error(`KV ${key} must contain an array`);
+  return value;
+}
+
+function parseObjectSnapshot(raw, key) {
+  if (!raw) return {};
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error(`KV ${key} contains invalid JSON`);
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`KV ${key} must contain an object`);
+  }
+  return value;
+}
+
+function candidateSequenceSuffix(code, account) {
+  const match = String(code || '').toUpperCase().match(new RegExp(`^${CODE_PREFIXES[account]}(\\d{3,9})$`));
+  if (!match) throw new Error(`Candidate code format is out of range: ${code}`);
+  const suffix = Number.parseInt(match[1], 10);
+  if (!Number.isSafeInteger(suffix) || suffix < 1 || suffix > 999_999_999) {
+    throw new Error(`Candidate code suffix is out of range: ${code}`);
+  }
+  return String(suffix);
+}
+
+function recordImportedIdentity(identities, code, candidateIdentityId, name) {
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  const identityName = normalizeIdentity(name);
+  const known = identities.get(normalizedCode) || '';
+  const next = { candidateIdentityId: String(candidateIdentityId || ''), name: identityName };
+  if (!known) {
+    identities.set(normalizedCode, next);
+    return;
+  }
+  if (known === '!conflict' || known.candidateIdentityId !== next.candidateIdentityId || known.name !== next.name) {
+    identities.set(normalizedCode, '!conflict');
+  }
+}
+
 function shanghaiDayStart(day) {
-  return new Date(`${day}T00:00:00+08:00`);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return new Date(`${day}T00:00:00+08:00`);
+  const exact = new Date(day);
+  if (Number.isNaN(exact.getTime())) throw new Error(`Invalid --from/--to time: ${day}`);
+  return exact;
 }
 
 function shanghaiTodayKey() {
@@ -205,27 +376,132 @@ function localDateKey(iso) {
 }
 
 async function kvGet(key) {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const values = await supabaseReadRaw([key]);
+    return values[key] ?? null;
+  }
   const res = await fetch(`${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`, {
     headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
   });
   if (!res.ok) throw new Error(`KV get ${key} failed: ${res.status}`);
-  return (await res.json()).result;
+  const data = await res.json();
+  if (data.error) throw new Error(`KV get ${key} failed: ${data.error}`);
+  return data.result;
 }
 
-async function kvSet(key, value) {
-  const res = await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`, 'Content-Type': 'text/plain' },
-    body: value,
+async function kvHGet(key, field) {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const account = key.endsWith(':b') ? 'b' : 'a';
+    const stateRaw = await kvGet(`recruit:candidate-code:state:v1:${account}`);
+    const state = stateRaw ? JSON.parse(stateRaw) : { entries: {} };
+    const entry = state.entries?.[field];
+    return key.includes('identity-names') ? entry?.name ?? null : entry?.identity ?? null;
+  }
+  const res = await fetch(`${process.env.KV_REST_API_URL}/hget/${encodeURIComponent(key)}/${encodeURIComponent(field)}`, {
+    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
   });
-  if (!res.ok) throw new Error(`KV set ${key} failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(`KV hget ${key} failed: ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`KV hget ${key} failed: ${data.error}`);
+  return data.result;
+}
+
+async function kvEval(script, keys, args) {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (script === EMPTY_RUN_COMMIT_SCRIPT) {
+      const committed = await supabaseTx({
+        expected: [
+          { key: keys[0], exists: Boolean(args[0]), ...(args[0] ? { value: args[0] } : {}) },
+          { key: keys[1], exists: Boolean(args[2]), ...(args[2] ? { value: args[2] } : {}) },
+        ],
+        writes: [{ key: keys[0], value: args[1] }],
+      });
+      return committed.ok ? [1, 0] : [0, 1];
+    }
+    if (script === IMPORT_COMMIT_SCRIPT) return supabaseImportCommit(keys, args);
+    throw new Error('Unsupported Supabase resume-sync transaction');
+  }
+  const res = await fetch(process.env.KV_REST_API_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(['EVAL', script, keys.length, ...keys, ...args]),
+  });
+  if (!res.ok) throw new Error(`KV transaction failed: ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`KV transaction failed: ${data.error}`);
+  return data.result;
+}
+
+async function supabaseReadRaw(keys) {
+  const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+  const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_read`, {
+    method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_keys: keys }),
+  });
+  if (!response.ok) throw new Error(`Supabase read failed: ${response.status}`);
+  return response.json();
+}
+
+async function supabaseTx(payload) {
+  const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+  const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_tx`, {
+    method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_payload: payload }),
+  });
+  if (!response.ok) throw new Error(`Supabase transaction failed: ${response.status}`);
+  return response.json();
+}
+
+async function supabaseImportCommit(keys, args) {
+  const count = Number(args[0]);
+  const snapshotKeys = keys.slice(0, count);
+  const versionKey = keys[count];
+  const sequenceKey = keys[count + 2];
+  const account = keys[count + 3].endsWith(':b') ? 'b' : 'a';
+  const stateKey = `recruit:candidate-code:state:v1:${account}`;
+  const current = await supabaseReadRaw([...snapshotKeys, stateKey, sequenceKey]);
+  for (let index = 0; index < count; index += 1) {
+    const raw = current[snapshotKeys[index]] || '';
+    if (createHash('sha1').update(raw).digest('hex') !== args[1 + index]) return [0, index + 1];
+  }
+  const stateRaw = current[stateKey] || '';
+  const state = stateRaw ? JSON.parse(stateRaw) : { sequence: 0, entries: {} };
+  state.entries ||= {};
+  state.sequence = Math.max(0, Number(state.sequence) || 0, Number(current[sequenceKey]) || 0);
+  const candidateEntries = JSON.parse(args[1 + count * 2] || '[]');
+  for (const [code, suffixRaw, identity, name] of candidateEntries) {
+    const suffix = Number(suffixRaw);
+    const known = state.entries[code];
+    if (!identity || !name || identity === '!conflict' || name === '!conflict'
+      || (known && (known.identity !== identity || known.name !== name))) return [-1, code];
+    state.entries[code] = { identity, name };
+    state.sequence = Math.max(state.sequence, suffix);
+  }
+  const committed = await supabaseTx({
+    expected: [
+      ...snapshotKeys.map((key) => ({ key, exists: Boolean(current[key]), ...(current[key] ? { value: current[key] } : {}) })),
+      { key: stateKey, exists: Boolean(stateRaw), ...(stateRaw ? { value: stateRaw } : {}) },
+      { key: sequenceKey, exists: Boolean(current[sequenceKey]), ...(current[sequenceKey] ? { value: current[sequenceKey] } : {}) },
+    ],
+    writes: [
+      ...snapshotKeys.map((key, index) => ({ key, value: args[1 + count + index] })),
+      { key: stateKey, value: JSON.stringify(state) },
+      { key: sequenceKey, value: String(state.sequence) },
+    ],
+    increments: [versionKey],
+  });
+  return committed.ok ? [1, Number(committed.increments?.[versionKey] || 0)] : [0, 1];
 }
 
 async function parseResumeFromBlob(url, fileName) {
   const appUrl = (process.env.RECRUIT_APP_URL || 'https://qieqiuzhidao.vercel.app').replace(/\/$/, '');
+  const serviceToken = process.env.RECRUIT_SERVICE_TOKEN || process.env.SERVICE_API_TOKEN || '';
+  if (!serviceToken) throw new Error('RECRUIT_SERVICE_TOKEN is required for resume parsing');
   const res = await fetch(`${appUrl}/api/resume/parse`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${serviceToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ url, fileName }),
   });
   const data = await res.json().catch(() => ({}));
@@ -254,10 +530,16 @@ function findNearbyCodeMessage(messages, msg) {
 }
 
 async function collectTargets(client, from, to, limit, account) {
+  const requestedDialog = clean(arg('--dialog', '')).replace(/^@/, '').toLowerCase();
   const dialogs = await client.getDialogs({ limit: parseInt(arg('--dialog-limit', '500'), 10) });
   const groups = dialogs
     .filter((d) => {
       const title = String(d.title || d.name || '');
+      if (requestedDialog) {
+        const username = clean(d.entity?.username).replace(/^@/, '').toLowerCase();
+        const normalizedTitle = clean(d.title || d.name).replace(/^@/, '').toLowerCase();
+        return username === requestedDialog || normalizedTitle === requestedDialog;
+      }
       return shouldScanGroupTitle(title) || shouldScanPrivateDialog(d);
     })
     .map((d) => ({ id: String(d.id || ''), title: String(d.title || d.name || d.id || ''), entity: d.entity }));
@@ -315,8 +597,8 @@ async function main() {
   const dryRun = hasFlag('--dry-run');
   const write = hasFlag('--write');
   const limit = parseInt(arg('--limit', process.env.TG_SYNC_LIMIT || '180'), 10);
-  const stateRaw = await kvGet(stateKey).catch(() => '');
-  const state = stateRaw ? JSON.parse(stateRaw) : {};
+  const stateRaw = snapshotString(await kvGet(stateKey), stateKey);
+  const state = parseObjectSnapshot(stateRaw, stateKey);
   const fromArg = arg('--from', '');
   const toArg = arg('--to', '');
   const todayStart = shanghaiDayStart(shanghaiTodayKey());
@@ -330,7 +612,8 @@ async function main() {
 
   if (!dryRun && !write) throw new Error('Pass --dry-run to preview or --write to sync.');
   if (!apiId || !apiHash || !session) throw new Error(`Missing TG API env for account ${account}.`);
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) throw new Error('Missing KV env.');
+  if (!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+    && !(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)) throw new Error('Missing business storage env.');
   if (write && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Missing BLOB_READ_WRITE_TOKEN.');
 
   const proxy = parseProxy(process.env.TG_PROXY);
@@ -348,9 +631,8 @@ async function main() {
     if (dryRun) await client.disconnect();
   }
 
-  const ledgerRaw = await kvGet(ledgerKey).catch(() => '');
-  let ledger = ledgerRaw ? JSON.parse(ledgerRaw) : [];
-  if (!Array.isArray(ledger)) ledger = [];
+  const ledgerRaw = snapshotString(await kvGet(ledgerKey), ledgerKey);
+  const ledger = parseArraySnapshot(ledgerRaw, ledgerKey);
   // 文件已入库但正文解析失败时不能永久跳过；后续网络恢复后自动重试并补齐全文索引。
   const doneKeys = new Set(ledger.filter((row) => row.parsed !== false).map((row) => row.key));
   const pending = targets.filter((target) => !doneKeys.has(target.key));
@@ -374,14 +656,20 @@ async function main() {
     return;
   }
 
+  for (const target of pending) candidateSequenceSuffix(target.code, account);
+
   if (pending.length === 0) {
     try {
-      await kvSet(stateKey, JSON.stringify({
+      const nextState = JSON.stringify({
         lastScanAt: to.toISOString(),
         lastRunAt: new Date().toISOString(),
         lastFound: targets.length,
         lastImported: 0,
-      }));
+      });
+      const committed = await kvEval(EMPTY_RUN_COMMIT_SCRIPT, [stateKey, ledgerKey], [stateRaw, nextState, ledgerRaw]);
+      if (!Array.isArray(committed) || Number(committed[0]) !== 1) {
+        throw new Error('同步状态在扫描期间已更新，本轮未覆盖；下次任务会基于最新状态继续');
+      }
       console.log(JSON.stringify({
         from: from.toISOString(),
         to: to.toISOString(),
@@ -395,15 +683,38 @@ async function main() {
     return;
   }
 
-  const talents = JSON.parse((await kvGet('recruit:talents')) || '[]');
-  const repush = JSON.parse((await kvGet('recruit:repush')) || '[]');
-  const codeLedgerRaw = await kvGet('recruit:candidate-code-ledger').catch(() => '');
-  let codeLedger = codeLedgerRaw ? JSON.parse(codeLedgerRaw) : [];
-  if (!Array.isArray(codeLedger)) codeLedger = [];
+  const talentsKey = 'recruit:talents';
+  const repushKey = 'recruit:repush';
+  const codeLedgerKey = 'recruit:candidate-code-ledger';
+  const talentsRaw = snapshotString(await kvGet(talentsKey), talentsKey);
+  const repushRaw = snapshotString(await kvGet(repushKey), repushKey);
+  const codeLedgerRaw = snapshotString(await kvGet(codeLedgerKey), codeLedgerKey);
+  const talents = parseArraySnapshot(talentsRaw, talentsKey);
+  const repush = parseArraySnapshot(repushRaw, repushKey);
+  let codeLedger = parseArraySnapshot(codeLedgerRaw, codeLedgerKey);
 
   const byTalentCode = new Map(talents.filter((t) => t?.candidateCode).map((t) => [String(t.candidateCode).toUpperCase(), t]));
   const byCodeLedger = new Map(codeLedger.filter((x) => x?.code).map((x) => [String(x.code).toUpperCase(), x]));
+  const talentTextWrites = new Map();
+  const importedIdentities = new Map();
+  const identityRegistry = new Map();
+  const identitiesKey = `recruit:candidate-code:identities:${account}`;
+  const identityNamesKey = `recruit:candidate-code:identity-names:${account}`;
   const results = [];
+
+  async function candidateIdentityRegistryEntry(code) {
+    if (!identityRegistry.has(code)) {
+      const [candidateIdentityId, name] = await Promise.all([
+        kvHGet(identitiesKey, code),
+        kvHGet(identityNamesKey, code),
+      ]);
+      identityRegistry.set(code, {
+        candidateIdentityId: candidateIdentityId == null ? '' : String(candidateIdentityId),
+        name: name == null ? '' : String(name),
+      });
+    }
+    return identityRegistry.get(code);
+  }
 
   try {
     for (const target of pending) {
@@ -424,6 +735,7 @@ async function main() {
       const p = target.parsed;
       const code = target.code;
       const owner = code.includes('BB') ? 'BB' : 'MMF';
+      const knownName = byTalentCode.get(code)?.name || byCodeLedger.get(code)?.name || '';
       const name = p.name || target.fileName.replace(/\.(pdf|docx?)$/i, '').split(/[-_]/)[0] || code;
       const jobTitle = p.jobTitle || '';
       const orgDept = splitOrgDept(p.organization);
@@ -465,19 +777,37 @@ async function main() {
           updatedAt: now,
         });
       }
+      const identityName = normalizeIdentity(p.name || knownName || talent.name || name);
+      const registry = await candidateIdentityRegistryEntry(code);
+      const registryIdentityId = registry.name === identityName
+        && registry.candidateIdentityId
+        && registry.candidateIdentityId !== identityName
+        && registry.candidateIdentityId !== '!conflict'
+        ? registry.candidateIdentityId
+        : '';
+      const candidateIdentityId = talent.candidateIdentityId || registryIdentityId || talent.id;
+      talent.candidateIdentityId = candidateIdentityId;
+      recordImportedIdentity(importedIdentities, code, candidateIdentityId, identityName);
       if (resumeText) {
-        await kvSet(`recruit:talent-text:${talent.id}`, resumeText);
+        talentTextWrites.set(`recruit:talent-text:${talent.id}`, resumeText);
         talent.hasResumeText = true;
         talent.resumeChars = resumeText.replace(/\s+/g, '').length;
       }
 
       let rec = findExistingRecommendation(repush, code, jobTitle, target.date);
+      const deliveredMessageId = String(target.recommendationMessageId || target.messageId || '');
       if (rec) {
         Object.assign(rec, {
           resumeUrl: uploaded.url,
           resumeFileName: target.fileName,
           rawText: rawText.slice(0, 2000),
           talentId: talent.id,
+          candidateIdentityId,
+          applicationId: rec.applicationId || rec.id,
+          deliveryStatus: 'sent',
+          deliveryUpdatedAt: target.date,
+          telegramMessageId: deliveredMessageId || rec.telegramMessageId,
+          deliveredAt: target.date,
         });
       } else {
         rec = {
@@ -493,12 +823,18 @@ async function main() {
           resumeUrl: uploaded.url,
           resumeFileName: target.fileName,
           talentId: talent.id,
+          candidateIdentityId,
+          deliveryStatus: 'sent',
+          deliveryUpdatedAt: target.date,
+          telegramMessageId: deliveredMessageId || undefined,
+          deliveredAt: target.date,
           feedback: 'pending',
           interviewStatus: 'none',
           organization: orgDept.organization,
           department: orgDept.department,
           uploadedAt: target.date,
         };
+        rec.applicationId = rec.id;
         repush.push(rec);
       }
 
@@ -545,19 +881,53 @@ async function main() {
   }
 
   codeLedger = [...byCodeLedger.values()].sort((a, b) => String(a.code).localeCompare(String(b.code)));
-  await kvSet('recruit:talents', JSON.stringify(talents));
-  await kvSet('recruit:repush', JSON.stringify(repush));
-  await kvSet(ledgerKey, JSON.stringify(ledger.slice(-3000)));
-  await kvSet('recruit:candidate-code-ledger', JSON.stringify(codeLedger));
-  await kvSet(stateKey, JSON.stringify({
+  const talentTextSnapshots = await Promise.all(Array.from(talentTextWrites, async ([key, value]) => ({
+    key,
+    expected: snapshotString(await kvGet(key), key),
+    value,
+  })));
+  const nextState = JSON.stringify({
     lastScanAt: to.toISOString(),
     lastRunAt: new Date().toISOString(),
     lastFound: targets.length,
     lastImported: results.length,
-  }));
-  const rawVersion = await kvGet('recruit:version');
-  const version = (parseInt(rawVersion || '0', 10) || 0) + 1;
-  await kvSet('recruit:version', String(version));
+  });
+  const snapshots = [
+    { key: talentsKey, expected: talentsRaw, value: JSON.stringify(talents) },
+    { key: repushKey, expected: repushRaw, value: JSON.stringify(repush) },
+    { key: codeLedgerKey, expected: codeLedgerRaw, value: JSON.stringify(codeLedger) },
+    { key: ledgerKey, expected: ledgerRaw, value: JSON.stringify(ledger.slice(-3000)) },
+    { key: stateKey, expected: stateRaw, value: nextState },
+    ...talentTextSnapshots,
+  ];
+  const candidateEntries = Array.from(importedIdentities, ([code, identity]) => [
+    code,
+    candidateSequenceSuffix(code, account),
+    identity === '!conflict' ? '!conflict' : identity.candidateIdentityId,
+    identity === '!conflict' ? '!conflict' : identity.name,
+  ]);
+  const committed = await kvEval(IMPORT_COMMIT_SCRIPT, [
+    ...snapshots.map((snapshot) => snapshot.key),
+    'recruit:version',
+    `recruit:candidate-code:used:${account}`,
+    `recruit:candidate-code:sequence:${account}`,
+    identitiesKey,
+    identityNamesKey,
+  ], [
+    String(snapshots.length),
+    ...snapshots.map((snapshot) => createHash('sha1').update(snapshot.expected).digest('hex')),
+    ...snapshots.map((snapshot) => snapshot.value),
+    JSON.stringify(candidateEntries),
+  ]);
+  if (Array.isArray(committed) && Number(committed[0]) === -1) {
+    throw new Error(`候选人编号 ${String(committed[1] || '')} 已绑定其他姓名，本轮业务数据未写入`);
+  }
+  if (!Array.isArray(committed) || Number(committed[0]) !== 1) {
+    const conflictIndex = Array.isArray(committed) ? Number(committed[1]) : 0;
+    const conflictKey = snapshots[conflictIndex - 1]?.key;
+    throw new Error(`业务数据在同步期间已被其他设备更新，本轮未覆盖${conflictKey ? `（冲突：${conflictKey}）` : ''}；下次任务会基于最新数据重试`);
+  }
+  const version = Number(committed[1]) || 0;
   console.log(JSON.stringify({
     from: from.toISOString(),
     to: to.toISOString(),

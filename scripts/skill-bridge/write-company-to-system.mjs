@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 把「公司研究」结果直接写入企鹅求职岛系统的公司库（Upstash KV）。
-// 系统是唯一数据源；本脚本走浏览器同款的 KV REST 直连读-改-写 + 版本号自增，
-// 与 src/lib/sync.ts 的合并策略一致：按公司名 upsert、绝不整组覆盖，避免抹掉别人新增。
+// 系统是唯一数据源；本脚本按公司名 upsert，并用 KV CAS 与版本自增原子提交；
+// 快照已变化时拒绝覆盖，由调用方基于最新数据重试。
 //
 // 供 zz-hunteragent-company-research skill 在 11 维度研究完成后调用：
 //   node scripts/skill-bridge/write-company-to-system.mjs --file company.json
@@ -20,8 +20,8 @@
 //   ]
 // }
 
-const KV_URL = process.env.RECRUIT_KV_URL || 'https://positive-mongrel-70521.upstash.io';
-const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
+const KV_URL = process.env.RECRUIT_KV_URL || '';
+const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || '';
 const COMPANIES_KEY = 'recruit:companies';
 const VERSION_KEY = 'recruit:version';
 
@@ -43,13 +43,16 @@ async function kvGet(key) {
   return data.result;
 }
 
-async function kvSet(key, value) {
-  const res = await fetch(`${KV_URL}/set/${encodeURIComponent(key)}`, {
+async function kvEval(script, keys, args) {
+  const res = await fetch(KV_URL, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'text/plain' },
-    body: value,
+    headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(['EVAL', script, keys.length, ...keys, ...args]),
   });
-  if (!res.ok) throw new Error(`KV set ${key} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`KV transaction failed: ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`KV transaction failed: ${data.error}`);
+  return data.result;
 }
 
 function normalizeDims(input) {
@@ -75,6 +78,7 @@ async function readPayload() {
 }
 
 async function main() {
+  if (!KV_URL || !KV_TOKEN) throw new Error('缺少 RECRUIT_KV_URL 或 RECRUIT_KV_TOKEN');
   const payload = await readPayload();
   if (!payload || !payload.name || !String(payload.name).trim()) {
     console.error('错误：缺少公司名 name');
@@ -85,8 +89,8 @@ async function main() {
 
   const raw = await kvGet(COMPANIES_KEY);
   let list = [];
-  try { list = raw ? JSON.parse(raw) : []; } catch { list = []; }
-  if (!Array.isArray(list)) list = [];
+  try { list = raw ? JSON.parse(raw) : []; } catch { throw new Error('公司库数据格式异常，已停止写入'); }
+  if (!Array.isArray(list)) throw new Error('公司库数据格式异常，已停止写入');
 
   const fields = {
     name,
@@ -108,13 +112,16 @@ async function main() {
     action = '新建';
   }
 
-  await kvSet(COMPANIES_KEY, JSON.stringify(list));
+  const [committed, v] = await kvEval(`
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then
+  return {0, tonumber(redis.call('GET', KEYS[2]) or '0')}
+end
+redis.call('SET', KEYS[1], ARGV[2])
+local version = redis.call('INCR', KEYS[2])
+return {1, version}`, [COMPANIES_KEY, VERSION_KEY], [raw || '', JSON.stringify(list)]);
+  if (Number(committed) !== 1) throw new Error('公司库在写入期间已更新，本轮未覆盖；请重试');
 
-  const rawV = await kvGet(VERSION_KEY);
-  const v = (parseInt(rawV || '0', 10) || 0) + 1;
-  await kvSet(VERSION_KEY, String(v));
-
-  console.log(`✅ 已${action}公司「${name}」到系统公司库（version=${v}，共 ${list.length} 家）`);
+  console.log(`✅ 已${action}公司「${name}」到系统公司库（version=${Number(v)}，共 ${list.length} 家）`);
   console.log('   打开 https://qieqiuzhidao.vercel.app/companies 查看');
 }
 

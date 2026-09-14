@@ -3,7 +3,7 @@ import { del } from '@vercel/blob';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
 import { requireApiSession, requireOwnerSession } from '@/lib/auth-api';
 import { kvGet } from '@/lib/kv';
-import { kvCommandStrict } from '@/lib/kv-server';
+import { kvCommandStrict, kvFindRepushRecords, kvTransaction } from '@/lib/kv-server';
 import { resumeFileMatchesCandidate } from '@/lib/resume-identity';
 
 export const runtime = 'nodejs';
@@ -12,60 +12,80 @@ export const maxDuration = 30;
 
 const recordKey = (id: string) => `recruit:tg-delivery:${id}`;
 const DELIVERY_TTL_SECONDS = 7 * 24 * 60 * 60;
-const ENQUEUE_NEW = `
-if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-local repushRaw = redis.call('GET', KEYS[3]) or '[]'
-local okRepush, repush = pcall(cjson.decode, repushRaw)
-local okNew, additions = pcall(cjson.decode, ARGV[3])
-if not string.match(repushRaw, '^%s*%[')
-  or not okRepush or type(repush) ~= 'table' or not okNew or type(additions) ~= 'table' then return -1 end
-local ids = {}
-for _, item in ipairs(repush) do
-  if item.id then ids[tostring(item.id)] = true end
-  if item.applicationId then ids[tostring(item.applicationId)] = true end
-end
-for _, item in ipairs(additions) do
-  if not item.id or ids[tostring(item.id)] then return -2 end
-  ids[tostring(item.id)] = true
-  table.insert(repush, item)
-end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[4])
-redis.call('RPUSH', KEYS[2], ARGV[2])
-redis.call('SET', KEYS[3], cjson.encode(repush))
-redis.call('INCR', KEYS[4])
-return 1`;
-const REQUEUE_FAILED = `
-if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
-local okRecord, record = pcall(cjson.decode, ARGV[2])
-local repushRaw = redis.call('GET', KEYS[3]) or '[]'
-local okRepush, repush = pcall(cjson.decode, repushRaw)
-if not string.match(repushRaw, '^%s*%[')
-  or not okRecord or type(record) ~= 'table' or not okRepush or type(repush) ~= 'table' then return -1 end
-local changed = false
-for _, item in ipairs(repush) do
-  if item.deliveryId == record.id then
-    local delivery = record.deliveries[(tonumber(item.deliveryIndex) or -1) + 1]
-    if delivery and delivery.status ~= 'sent' then
-      item.deliveryStatus = 'queued'
-      item.telegramMessageId = nil
-      item.deliveredAt = nil
-      item.deliveryUpdatedAt = record.updatedAt
-      changed = true
-    end
-  end
-end
-redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[4])
-redis.call('RPUSH', KEYS[2], ARGV[3])
-if changed then
-  redis.call('SET', KEYS[3], cjson.encode(repush))
-  redis.call('INCR', KEYS[4])
-end
-return 1`;
 
 function accountKeys(sender: 'a' | 'b') {
   return sender === 'b'
     ? { queue: 'recruit:tg-delivery-pending-b', heartbeat: 'recruit:tg-delivery-worker-heartbeat-b' }
     : { queue: 'recruit:tg-delivery-pending', heartbeat: 'recruit:tg-delivery-worker-heartbeat' };
+}
+
+async function enqueueDelivery(
+  record: DeliveryRecord,
+  additions: BusinessRecommendation[],
+  sender: 'a' | 'b',
+): Promise<number> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const repushRaw = await kvCommandStrict<string | null>('GET', 'recruit:repush');
+    let repush: BusinessRecommendation[];
+    try { repush = parseBusinessRecommendations(repushRaw); }
+    catch { return -1; }
+    const ids = new Set(repush.flatMap((item) => [item.id, item.applicationId].filter(Boolean) as string[]));
+    if (additions.some((item) => !item.id || ids.has(item.id))) return -2;
+    const committed = await kvTransaction({
+      expected: [
+        { key: recordKey(record.id), exists: false },
+        { key: 'recruit:repush', exists: Boolean(repushRaw), ...(repushRaw ? { value: repushRaw } : {}) },
+      ],
+      writes: [
+        { key: recordKey(record.id), value: JSON.stringify(record), ttlSeconds: DELIVERY_TTL_SECONDS },
+        { key: 'recruit:repush', value: JSON.stringify([...repush, ...additions]) },
+      ],
+      lists: [{ op: 'push', key: accountKeys(sender).queue, value: record.id }],
+      increments: ['recruit:version'],
+    });
+    if (committed.ok) return 1;
+    if (await kvCommandStrict<number>('EXISTS', recordKey(record.id))) return 0;
+  }
+  return 0;
+}
+
+async function requeueDelivery(record: DeliveryRecord, expectedRaw: string, sender: 'a' | 'b'): Promise<boolean> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const repushRaw = await kvCommandStrict<string | null>('GET', 'recruit:repush');
+    let repush: BusinessRecommendation[];
+    try { repush = parseBusinessRecommendations(repushRaw); }
+    catch { return false; }
+    let changed = false;
+    const nextRepush = repush.map((item) => {
+      if (item.deliveryId !== record.id) return item;
+      const delivery = record.deliveries[Number(item.deliveryIndex) || 0];
+      if (!delivery || delivery.status === 'sent') return item;
+      changed = true;
+      return {
+        ...item,
+        deliveryStatus: 'queued' as const,
+        telegramMessageId: undefined,
+        deliveredAt: undefined,
+        deliveryUpdatedAt: record.updatedAt,
+      };
+    });
+    const committed = await kvTransaction({
+      expected: [
+        { key: recordKey(record.id), exists: true, value: expectedRaw },
+        { key: 'recruit:repush', exists: Boolean(repushRaw), ...(repushRaw ? { value: repushRaw } : {}) },
+      ],
+      writes: [
+        { key: recordKey(record.id), value: JSON.stringify(record), ttlSeconds: DELIVERY_TTL_SECONDS },
+        ...(changed ? [{ key: 'recruit:repush', value: JSON.stringify(nextRepush) }] : []),
+      ],
+      lists: [{ op: 'push', key: accountKeys(sender).queue, value: record.id }],
+      increments: changed ? ['recruit:version'] : [],
+    });
+    if (committed.ok) return true;
+    const latest = await kvCommandStrict<string | null>('GET', recordKey(record.id));
+    if (latest !== expectedRaw) return false;
+  }
+  return false;
 }
 
 type DeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed';
@@ -217,15 +237,31 @@ async function repushResumeError(
   const repushDeliveries = deliveries.filter((item) => item.application?.source === 'repush');
   if (!repushDeliveries.length) return '';
 
-  const records = parseBusinessRecommendations(
-    await kvCommandStrict<string | null>('GET', 'recruit:repush'),
-  ) as RepushSourceRecord[];
+  const sourceIds = repushDeliveries
+    .map((item) => cleanText(item.application?.repushSourceId, 240))
+    .filter(Boolean);
+  const records = await kvFindRepushRecords({
+    sourceIds,
+    candidateCodes: repushDeliveries.map((item) => cleanText(item.application?.candidateCode, 80)),
+    candidateIdentityIds: repushDeliveries.map((item) => cleanText(item.application?.candidateIdentityId, 300)),
+    resumeUrls: [fileUrl],
+    column: sender,
+  }) as RepushSourceRecord[];
   const sourceById = new Map(records.map((record) => [record.id, record]));
 
   for (const item of repushDeliveries) {
     const application = item.application!;
     const sourceId = cleanText(application.repushSourceId, 240);
-    const source = sourceById.get(sourceId);
+    const candidateCode = cleanText(application.candidateCode, 80).toLowerCase();
+    const candidateIdentityId = cleanText(application.candidateIdentityId, 300).toLowerCase();
+    const source = sourceById.get(sourceId) || records.find((record) => (
+      record.column === sender
+      && cleanText(record.resumeUrl, 1000) === fileUrl
+      && (
+        Boolean(candidateCode) && cleanText(record.candidateCode, 80).toLowerCase() === candidateCode
+        || Boolean(candidateIdentityId) && cleanText(record.candidateIdentityId, 300).toLowerCase() === candidateIdentityId
+      )
+    ));
     if (!sourceId || !source || source.column !== sender) return '复推来源无法核对，已停止发送，请刷新后重试';
 
     const candidateName = cleanText(application.candidateName, 200);
@@ -357,10 +393,8 @@ export async function POST(request: NextRequest) {
       delete existing.error;
       delete existing.finishedAt;
       delete existing.lease;
-      const queued = await kvCommandStrict<number>('EVAL', REQUEUE_FAILED, 4,
-        recordKey(id), accountKeys(existingSender).queue, 'recruit:repush', 'recruit:version',
-        existingRaw || '', JSON.stringify(existing), id, String(DELIVERY_TTL_SECONDS));
-      if (queued !== 1) {
+      const queued = await requeueDelivery(existing, existingRaw || '', existingSender);
+      if (!queued) {
         return NextResponse.json({ ok: false, error: '发送任务状态已更新，请重试' }, { status: 409 });
       }
       businessRecords = await deliveryBusinessRecords(existing);
@@ -485,9 +519,7 @@ export async function POST(request: NextRequest) {
     applications,
     sender,
   };
-  const queued = await kvCommandStrict<number>('EVAL', ENQUEUE_NEW, 4,
-    recordKey(id), accountKeys(sender).queue, 'recruit:repush', 'recruit:version',
-    JSON.stringify(record), id, JSON.stringify(businessRecords), String(DELIVERY_TTL_SECONDS));
+  const queued = await enqueueDelivery(record, businessRecords, sender);
   if (queued < 0) {
     return NextResponse.json({ ok: false, error: queued === -2 ? '投递记录已存在，请刷新后核对' : '推荐记录格式异常，已停止发送' }, { status: queued === -2 ? 409 : 503 });
   }

@@ -6,7 +6,7 @@ import type { JD } from '@/types/jd';
 import { fetchGoogleExport, fetchGoogleSheetValues } from '@/lib/google-sheet';
 import { analyzeColumns, getJDKey, jdStatusFromGap, normalizeExcelRows, rowToColumnJD } from '@/lib/jd-parse-core';
 import { kvGet, SYNC_KEYS } from '@/lib/kv';
-import { kvCommandStrict } from '@/lib/kv-server';
+import { kvTransaction } from '@/lib/kv-server';
 
 // mock 示例数据 ID 前缀，永不参与自动删除/刷新
 const MOCK_ID_PREFIX = 'jd-00';
@@ -204,14 +204,13 @@ export async function runGoogleSync(): Promise<SyncSummary> {
   }
 
   // 6. 比较读取快照后再原子写入；同步期间有人改动时绝不覆盖，留待下轮重算。
-  const [committed, version] = await kvCommandStrict<[number, number]>('EVAL', `
-if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then
-  return {0, tonumber(redis.call('GET', KEYS[2]) or '0')}
-end
-redis.call('SET', KEYS[1], ARGV[2])
-local version = redis.call('INCR', KEYS[2])
-return {1, version}`, 2, SYNC_KEYS.jds, SYNC_KEYS.version, rawJds || '', JSON.stringify(merged));
-  if (committed !== 1) throw new Error('岗位库在同步期间已更新，本轮未覆盖；请重新同步');
+  const committed = await kvTransaction({
+    expected: [{ key: SYNC_KEYS.jds, exists: Boolean(rawJds), ...(rawJds ? { value: rawJds } : {}) }],
+    writes: [{ key: SYNC_KEYS.jds, value: JSON.stringify(merged) }],
+    increments: [SYNC_KEYS.version],
+  });
+  if (!committed.ok) throw new Error('岗位库在同步期间已更新，本轮未覆盖；请重新同步');
+  const version = Number(committed.increments?.[SYNC_KEYS.version] || 0);
 
   return {
     ok: true,

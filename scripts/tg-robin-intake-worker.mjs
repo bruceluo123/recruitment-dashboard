@@ -7,7 +7,6 @@ import { CustomFile } from 'telegram/client/uploads.js';
 import { NewMessage } from 'telegram/events/index.js';
 
 const ROOT = process.cwd();
-const ENV_PATH = path.join(ROOT, '.env.local');
 const STATE_KEY = 'recruit:tg-robin-intake-state';
 const CONTACT_INDEX_KEY = 'recruit:tg-robin-contact-index';
 const DEFAULT_TARGET = '@bruceluo123';
@@ -23,16 +22,17 @@ const REQUIRED_FIELDS = [
 ];
 
 function loadEnv() {
-  if (!fs.existsSync(ENV_PATH)) return;
-  for (const line of fs.readFileSync(ENV_PATH, 'utf8').split(/\r?\n/)) {
-    const match = line.match(/^\s*([^#][^=]+)=\s*(.*)\s*$/);
-    if (!match) continue;
-    const key = match[1].trim();
-    let value = match[2].trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
+  for (const fileName of ['.env.local', '.env.supabase.local']) {
+    const envPath = path.join(ROOT, fileName);
+    if (!fs.existsSync(envPath)) continue;
+    for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const match = line.match(/^\s*([^#][^=]+)=\s*(.*)\s*$/);
+      if (!match) continue;
+      const key = match[1].trim();
+      let value = match[2].trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+      if (!process.env[key]) process.env[key] = value;
     }
-    if (!process.env[key]) process.env[key] = value;
   }
 }
 
@@ -211,6 +211,16 @@ function isPrivateIncoming(message) {
 }
 
 async function kvGet(key) {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+    const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_read`, {
+      method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_keys: [key] }),
+    });
+    if (!response.ok) throw new Error(`Supabase get failed: ${response.status}`);
+    return (await response.json())[key] ?? null;
+  }
   const response = await fetch(`${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`, {
     headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
   });
@@ -219,6 +229,16 @@ async function kvGet(key) {
 }
 
 async function kvSet(key, value) {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+    const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_tx`, {
+      method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_payload: { writes: [{ key, value }] } }),
+    });
+    if (!response.ok || !(await response.json()).ok) throw new Error(`Supabase set failed: ${response.status}`);
+    return;
+  }
   const response = await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
     method: 'POST',
     headers: {
@@ -464,7 +484,8 @@ async function main() {
 
   if (!scanOnly && !watch && !sendCandidate) throw new Error('Pass --scan, --watch or --send-candidate.');
   if (!apiId || !apiHash || !session) throw new Error('Missing TG_ROBIN_API_ID, TG_ROBIN_API_HASH or TG_ROBIN_SESSION.');
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) throw new Error('Missing KV environment.');
+  if (!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+    && !(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)) throw new Error('Missing business storage environment.');
 
   const client = new TelegramClient(
     new StringSession(session.replace(/\s+/g, '')),

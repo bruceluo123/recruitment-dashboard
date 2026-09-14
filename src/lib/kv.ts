@@ -1,58 +1,29 @@
 import 'server-only';
-
-// Vercel KV (Upstash Redis) client — shared data layer for multi-user sync
-
-const KV_URL = process.env.KV_REST_API_URL || '';
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || '';
-
-async function kvFetch<T>(command: string, ...args: (string | number)[]): Promise<T | null> {
-  try {
-    const url = `${KV_URL}/${command}/${args.map(encodeURIComponent).join('/')}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${KV_TOKEN}` },
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.result as T;
-  } catch {
-    return null;
-  }
-}
+import { kvCommandStrict } from '@/lib/kv-server';
 
 export async function kvGet<T>(key: string): Promise<T | null> {
-  return kvFetch<T>('get', key);
+  try {
+    const value = await kvCommandStrict<unknown>('GET', key);
+    if (value == null) return null;
+    if (typeof value !== 'string') return value as T;
+    try { return JSON.parse(value) as T; }
+    catch { return value as T; }
+  } catch { return null; }
 }
 
 export async function kvSet(key: string, value: unknown): Promise<boolean> {
-  try {
-    const url = `${KV_URL}/set/${encodeURIComponent(key)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(value),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  try { await kvCommandStrict('SET', key, JSON.stringify(value)); return true; }
+  catch { return false; }
 }
 
 export async function kvRPush(key: string, value: string): Promise<boolean> {
-  const result = await kvFetch<number>('rpush', key, value);
-  return typeof result === 'number';
+  try { return typeof await kvCommandStrict<number>('RPUSH', key, value) === 'number'; }
+  catch { return false; }
 }
 
 export async function kvDel(key: string): Promise<boolean> {
-  try {
-    const url = `${KV_URL}/del/${encodeURIComponent(key)}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${KV_TOKEN}` },
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  try { await kvCommandStrict('DEL', key); return true; }
+  catch { return false; }
 }
 
 // Sync keys

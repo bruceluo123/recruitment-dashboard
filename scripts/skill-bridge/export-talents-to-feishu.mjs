@@ -17,8 +17,8 @@
 //   --header     额外把表头写到第 1 行
 //   --dry-run    只打印将要写入的范围和行数，不实际写
 
-const KV_URL = process.env.RECRUIT_KV_URL || 'https://positive-mongrel-70521.upstash.io';
-const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
+const KV_URL = process.env.RECRUIT_KV_URL || '';
+const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || '';
 const TALENTS_KEY = 'recruit:talents';
 
 // skill 里封装 lark-cli 的 python 脚本
@@ -124,6 +124,7 @@ async function larkWrite(url, range, values) {
 }
 
 async function main() {
+  if (!KV_URL || !KV_TOKEN) throw new Error('缺少 RECRUIT_KV_URL 或 RECRUIT_KV_TOKEN');
   const url = getArg('--url');
   if (!url) { console.error('错误：缺少 --url（飞书表格地址）'); process.exit(1); }
   if (url.includes('/base/')) {

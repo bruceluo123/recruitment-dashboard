@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, type DataType } from '@/lib/sync';
+import { bootstrapSyncedData, startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, type DataType } from '@/lib/sync';
 import { isMockJds } from '@/lib/mock-guard';
 import { mergeUniqueJDs } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
@@ -58,7 +58,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       useCompanyStore.subscribe((next, previous) => changed('companies', next.companies, previous.companies)),
       usePerformanceStore.subscribe((next, previous) => changed('performance', next.records, previous.records)),
     ];
-    startSync((type, data, _version, readOk) => {
+    const handleRemoteChange = (type: DataType, data: unknown[], _version: number, readOk: boolean) => {
       if (!readOk) return;
       applying.add(type);
       try {
@@ -73,8 +73,22 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         if (type === 'companies') useCompanyStore.setState({ companies: data as Company[] });
         if (type === 'performance') usePerformanceStore.setState({ records: data as PerformanceKpiRecord[] });
       } finally { applying.delete(type); }
-    }, routeTypes(pathname));
+    };
     let active = true;
+    void bootstrapSyncedData({
+      jds: isMockJds(useJDStore.getState().jds) ? [] : useJDStore.getState().jds,
+      candidates: useInterviewStore.getState().candidates,
+      talents: useTalentStore.getState().talents,
+      repush: useRepushStore.getState().items,
+      todos: useTodoStore.getState().todos,
+      companies: useCompanyStore.getState().companies,
+      performance: usePerformanceStore.getState().records,
+    }).then((failedTypes) => {
+      if (!active) return;
+      const safeTypes = routeTypes(window.location.pathname).filter((type) => !failedTypes.includes(type));
+      startSync(handleRemoteChange, safeTypes);
+      if (failedTypes.length) setMessage('部分本机数据初始化未完成，已保留本机数据，请稍后刷新重试');
+    });
     const summaries = async () => {
       if (!routeTypes(window.location.pathname).includes('jds')) return;
       if (document.hidden) return;

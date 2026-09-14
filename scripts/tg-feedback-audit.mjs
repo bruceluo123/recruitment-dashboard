@@ -6,22 +6,24 @@ import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 
 const ROOT = process.cwd();
-const ENV_PATH = path.join(ROOT, '.env.local');
 const PROMPT_VERSION = 'feedback-audit-v8';
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
 const STANDARD_FORMAT_GUIDANCE = '标准反馈格式为“部门或组织＋候选人姓名＋截图”。例如截图紧邻“效能中心 Andy”时，先锁定 organization=效能中心、candidateName=Andy，再从截图或引用推荐语中提取岗位和反馈结论并精确对应；“恒睿 eli”同理。';
 
 function loadEnv() {
-  if (!fs.existsSync(ENV_PATH)) return;
-  for (const line of fs.readFileSync(ENV_PATH, 'utf8').split(/\r?\n/)) {
-    const match = line.match(/^\s*([^#][^=]+)=\s*(.*)\s*$/);
-    if (!match) continue;
-    const key = match[1].trim();
-    let value = match[2].trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
+  for (const fileName of ['.env.local', '.env.supabase.local']) {
+    const envPath = path.join(ROOT, fileName);
+    if (!fs.existsSync(envPath)) continue;
+    for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const match = line.match(/^\s*([^#][^=]+)=\s*(.*)\s*$/);
+      if (!match) continue;
+      const key = match[1].trim();
+      let value = match[2].trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (!process.env[key]) process.env[key] = value;
     }
-    if (!process.env[key]) process.env[key] = value;
   }
 }
 
@@ -50,12 +52,36 @@ function clean(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-function parseStored(value, fallback) {
-  if (value === null || value === undefined) return fallback;
-  if (typeof value === 'string') {
-    try { return JSON.parse(value); } catch { return fallback; }
+function isDeliveredRecommendation(item) {
+  return item?.deliveryStatus === 'sent'
+    || item?.deliveryStatus === 'manual'
+    || (!item?.deliveryStatus && Boolean(clean(item?.telegramMessageId)));
+}
+
+function parseStoredJson(value, key) {
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); }
+  catch { throw new Error(`KV ${key} contains invalid JSON; audit stopped without writing`); }
+}
+
+function parseStoredArray(value, key) {
+  if (value === null || value === undefined || value === '') return [];
+  const parsed = parseStoredJson(value, key);
+  if (!Array.isArray(parsed)) throw new Error(`KV ${key} must contain an array; audit stopped without writing`);
+  return parsed;
+}
+
+function parseFeedbackState(value, key) {
+  if (value === null || value === undefined || value === '') {
+    return { version: 1, generatedAt: '', items: [], ledger: [] };
   }
-  return value;
+  const parsed = parseStoredJson(value, key);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+    || !Array.isArray(parsed.items)
+    || (parsed.ledger !== undefined && !Array.isArray(parsed.ledger))) {
+    throw new Error(`KV ${key} has an invalid feedback state; audit stopped without writing`);
+  }
+  return { ...parsed, ledger: parsed.ledger || [] };
 }
 
 function normalize(value) {
@@ -335,6 +361,19 @@ function sleep(ms) {
 }
 
 async function kvGet(key) {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+    const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_read`, {
+      method: 'POST',
+      headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_keys: [key] }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) throw new Error(`Supabase get ${key} failed: HTTP ${response.status}`);
+    const values = await response.json();
+    return values[key] ?? null;
+  }
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -352,27 +391,45 @@ async function kvGet(key) {
   throw new Error(`KV get ${key} failed: ${clean(lastError?.message || lastError)}`);
 }
 
-async function kvSet(key, value) {
-  let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const response = await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
-          'Content-Type': 'text/plain; charset=utf-8',
-        },
-        body: typeof value === 'string' ? value : JSON.stringify(value),
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return true;
-    } catch (error) {
-      lastError = error;
-      if (attempt < 3) await sleep(attempt * 1_000);
-    }
+async function kvCompareAndSet(key, expectedValue, nextValue) {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+    const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const nextRaw = typeof nextValue === 'string' ? nextValue : JSON.stringify(nextValue);
+    const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_tx`, {
+      method: 'POST',
+      headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_payload: {
+        expected: [{ key, exists: Boolean(expectedValue), ...(expectedValue ? { value: expectedValue } : {}) }],
+        writes: [{ key, value: nextRaw }],
+      } }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) throw new Error(`Supabase compare-and-set ${key} failed: HTTP ${response.status}`);
+    return Boolean((await response.json()).ok);
   }
-  throw new Error(`KV set ${key} failed: ${clean(lastError?.message || lastError)}`);
+  const response = await fetch(process.env.KV_REST_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify([
+      'EVAL',
+      `if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2])
+return 1`,
+      1,
+      key,
+      expectedValue,
+      typeof nextValue === 'string' ? nextValue : JSON.stringify(nextValue),
+    ]),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) throw new Error(`KV compare-and-set ${key} failed: HTTP ${response.status}`);
+  const data = await response.json();
+  if (data.error) throw new Error(`KV compare-and-set ${key} failed: ${data.error}`);
+  return Number(data.result) === 1;
 }
 
 function isImageMessage(message) {
@@ -690,7 +747,7 @@ function inferIdentityFromContext(item, record, recommendations) {
   const referencedRecommendation = recommendationReference(referenceText, recommendations);
   const referenceIdentity = standardIdentityLabel(referenceText, recommendations);
   const standardIdentity = referenceIdentity || standardIdentityLabel(relatedContext, recommendations);
-  if (referenceIdentity && record.items?.length === 1) {
+  if (referenceIdentity && record.items?.length === 1 && !hasItemIdentity && !item.candidateCodeConflict) {
     return {
       ...item,
       candidateCode: referenceIdentity.candidateCode,
@@ -701,9 +758,9 @@ function inferIdentityFromContext(item, record, recommendations) {
   if (referencedRecommendation) {
     const referencedCode = normalizeCode(referencedRecommendation.candidateCode);
     const referencedName = normalizeName(referencedRecommendation.candidateName);
-    const sameIdentity = !hasItemIdentity
-      || (currentCode && referencedCode === currentCode)
-      || (currentName && candidateNamesMatch(currentName, referencedName));
+    const sameIdentity = !hasItemIdentity || (currentCode
+      ? referencedCode === currentCode
+      : currentName && candidateNamesMatch(currentName, referencedName));
     if (sameIdentity) {
       return {
         ...item,
@@ -810,6 +867,17 @@ function recommendationDate(item) {
   return toDate(item.recommendedAt || item.uploadedAt || item.createdAt || item.updatedAt);
 }
 
+function recommendationsAvailableAtFeedback(items, feedbackAt) {
+  const feedbackDate = toDate(feedbackAt);
+  if (!feedbackDate) return items;
+  // 允许消息与落库之间存在少量时钟/操作顺序偏差，但历史反馈不能归到未来的新复推记录。
+  const clockSkewMs = 10 * 60 * 1000;
+  return items.filter((item) => {
+    const recommendedAt = recommendationDate(item);
+    return !recommendedAt || recommendedAt.getTime() <= feedbackDate.getTime() + clockSkewMs;
+  });
+}
+
 function dedupeRecommendations(items) {
   const map = new Map();
   for (const item of items) {
@@ -843,6 +911,8 @@ function matchFeedback(item, recommendations, rawText = '') {
       || (recommendationDate(b.rec)?.getTime() || 0) - (recommendationDate(a.rec)?.getTime() || 0)
       || clean(a.rec.id).localeCompare(clean(b.rec.id)));
   const uniqueExactMatch = (matches) => {
+    matches = matches.filter((rec) => !item.organization
+      || organizationSimilarity(item.organization, `${rec.organization || ''} ${rec.department || ''}`) > 0);
     if (!matches.length) return null;
     const title = normalize(effectiveJobTitle);
     if (title) {
@@ -865,14 +935,19 @@ function matchFeedback(item, recommendations, rawText = '') {
   const code = normalizeCode(item.candidateCode);
   if (code) {
     const codeMatches = recommendations.filter((rec) => normalizeCode(rec.candidateCode) === code);
-    if (codeMatches.length === 1) return { recommendation: codeMatches[0], score: 1, reason: '候选人编码一致' };
+    if (codeMatches.length === 1) {
+      const rec = codeMatches[0];
+      if (item.organization && organizationSimilarity(item.organization, `${rec.organization || ''} ${rec.department || ''}`) === 0) return null;
+      if (effectiveJobTitle && jobSimilarity(effectiveJobTitle, rec.jdTitle) < 0.6) return null;
+      return { recommendation: rec, score: 1, reason: '候选人编码一致且岗位信息无冲突' };
+    }
     if (codeMatches.length > 1) {
       const exact = uniqueExactMatch(codeMatches);
       if (exact) return { recommendation: exact, score: 0.99, reason: '候选人编码一致，岗位或部门唯一对应' };
       const ranked = rankMatches(codeMatches);
       const hasLocator = Boolean(effectiveJobTitle || item.organization);
-      const uniquelyRanked = ranked.length === 1 || ranked[0].rank > ranked[1].rank;
-      if (hasLocator && uniquelyRanked && (ranked[0].job > 0 || ranked[0].organization > 0)) {
+      const uniquelyRanked = ranked.length === 1 || ranked[0].rank - ranked[1].rank >= 0.2;
+      if (hasLocator && uniquelyRanked && ranked[0].job >= 0.6 && ranked[0].organization === 1) {
         return { recommendation: ranked[0].rec, score: 0.98, reason: fileJobTitle ? '候选人编码一致，按截图文件名及单位匹配' : '候选人编码一致，按岗位及单位匹配' };
       }
       return { ambiguous: codeMatches, score: 0.6, reason: '候选人编码一致，但同一人有多个岗位且截图缺少可区分信息' };
@@ -900,16 +975,26 @@ function matchFeedback(item, recommendations, rawText = '') {
 }
 
 function findCandidateForRecommendation(rec, candidates) {
-  if (rec.candidateId) {
-    const linked = candidates.find((candidate) => candidate.id === rec.candidateId);
-    if (linked) return linked;
-  }
   const recCode = normalizeCode(rec.candidateCode);
   const recName = normalizeName(rec.candidateName);
-  return candidates.find((candidate) => {
-    if (recCode && normalizeCode(candidate.candidateCode) === recCode) return true;
-    return recName && normalizeName(candidate.name) === recName && jobSimilarity(rec.jdTitle, candidate.jdTitle) >= 0.2;
+  const matches = candidates.filter((candidate) => {
+    if ((candidate.owner || 'a') !== (rec.column || rec.owner || 'a')) return false;
+    const candidateCode = normalizeCode(candidate.candidateCode);
+    if (recCode ? candidateCode !== recCode : !recName || normalizeName(candidate.name) !== recName) return false;
+    if (!normalize(rec.jdTitle) || normalize(candidate.jdTitle) !== normalize(rec.jdTitle)) return false;
+    if (normalize(candidate.organization) !== normalize(rec.organization)) return false;
+    if (normalize(candidate.department) !== normalize(rec.department)) return false;
+    return true;
   });
+  const linked = rec.candidateId && matches.find((candidate) => candidate.id === rec.candidateId);
+  return linked || (matches.length === 1 ? matches[0] : undefined);
+}
+
+// Only a confident result for this delivery may replace an older conclusion.
+function latestTerminalFeedback(feedback) {
+  return feedback.filter((item) => ['failed', 'passed'].includes(item.result) && item.confidence >= 0.8)
+    .sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt))
+      || Number(b.messageId || 0) - Number(a.messageId || 0))[0];
 }
 
 function reportRow(rec, extra = {}) {
@@ -980,7 +1065,7 @@ function toFeedbackInboxItem(row, sourceStatus, index, generatedAt, owner) {
   };
 }
 
-async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, ledger) {
+async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, ledger, passedFeedback = []) {
   const key = 'recruit:feedback-inbox';
   const generatedAt = meta.generatedAt;
   const imported = [
@@ -992,11 +1077,13 @@ async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, int
       owner,
     )),
     ...scheduledFeedback.map((row, index) => toFeedbackInboxItem(row, 'scheduled', index, generatedAt, owner)),
+    ...passedFeedback.map((row, index) => toFeedbackInboxItem(row, 'passed', index, generatedAt, owner)),
     ...interviewFailed.map((row, index) => toFeedbackInboxItem(row, 'interview_failed', index, generatedAt, owner)),
     ...screeningFailed.map((row, index) => toFeedbackInboxItem(row, 'screening_failed', index, generatedAt, owner)),
   ];
-  const existing = parseStored(await kvGet(key), { version: 1, generatedAt: '', items: [] });
-  const existingItems = Array.isArray(existing?.items) ? existing.items : [];
+  const existingRaw = await kvGet(key);
+  const existing = parseFeedbackState(existingRaw, key);
+  const existingItems = existing.items;
   const existingById = new Map(existingItems.map((item) => [
     `${item.owner === 'b' ? 'b' : 'a'}:${clean(item.id)}`,
     item,
@@ -1023,19 +1110,44 @@ async function syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, int
       items.push(previous);
       continue;
     }
-    if (previous.sourceStatus === 'manual_review') continue;
+    if (previous.sourceStatus === 'manual_review') {
+      if (previous.confirmedStatus !== 'closed') items.push(previous);
+      continue;
+    }
     const hasUserWork = previous.confirmedStatus
       || Number(previous.followUpCount) > 0
       || previous.repushReady
       || (Array.isArray(previous.timeline) && previous.timeline.length > 0);
     if (!importedIds.has(clean(previous.id)) && hasUserWork) items.push(previous);
   }
-  const existingLedger = Array.isArray(existing?.ledger) ? existing.ledger : [];
+  const existingLedger = existing.ledger;
+  const currentOwnerLedger = new Map(existingLedger
+    .filter((item) => (item.owner === 'b' ? 'b' : 'a') === owner)
+    .map((item) => [clean(item.id), item]));
+  const importedLedgerIds = new Set(ledger.map((item) => clean(item.id)));
+  const mergedOwnerLedger = ledger.map((item) => {
+    const previous = currentOwnerLedger.get(clean(item.id));
+    return previous?.status === 'manual_review'
+      ? { ...item, status: 'manual_review', note: previous.note || item.note }
+      : item;
+  });
+  for (const previous of currentOwnerLedger.values()) {
+    if (previous.status === 'manual_review' && !importedLedgerIds.has(clean(previous.id))) {
+      mergedOwnerLedger.push(previous);
+    }
+  }
   const combinedLedger = [
-    ...ledger,
+    ...mergedOwnerLedger,
     ...existingLedger.filter((item) => (item.owner === 'b' ? 'b' : 'a') !== owner),
   ];
-  await kvSet(key, { version: 1, generatedAt, items, ledger: combinedLedger });
+  const committed = await kvCompareAndSet(
+    key,
+    existingRaw === null || existingRaw === undefined
+      ? ''
+      : typeof existingRaw === 'string' ? existingRaw : JSON.stringify(existingRaw),
+    { version: 1, generatedAt, items, ledger: combinedLedger },
+  );
+  if (!committed) throw new Error('反馈中心在审计期间已更新，本轮未覆盖；请重新同步');
   return items.length;
 }
 
@@ -1155,8 +1267,12 @@ async function main() {
   const telegramEnv = owner === 'b'
     ? { apiId: 'TG_BB_API_ID', apiHash: 'TG_BB_API_HASH', session: 'TG_BB_SESSION' }
     : { apiId: 'TG_API_ID', apiHash: 'TG_API_HASH', session: 'TG_SESSION' };
-  for (const key of [telegramEnv.apiId, telegramEnv.apiHash, telegramEnv.session, 'DEEPSEEK_API_KEY', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) {
+  for (const key of [telegramEnv.apiId, telegramEnv.apiHash, telegramEnv.session, 'DEEPSEEK_API_KEY']) {
     if (!process.env[key]) throw new Error(`Missing ${key}`);
+  }
+  if (!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+    && !(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)) {
+    throw new Error('Missing business storage configuration');
   }
   const days = Math.max(1, Number.parseInt(arg('--days', '7'), 10));
   const to = arg('--to') ? new Date(`${arg('--to')}T23:59:59+08:00`) : new Date();
@@ -1173,31 +1289,38 @@ async function main() {
     process.env[telegramEnv.apiHash],
     { connectionRetries: 5, proxy: parseProxy(process.env.TG_PROXY), useWSS: false },
   );
-  await client.connect();
-  if (!await client.checkAuthorization()) throw new Error(`Telegram account ${owner.toUpperCase()} authorization is invalid`);
-  const dialogs = await client.getDialogs({ limit: 500 });
-  const dialog = dialogs.find((item) => {
-    const username = clean(item.entity?.username).replace(/^@/, '').toLowerCase();
-    const title = clean(item.title || item.name).replace(/^@/, '').toLowerCase();
-    return (item.isUser || item.entity?.className === 'User') && (username === 'ojisamer' || title === 'ojisamer');
-  });
-  if (!dialog) throw new Error('Could not find private dialog @ojisamer');
-
   const messages = [];
-  const limit = Math.max(200, Number.parseInt(arg('--limit', '4000'), 10));
-  for await (const message of client.iterMessages(dialog.entity, { limit })) {
-    const date = messageDate(message);
-    if (date < from) break;
-    if (date <= to) messages.push(message);
-  }
-  messages.sort((a, b) => Number(a.date) - Number(b.date));
-  const imageEntries = messages.map((message, index) => ({ message, index })).filter(({ message }) => isImageMessage(message));
-  const force = hasFlag('--force-ocr');
-  const reuseOcr = hasFlag('--reuse-ocr');
+  let imageEntries = [];
+  let prepared = [];
+  const telegramSessionTimeout = setTimeout(() => {
+    console.error('Telegram evidence collection exceeded 5 minutes; aborting so the delivery worker can recover');
+    void client.disconnect().finally(() => process.exit(124));
+  }, 5 * 60 * 1000);
+  try {
+    await client.connect();
+    if (!await client.checkAuthorization()) throw new Error(`Telegram account ${owner.toUpperCase()} authorization is invalid`);
+    const dialogs = await client.getDialogs({ limit: 500 });
+    const dialog = dialogs.find((item) => {
+      const username = clean(item.entity?.username).replace(/^@/, '').toLowerCase();
+      const title = clean(item.title || item.name).replace(/^@/, '').toLowerCase();
+      return (item.isUser || item.entity?.className === 'User') && (username === 'ojisamer' || title === 'ojisamer');
+    });
+    if (!dialog) throw new Error('Could not find private dialog @ojisamer');
 
-  // Telegram 会话只用于拉取消息和截图。先把需要识别的图片下载到本地，
-  // 随后立即断开，让常驻发送器恢复；耗时的 OCR 不再长期占用同一会话。
-  const prepared = await runPool(imageEntries.map(({ message, index }) => async () => {
+    const limit = Math.max(200, Number.parseInt(arg('--limit', '4000'), 10));
+    for await (const message of client.iterMessages(dialog.entity, { limit })) {
+      const date = messageDate(message);
+      if (date < from) break;
+      if (date <= to) messages.push(message);
+    }
+    messages.sort((a, b) => Number(a.date) - Number(b.date));
+    imageEntries = messages.map((message, index) => ({ message, index })).filter(({ message }) => isImageMessage(message));
+    const force = hasFlag('--force-ocr');
+    const reuseOcr = hasFlag('--reuse-ocr');
+
+    // Telegram 会话只用于拉取消息和截图。先把需要识别的图片下载到本地，
+    // 随后立即断开，让常驻发送器恢复；耗时的 OCR 不再长期占用同一会话。
+    prepared = await runPool(imageEntries.map(({ message, index }) => async () => {
     const extension = imageExtension(message);
     const baseName = `msg-${message.id}`;
     const imagePath = path.join(imageDir, `${baseName}${extension}`);
@@ -1228,14 +1351,19 @@ async function main() {
         },
       };
     }
-  }), Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
-  await client.disconnect();
-  console.log(`__TG_SESSION_RELEASED__:${owner}`);
+    }), Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
+  } finally {
+    clearTimeout(telegramSessionTimeout);
+    await client.disconnect().catch(() => undefined);
+    console.log(`__TG_SESSION_RELEASED__:${owner}`);
+  }
 
   const [repushRaw, candidatesRaw] = await Promise.all([kvGet('recruit:repush'), kvGet('recruit:candidates')]);
-  const allRecommendations = parseStored(repushRaw, []);
-  const candidates = parseStored(candidatesRaw, []);
-  const ownerRecommendations = dedupeRecommendations(allRecommendations.filter((item) => item.column === owner));
+  const allRecommendations = parseStoredArray(repushRaw, 'recruit:repush');
+  const candidates = parseStoredArray(candidatesRaw, 'recruit:candidates');
+  const ownerRecommendations = dedupeRecommendations(allRecommendations.filter((item) => (
+    item.column === owner && isDeliveredRecommendation(item)
+  )));
   const recommendations = ownerRecommendations.filter((item) => {
     const date = recommendationDate(item);
     return date && date >= from && date <= to;
@@ -1384,31 +1512,35 @@ async function main() {
     }
     for (const item of workingRecord.items) {
       const enrichedItem = enrichVisionItem(item, workingRecord);
-      const normalizedItem = inferIdentityFromContext(enrichedItem, workingRecord, ownerRecommendations);
+      const matchingRecommendations = recommendationsAvailableAtFeedback(
+        ownerRecommendations,
+        workingRecord.feedbackAt || (sourceMessage ? shanghaiDateTime(messageDate(sourceMessage)) : ''),
+      );
+      const normalizedItem = inferIdentityFromContext(enrichedItem, workingRecord, matchingRecommendations);
       const row = { ...workingRecord, ...normalizedItem };
       delete row.items;
       screenshotRows.push(row);
-      if (!codeBelongsToOwner(normalizedItem.candidateCode, owner)) {
+      if (normalizedItem.candidateCodeConflict || !codeBelongsToOwner(normalizedItem.candidateCode, owner)) {
         noteUnresolved(record.messageId, `候选人编码不属于${accountLabel}，已隔离且未归档`);
         continue;
       }
       const matchingText = workingRecord.items.length === 1
         ? workingRecord.rawText
         : clean(`${normalizedItem.feedbackSummary} ${normalizedItem.evidence}`);
-      const referencedRecommendation = recommendationReference(workingRecord.referenceContext, ownerRecommendations);
+      const referencedRecommendation = recommendationReference(workingRecord.referenceContext, matchingRecommendations);
       const normalizedCode = normalizeCode(normalizedItem.candidateCode);
       const itemNameKey = normalizeName(normalizedItem.candidateName);
       const referenceMatchesIdentity = referencedRecommendation && (
         (!normalizedCode && !itemNameKey)
-        || (normalizedCode && normalizedCode === normalizeCode(referencedRecommendation.candidateCode))
-        || (itemNameKey && candidateNamesMatch(itemNameKey, referencedRecommendation.candidateName))
+        || (normalizedCode
+          ? normalizedCode === normalizeCode(referencedRecommendation.candidateCode)
+          : itemNameKey && candidateNamesMatch(itemNameKey, referencedRecommendation.candidateName))
       );
       const match = referencedRecommendation && referenceMatchesIdentity
         ? { recommendation: referencedRecommendation, score: 1, reason: '按回复或引用的推荐语唯一对应' }
-        : matchFeedback(normalizedItem, ownerRecommendations, matchingText);
-      const reliableMatch = match && !match.ambiguous && (
-        match.score >= 0.95 || (match.score >= 0.75 && normalizedItem.confidence >= 0.55)
-      );
+        : matchFeedback(normalizedItem, matchingRecommendations, matchingText);
+      const reliableMatch = match && !match.ambiguous
+        && match.score >= 0.9 && normalizedItem.confidence >= 0.8;
       if (!reliableMatch) {
         noteUnresolved(
           record.messageId,
@@ -1427,14 +1559,23 @@ async function main() {
   const interviewFailed = [];
   const screeningFailed = [];
   const scheduledFeedback = [];
+  const passedFeedback = [];
   const noFeedback = [];
   const explicitFailures = [];
   for (const rec of ownerRecommendations) {
     const feedback = feedbackByRecommendation.get(rec.id) || [];
-    const explicitFailure = feedback
-      .filter((item) => item.result === 'failed' && item.confidence >= 0.65)
-      .sort((a, b) => String(b.feedbackAt).localeCompare(String(a.feedbackAt)))[0];
-    if (explicitFailure) explicitFailures.push({ rec, explicitFailure });
+    const explicitFailure = latestTerminalFeedback(feedback);
+    if (explicitFailure?.result === 'failed') explicitFailures.push({ rec, explicitFailure });
+    if (explicitFailure?.result === 'passed') {
+      const candidate = findCandidateForRecommendation(rec, candidates);
+      if (candidate?.outcome !== 'failed') passedFeedback.push(reportRow(rec, {
+        feedbackAt: explicitFailure.feedbackAt,
+        feedbackSummary: explicitFailure.feedbackSummary,
+        evidence: explicitFailure.evidence,
+        confidence: explicitFailure.confidence,
+        telegramMessageId: String(explicitFailure.messageId || ''),
+      }));
+    }
   }
   for (const { rec, explicitFailure } of explicitFailures) {
     const candidate = findCandidateForRecommendation(rec, candidates);
@@ -1472,7 +1613,7 @@ async function main() {
       }
       continue;
     }
-    const terminalFeedback = feedback.some((item) => item.result === 'failed' || item.result === 'passed');
+    const terminalFeedback = Boolean(latestTerminalFeedback(feedback));
     const terminalCandidate = candidate?.stage === 'offer'
       || ['onboarded', 'withdrawn', 'offer-rejected', 'early-departure-7', 'early-departure-30'].includes(candidate?.outcome);
     const latestScheduled = feedback
@@ -1577,7 +1718,7 @@ async function main() {
     reviewMessageCount: 0,
   };
   const feedbackInboxCount = hasFlag('--sync')
-    ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, ledger)
+    ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, ledger, passedFeedback)
     : 0;
   const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, screenshotRows);
   fs.writeFileSync(path.join(outputRoot, '复推反馈审计.json'), JSON.stringify({ meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, review: [], ledger, screenshots: screenshotRows }, null, 2));

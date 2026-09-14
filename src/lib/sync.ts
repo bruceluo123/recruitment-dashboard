@@ -105,6 +105,23 @@ export async function refreshSyncedData(): Promise<void> {
   while (reading) await new Promise((resolve) => setTimeout(resolve, 50));
   await refresh(true);
 }
+export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown[]>>): Promise<DataType[]> {
+  const failed: DataType[] = [];
+  for (const type of TYPES) {
+    const rows = data[type];
+    if (!Array.isArray(rows) || !rows.length) continue;
+    try {
+      const response = await fetch('/api/sync/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: { [type]: rows } }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) failed.push(type);
+    } catch { failed.push(type); }
+  }
+  return failed;
+}
 export async function retrySync() {
   if (busy) return;
   busy = true;

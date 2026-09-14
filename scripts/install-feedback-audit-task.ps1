@@ -8,7 +8,7 @@ if (-not (Test-Path -LiteralPath $auditScript)) {
   throw "Feedback audit script not found: $auditScript"
 }
 
-$arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$auditScript`" -Days 7"
+$arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$auditScript`" -Days 7 -ReuseOcr"
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory $projectRoot
 $triggers = 0..11 | ForEach-Object {
   $runAt = (Get-Date).Date.AddMinutes(10).AddHours($_ * 2)

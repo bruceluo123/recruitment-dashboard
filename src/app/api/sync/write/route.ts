@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit, clientIp } from '@/lib/api-guard';
 import { requireMutationSession } from '@/lib/auth-api';
+import { kvSetRaw } from '@/lib/kv-server';
 
 export const dynamic = 'force-dynamic';
-
-const KV = process.env.KV_REST_API_URL || '';
-const TOK = process.env.KV_REST_API_TOKEN || '';
 
 // 侧信道键白名单：客户端只传符号名，真实 KV 键名只存在于服务端，
 // 与 /api/data 的 6 类主数据键分开管理（那些走 /api/data，这些走这里）。
@@ -13,23 +11,6 @@ const SIDE_KEYS: Record<string, string> = {
   'last-import-diff': 'recruit:last-import-diff',
   'weekly-added': 'recruit:weekly-added',
 };
-
-async function upstash(cmd: string, key: string, body?: string): Promise<string | null> {
-  if (!KV || !TOK) return null;
-  try {
-    const url = `${KV}/${cmd}/${encodeURIComponent(key)}`;
-    const opts: RequestInit = { headers: { Authorization: `Bearer ${TOK}` } };
-    if (body !== undefined) {
-      opts.method = 'POST';
-      opts.headers = { ...opts.headers, 'Content-Type': 'text/plain' };
-      opts.body = body;
-    }
-    const res = await fetch(url, opts);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return String(data.result ?? '');
-  } catch { return null; }
-}
 
 export async function POST(req: NextRequest) {
   const blocked = await requireMutationSession(req);
@@ -44,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     if (op === 'set') {
       if (typeof value !== 'string') return NextResponse.json({ error: '缺少 value' }, { status: 400 });
-      const ok = await upstash('set', realKey, value);
+      const ok = await kvSetRaw(realKey, value);
       if (!ok) return NextResponse.json({ error: 'set 失败' }, { status: 500 });
       return NextResponse.json({ ok: true });
     }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { guardApi } from '@/lib/api-guard';
 import { hasValidServiceToken, permittedOwners, requireMutationSession } from '@/lib/auth-api';
 import { canAccessRecord } from '@/lib/data-ownership';
-import { kvCommandStrict } from '@/lib/kv-server';
+import { kvCommandStrict, kvTransaction } from '@/lib/kv-server';
 import { applyRecordChanges, recordsEqual, type RecordChange, type SyncRecord } from '@/lib/record-changes';
 export const dynamic = 'force-dynamic';
 const TYPES = new Set(['jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance']);
@@ -14,15 +14,6 @@ const REPUSH_DELIVERY_FIELDS = [
   'telegramMessageId',
   'deliveredAt',
 ] as const;
-const COMMIT = `
-if redis.call('EXISTS', KEYS[4]) == 1 then return 2 end
-if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
-if (redis.call('GET', KEYS[3]) or '') ~= ARGV[3] then return 0 end
-redis.call('SET', KEYS[1], ARGV[2])
-redis.call('SET', KEYS[3], ARGV[4])
-redis.call('INCR', KEYS[2])
-redis.call('SET', KEYS[4], '1', 'EX', 604800)
-return 1`;
 function validRecord(value: unknown, id: string): boolean {
   return value === null || (!!value && typeof value === 'object' && !Array.isArray(value)
     && (value as SyncRecord).id === id && Object.keys(value).every((key) => !['__proto__', 'prototype', 'constructor'].includes(key)));
@@ -100,9 +91,20 @@ export async function POST(request: NextRequest) {
       if (resolution === 'local' && tombstones[type]) {
         for (const change of changes) if (change.after) delete tombstones[type][change.id];
       }
-      const committed = await kvCommandStrict<number>('EVAL', COMMIT, 4, key, 'recruit:version', 'recruit:tombstones', receipt,
-        raw || '', JSON.stringify(result.records), tombRaw || '', JSON.stringify(tombstones));
-      if (committed) return NextResponse.json({ ok: true });
+      const committed = await kvTransaction({
+        expected: [
+          { key, exists: Boolean(raw), ...(raw ? { value: raw } : {}) },
+          { key: 'recruit:tombstones', exists: Boolean(tombRaw), ...(tombRaw ? { value: tombRaw } : {}) },
+          { key: receipt, exists: false },
+        ],
+        writes: [
+          { key, value: JSON.stringify(result.records) },
+          { key: 'recruit:tombstones', value: JSON.stringify(tombstones) },
+          { key: receipt, value: '1', ttlSeconds: 604800 },
+        ],
+        increments: ['recruit:version'],
+      });
+      if (committed.ok) return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: '保存遇到并发更新，请重试' }, { status: 409 });
   } catch {

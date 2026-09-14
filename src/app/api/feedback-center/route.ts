@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kvCommandStrict, kvGetRaw } from '@/lib/kv-server';
+import { kvCommandStrict, kvGetRaw, kvTransaction } from '@/lib/kv-server';
 import { hasValidServiceToken, requireApiSession, requireMutationSession, requireOwnerSession } from '@/lib/auth-api';
 import type {
   FeedbackCenterState,
@@ -56,11 +56,11 @@ async function readState(force = false): Promise<FeedbackCenterState> {
 
 async function saveState(expectedRaw: string, state: FeedbackCenterState): Promise<'saved' | 'conflict'> {
   const raw = JSON.stringify(state);
-  const committed = await kvCommandStrict<number>('EVAL', `
-if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
-redis.call('SET', KEYS[1], ARGV[2])
-return 1`, 1, KEY, expectedRaw, raw);
-  if (committed !== 1) return 'conflict';
+  const committed = await kvTransaction({
+    expected: [{ key: KEY, exists: Boolean(expectedRaw), ...(expectedRaw ? { value: expectedRaw } : {}) }],
+    writes: [{ key: KEY, value: raw }],
+  });
+  if (!committed.ok) return 'conflict';
   stateCache = { expiresAt: Date.now() + STATE_CACHE_MS, raw, state };
   return 'saved';
 }

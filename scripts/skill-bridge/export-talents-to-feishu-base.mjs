@@ -15,8 +15,8 @@
 //   --dry-run   只打印将要创建的请求，不实际写
 //   --limit N   只导出前 N 位（联调用）
 
-const KV_URL = process.env.RECRUIT_KV_URL || 'https://positive-mongrel-70521.upstash.io';
-const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || 'gQAAAAAAARN5AAIgcDE5NDM2NzliZjdjOWY0MjBmYTA0NjhjODhjNTNjZjM3Zg';
+const KV_URL = process.env.RECRUIT_KV_URL || '';
+const KV_TOKEN = process.env.RECRUIT_KV_TOKEN || '';
 const TALENTS_KEY = 'recruit:talents';
 const BATCH_SIZE = 200; // lark-cli base +record-batch-create 单次上限
 
@@ -148,6 +148,7 @@ async function batchCreate(baseToken, tableId, fieldNames, rows, dryRun) {
 }
 
 async function main() {
+  if (!KV_URL || !KV_TOKEN) throw new Error('缺少 RECRUIT_KV_URL 或 RECRUIT_KV_TOKEN');
   const url = getArg('--url');
   if (!url) { console.error('错误：缺少 --url（飞书多维表格地址）'); process.exit(1); }
   const { baseToken, tableId } = parseBaseUrl(url);
