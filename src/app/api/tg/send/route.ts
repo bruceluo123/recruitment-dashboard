@@ -211,6 +211,31 @@ function deliveryResults(deliveries: DeliveryItem[]) {
   }));
 }
 
+function reconcileDeliveriesFromBusinessRecords(
+  deliveries: DeliveryItem[],
+  records: BusinessRecommendation[],
+): { deliveries: DeliveryItem[]; changed: boolean } {
+  const recordsByIndex = new Map(records.map((record) => [Number(record.deliveryIndex), record]));
+  let changed = false;
+  const reconciled = deliveries.map((delivery, index) => {
+    const record = recordsByIndex.get(index);
+    const messageId = cleanText(record?.telegramMessageId, 120);
+    const deliveredAt = cleanText(record?.deliveredAt, 120);
+    const delivered = record?.deliveryStatus === 'sent' || Boolean(messageId);
+    if (!delivered || delivery.status === 'sent' && (!messageId || delivery.messageId === messageId)) return delivery;
+    changed = true;
+    const next = {
+      ...delivery,
+      status: 'sent' as const,
+      messageId: messageId || delivery.messageId,
+      sentAt: deliveredAt || delivery.sentAt || new Date().toISOString(),
+    };
+    delete next.error;
+    return next;
+  });
+  return { deliveries: reconciled, changed };
+}
+
 function safeFileName(value: string): string {
   return value
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
@@ -365,12 +390,13 @@ export async function POST(request: NextRequest) {
     if (existingSender !== sender) {
       return NextResponse.json({ ok: false, error: '发送任务所属人与请求不一致' }, { status: 409 });
     }
-    const deliveries = normalizedDeliveries(existing);
-    const sent = sentCount(deliveries);
-    const status = publicStatus(existing, deliveries);
     let businessRecords: BusinessRecommendation[];
     try { businessRecords = await deliveryBusinessRecords(existing); }
     catch { return NextResponse.json({ ok: false, error: '推荐记录格式异常，已停止发送' }, { status: 503 }); }
+    const reconciled = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(existing), businessRecords);
+    const deliveries = reconciled.deliveries;
+    const sent = sentCount(deliveries);
+    const status = publicStatus(existing, deliveries);
     if (body.retry && (status === 'failed' || status === 'partial_failed')) {
       if (!await workerIsOnline(existingSender)) {
         return NextResponse.json(
@@ -546,11 +572,22 @@ export async function GET(request: NextRequest) {
   if (!record) return NextResponse.json({ ok: false, error: '未找到发送记录' }, { status: 404 });
   const ownerBlocked = await requireOwnerSession(request, record.sender === 'b' ? 'b' : 'a');
   if (ownerBlocked) return ownerBlocked;
-  const deliveries = normalizedDeliveries(record);
-  const status = publicStatus(record, deliveries);
   let businessRecords: BusinessRecommendation[];
   try { businessRecords = await deliveryBusinessRecords(record); }
   catch { return NextResponse.json({ ok: false, error: '推荐记录格式异常，已停止读取' }, { status: 503 }); }
+  const reconciled = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(record), businessRecords);
+  const deliveries = reconciled.deliveries;
+  const status = publicStatus(record, deliveries);
+  if (reconciled.changed && status === 'sent' && record.status !== 'sending') {
+    record.deliveries = deliveries;
+    record.sent = deliveries.length;
+    record.status = 'sent';
+    record.finishedAt ||= new Date().toISOString();
+    record.updatedAt = new Date().toISOString();
+    delete record.error;
+    delete record.lease;
+    await kvCommandStrict('SET', recordKey(id), JSON.stringify(record), 'EX', DELIVERY_TTL_SECONDS);
+  }
   if (status === 'sent' && !record.cleanedAt) {
     try {
       const pathname = new URL(record.fileUrl).pathname;

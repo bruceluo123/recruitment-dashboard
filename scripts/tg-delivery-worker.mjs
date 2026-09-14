@@ -822,6 +822,51 @@ function telegramMessageId(result) {
   return id == null ? undefined : String(id);
 }
 
+function messageFileName(message) {
+  for (const attribute of message?.document?.attributes || []) {
+    if (attribute instanceof Api.DocumentAttributeFilename || attribute?.className === 'DocumentAttributeFilename') {
+      return String(attribute.fileName || '');
+    }
+  }
+  return String(message?.file?.name || '');
+}
+
+function normalizedDeliveryText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizedDeliveryFileName(value) {
+  return String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+async function findDeliveredMessage(client, entity, record, delivery) {
+  const expectedText = normalizedDeliveryText(String(delivery.text || '').slice(0, 1000));
+  const expectedFileName = normalizedDeliveryFileName(delivery.fileName);
+  if (!expectedText || !expectedFileName) return null;
+  const createdAt = new Date(record.createdAt || 0).getTime();
+  const earliest = Number.isFinite(createdAt) ? createdAt - 5 * 60 * 1000 : 0;
+  const messages = await client.getMessages(entity, { limit: 200 });
+  const match = messages.find((message) => {
+    const messageAt = Number(message?.date || 0) * 1000;
+    return message?.out === true
+      && messageAt >= earliest
+      && normalizedDeliveryText(message.message) === expectedText
+      && normalizedDeliveryFileName(messageFileName(message)) === expectedFileName;
+  });
+  if (!match) return null;
+  return {
+    messageId: telegramMessageId(match),
+    sentAt: new Date(Number(match.date || 0) * 1000).toISOString(),
+  };
+}
+
+function markDeliveryReconciled(delivery, match) {
+  delivery.status = 'sent';
+  delivery.sentAt = match.sentAt || delivery.sentAt || new Date().toISOString();
+  if (match.messageId) delivery.messageId = match.messageId;
+  delete delivery.error;
+}
+
 function deterministicRandomId(recordId, index) {
   const hex = createHash('sha256').update(`${recordId}:${index}`).digest('hex').slice(0, 16);
   let value = BigInt(`0x${hex}`);
@@ -1015,6 +1060,19 @@ async function processRecord(client, dialogs, claim) {
 
     for (const [deliveryIndex, delivery] of deliveries.entries()) {
       if (delivery.status === 'sent') continue;
+      if ((Number(delivery.attempts) || 0) > 0) {
+        const existingMessage = await withLeaseRenewal(record, () => withTimeout(
+          findDeliveredMessage(client, entity, record, delivery),
+          TG_SETUP_TIMEOUT_MS,
+          'Telegram delivery reconciliation',
+        ));
+        if (existingMessage) {
+          markDeliveryReconciled(delivery, existingMessage);
+          normalizeDeliveries(record);
+          await saveLeaseRecord(record);
+          continue;
+        }
+      }
       delivery.status = 'sending';
       delivery.attempts = (Number(delivery.attempts) || 0) + 1;
       delete delivery.error;
@@ -1034,8 +1092,21 @@ async function processRecord(client, dialogs, claim) {
         delete delivery.error;
       } catch (error) {
         if (error instanceof LeaseLostError || error instanceof DeliveryMappingError || error instanceof FatalOperationTimeoutError) throw error;
-        delivery.status = 'failed';
-        delivery.error = error?.message || 'TG delivery failed';
+        let existingMessage = null;
+        try {
+          existingMessage = await withLeaseRenewal(record, () => withTimeout(
+            findDeliveredMessage(client, entity, record, delivery),
+            TG_SETUP_TIMEOUT_MS,
+            'Telegram delivery reconciliation',
+          ));
+        } catch {
+          // Preserve the original send error when Telegram history is temporarily unavailable.
+        }
+        if (existingMessage) markDeliveryReconciled(delivery, existingMessage);
+        else {
+          delivery.status = 'failed';
+          delivery.error = error?.message || 'TG delivery failed';
+        }
       }
       normalizeDeliveries(record);
       // If the lease expired while Telegram was working, this throws and prevents every later send/write.
