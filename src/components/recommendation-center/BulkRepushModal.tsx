@@ -1,4 +1,5 @@
 'use client';
+import { ensureRepushSourceSynced } from '@/lib/sync';
 
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarCheck, Check, CircleX, Clock3, FileText, Loader2, Repeat2, Search, Send, Users, X } from 'lucide-react';
@@ -405,12 +406,14 @@ export function BulkRepushModal({
           continue;
         }
         if (!requestId) {
+          await ensureRepushSourceSynced(candidate.item);
           requestId = typeof crypto.randomUUID === 'function'
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
           window.localStorage.setItem(storageKey, requestId);
           response = await enqueueDelivery({ ...payload, requestId });
         } else if (response?.status === 'failed' || response?.status === 'partial_failed') {
+          await ensureRepushSourceSynced(candidate.item);
           response = await enqueueDelivery({ ...payload, requestId, retry: true });
         }
         if (response) syncResponse(response);

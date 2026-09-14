@@ -9,6 +9,7 @@ import { displayName } from '@/lib/repush-format';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
 import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
+import { ensureRepushSourceSynced } from '@/lib/sync';
 
 export interface RepushArgs {
   record?: RepushItem;
@@ -372,6 +373,10 @@ export function RepushModal({
       }
       requestId ||= crypto.randomUUID();
       localStorage.setItem(key, requestId);
+      if (repushSourceId) {
+        setSendProgress('正在核对并同步原推荐记录…');
+        await ensureRepushSourceSynced(item);
+      }
       setSendProgress(retry ? '正在重新加入未发送项…' : '正在加入发送队列…');
       const response = await enqueueDelivery({ ...payload, requestId, retry }) as DeliveryStatusResponse;
       const enqueued = { ...response, id: response.id || requestId };
@@ -393,6 +398,7 @@ export function RepushModal({
       persistRepush(completed);
       localStorage.removeItem(key);
     } catch (error) {
+      setSendProgress('');
       setSendError((error as Error).message || 'TG 发送失败');
     } finally {
       setSending(false);
