@@ -1,32 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { runGoogleSync, type SyncSummary } from '@/lib/google-sync';
-import { isSameOrigin, rateLimit } from '@/lib/api-guard';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
 
-// 手动触发同步（"立即同步"按钮）。仅放行浏览器同域调用，并做 30 秒节流，
-// 防止外部脚本触发或误连点导致 Google Sheets 配额浪费与数据抖动。
-export async function POST(req: NextRequest): Promise<NextResponse<SyncSummary>> {
-  if (!isSameOrigin(req)) {
-    return NextResponse.json(
-      { ok: false, added: 0, deleted: 0, updated: 0, adopted: 0, kept: 0, total: 0, error: '禁止跨域调用' },
-      { status: 403 },
-    );
-  }
-  if (!rateLimit('sync:google', 1, 30_000)) {
-    return NextResponse.json(
-      { ok: false, added: 0, deleted: 0, updated: 0, adopted: 0, kept: 0, total: 0, error: '同步过于频繁，请 30 秒后再试' },
-      { status: 429 },
-    );
-  }
-  try {
-    const summary = await runGoogleSync();
-    return NextResponse.json(summary);
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, added: 0, deleted: 0, updated: 0, adopted: 0, kept: 0, total: 0, error: (err as Error).message || '同步失败' },
-      { status: 500 },
-    );
-  }
+// 完整面板覆盖是岗位库的唯一权威来源。旧 Google 源永久禁用，避免历史岗位回灌。
+export async function POST() {
+  return NextResponse.json(
+    { ok: false, error: '旧岗位源已停用，请使用完整面板覆盖导入' },
+    { status: 410 },
+  );
 }

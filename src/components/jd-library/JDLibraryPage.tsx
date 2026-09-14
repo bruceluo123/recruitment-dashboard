@@ -52,7 +52,6 @@ export function JDLibraryPage() {
   const reclassifyAll = useJDStore((s) => s.reclassifyAll);
   const resetNewBadge = useJDStore((s) => s.resetNewBadge);
   const exportAllJDs = useJDStore((s) => s.exportAllJDs);
-  const backupToKV = useJDStore((s) => s.backupToKV);
   const undoDeleteJD = useJDStore((s) => s.undoDeleteJD);
   const lastDeletedJD = useJDStore((s) => s.lastDeletedJD);
   const filteredJDs = useFilteredJDs();
@@ -229,7 +228,6 @@ export function JDLibraryPage() {
           <button onClick={() => handleBatchModeChange(true)} className="text-red-500 hover:text-red-600 underline text-xs">批量删除</button> ·{' '}
           <button onClick={() => setRecycleOpen(true)} className="text-gray-500 hover:text-gray-700 underline text-xs">回收站</button> ·{' '}
           <button onClick={exportAllJDs} className="text-green-600 hover:text-green-700 underline text-xs">导出 Excel</button> ·{' '}
-          <button onClick={backupToKV} className="text-amber-600 hover:text-amber-700 underline text-xs">备份到云端</button> ·{' '}
           <button onClick={handleTgSync} disabled={tgSyncing} className="text-orange-600 hover:text-orange-700 underline text-xs disabled:opacity-50">{tgSyncing ? '同步中…' : '同步 TG 缺口'}</button> ·{' '}
           <button onClick={() => { if (window.confirm(`确定要清空全部 ${jds.length} 个岗位吗？此操作不可撤销。`)) { deleteJDBatch(jds.map((j) => j.id)); } }} className="text-red-600 hover:text-red-700 underline text-xs font-medium">清空全部</button>
         </p>
