@@ -204,6 +204,17 @@ export function ResumeMatchingPage() {
   const activeResume = resumes.find((r) => r.id === activeResumeId);
   const activeBatch = activeResumeId ? resultsByResume[activeResumeId] : undefined;
   const activeResults = activeBatch?.results || [];
+  const recommendationJDById = new Map<string, JD>();
+  for (const jd of jds) {
+    if (targetJDIds.has(jd.id) && jd.status !== 'paused') recommendationJDById.set(jd.id, jd);
+  }
+  for (const result of activeResults) {
+    if (selectedResultIds.has(result.id) && !recommendationJDById.has(result.jdId)) {
+      recommendationJDById.set(result.jdId, result.jd);
+    }
+  }
+  const recommendationJDs = Array.from(recommendationJDById.values());
+  const recommendationSelectionCount = recommendationJDs.length;
   const remainingJobCount = Math.max(0, (activeBatch?.scopeIds?.length || 0) - activeResults.filter((result) => activeBatch?.scopeIds?.includes(result.jdId)).length);
   const failedJobCount = activeResults.filter((result) => result.assessmentStatus === 'failed').length;
   const activeIsMatching = isMatching && matchingResumeId === activeResumeId;
@@ -221,7 +232,10 @@ export function ResumeMatchingPage() {
     setSelectedResultIds((previous) => {
       const next = new Set(previous);
       if (next.has(resultId)) next.delete(resultId);
-      else if (next.size < 10) next.add(resultId);
+      else {
+        const result = activeResults.find((item) => item.id === resultId);
+        if (result && (targetJDIds.has(result.jdId) || recommendationSelectionCount < 10)) next.add(resultId);
+      }
       return next;
     });
     setRecommendationCopies([]);
@@ -230,8 +244,7 @@ export function ResumeMatchingPage() {
   };
 
   const handleRequestRecommendationCopy = () => {
-    const selectionCount = targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size;
-    if (!activeResume || selectionCount === 0 || isGeneratingCopy) return;
+    if (!activeResume || recommendationSelectionCount === 0 || isGeneratingCopy) return;
     setCandidateCodeError('');
     if (!recommendationResumeFile && activeResume.file) {
       setRecommendationResumeFile(activeResume.file);
@@ -242,11 +255,9 @@ export function ResumeMatchingPage() {
   };
 
   const handleGenerateRecommendationCopy = async (candidateText: string, resumeFile: File | null, resumeSource: string) => {
-    if (!activeResume || (targetJDIds.size === 0 && selectedResultIds.size === 0) || isGeneratingCopy) return;
+    if (!activeResume || recommendationSelectionCount === 0 || isGeneratingCopy) return;
     const resumeId = activeResume.id;
-    const selectedJDs = targetJDIds.size > 0
-      ? jds.filter((jd) => targetJDIds.has(jd.id) && jd.status !== 'paused')
-      : activeResults.filter((result) => selectedResultIds.has(result.id)).map((result) => result.jd);
+    const selectedJDs = recommendationJDs;
     if (selectedJDs.length === 0) return;
     const owner = activeOwner;
     const generation = ++recommendationGeneration.current;
@@ -443,7 +454,18 @@ export function ResumeMatchingPage() {
           onClose={() => setTargetJDPickerOpen(false)}
           onConfirm={(ids) => {
             setTargetJDIds(ids);
-            setSelectedResultIds(new Set());
+            setSelectedResultIds((previous) => {
+              const combinedJDIds = new Set(ids);
+              const retained = new Set<string>();
+              for (const result of activeResults) {
+                if (!previous.has(result.id)) continue;
+                if (combinedJDIds.has(result.jdId) || combinedJDIds.size < 10) {
+                  retained.add(result.id);
+                  combinedJDIds.add(result.jdId);
+                }
+              }
+              return retained;
+            });
             setRecommendationCopies([]);
             setCandidateDialogOpen(false);
             setCopyDialogOpen(false);
@@ -498,7 +520,7 @@ export function ResumeMatchingPage() {
             isMatching={activeIsMatching}
             refinementProgress={activeIsMatching ? { completed: activeBatch?.refinedCount || 0, total: activeBatch?.refineTotal || 0 } : null}
             selectedResultIds={selectedResultIds}
-            recommendationSelectionCount={targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size}
+            recommendationSelectionCount={recommendationSelectionCount}
             generatedJdIds={new Set(recommendationCopies.map((item) => item.jdId))}
             isGeneratingCopy={isGeneratingCopy}
             onToggleSelected={handleToggleSelected}
@@ -510,7 +532,7 @@ export function ResumeMatchingPage() {
       </div>
       {candidateDialogOpen && (
         <RecommendationCandidateDialog
-          jobCount={targetJDIds.size > 0 ? targetJDIds.size : selectedResultIds.size}
+          jobCount={recommendationSelectionCount}
           codePrefix={OWNER_CONFIG[activeOwner].codePrefix}
           candidateCode={reservedCandidateCode}
           initialCandidateText={candidateInfoText}
