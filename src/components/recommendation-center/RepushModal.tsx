@@ -285,7 +285,7 @@ export function RepushModal({
     if (close) onClose();
   };
 
-  const enqueueDelivery = async (body: object) => {
+  const enqueueDelivery = async (body: { requestId: string; [key: string]: unknown }) => {
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const controller = new AbortController();
@@ -305,6 +305,17 @@ export function RepushModal({
       } catch (error) {
         if (error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
         lastError = error;
+        setSendProgress('正在核对发送回执，请勿重复操作…');
+        try {
+          const receipt = await fetch(`/api/tg/send?ids=${encodeURIComponent(body.requestId)}`, {
+            cache: 'no-store', signal: AbortSignal.timeout(8_000),
+          });
+          const status = await receipt.json();
+          const task = status.results?.find((row: DeliveryStatusResponse) => row.id === body.requestId);
+          if (receipt.ok && status.ok && task?.ok && ['queued', 'sending', 'sent'].includes(task.status)) return task;
+        } catch {
+          // Keep the persisted request ID: a lost receipt must not create a new send.
+        }
         if (attempt === 0) await wait(800);
       } finally {
         window.clearTimeout(timer);

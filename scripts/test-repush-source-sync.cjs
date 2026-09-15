@@ -30,13 +30,14 @@ function fixture(suffix = 'one', owner = 'a') {
         candidateCode: source.candidateCode, resumeFileName: source.resumeFileName,
         source: 'repush', repushSourceId: source.id } }] };
 }
-function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'], race, lost = false } = {}) {
+function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'], race, lost = false, readFailures = 0, writeFailures = 0 } = {}) {
   const db = new Map([
     ['recruit:repush', JSON.stringify(rows)], ['recruit:tombstones', JSON.stringify({ repush: deleted })],
     ['recruit:tg-delivery-worker-heartbeat', JSON.stringify({ at: online ? new Date().toISOString() : '2000-01-01' })],
     ['recruit:tg-delivery-worker-heartbeat-b', JSON.stringify({ at: online ? new Date().toISOString() : '2000-01-01' })],
   ]);
   const queued = [];
+  const readKeys = [];
   let reads = 0, transactions = 0;
   const api = load('src/app/api/tg/send/route.ts', {
     'next/server': { NextResponse: { json: (data, options) => ({ data: clone(data), status: options?.status || 200 }) } },
@@ -47,12 +48,21 @@ function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'],
     '@/lib/kv-server': {
       kvCommandStrict: async (command, ...keys) => {
         reads++;
+        readKeys.push(keys);
+        if (readFailures-- > 0) throw new Error('Transient read failure');
         if (command === 'MGET') return keys.map(key => db.get(key) ?? null);
         if (command === 'GET') return db.get(keys[0]) ?? null;
         throw new Error('Unexpected command ' + command);
       },
+      kvFindRepushRecords: async args => {
+        reads++;
+        const records = JSON.parse(db.get('recruit:repush') || '[]');
+        return records.filter(row => row.column === args.column
+          && (args.sourceIds.includes(row.id) || args.resumeUrls.includes(row.resumeUrl)));
+      },
       kvTransaction: async payload => {
         transactions++;
+        if (writeFailures-- > 0) throw new Error('Transient write failure');
         if (race) { const hook = race; race = null; hook(db); }
         for (const expected of payload.expected || []) {
           if (db.has(expected.key) !== expected.exists
@@ -65,11 +75,26 @@ function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'],
       },
     },
   });
-  return { db, queued, post: body => api.POST({ json: async () => clone(body) }),
+  return { db, queued, readKeys, post: body => api.POST({ json: async () => clone(body) }),
     get: ids => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?' + ids.map(id => 'ids=' + id).join('&')) }),
+    getSingle: id => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?id=' + id) }),
     counts: () => ({ reads, transactions }) };
 }
 let passed = 0;
+function enqueueHarness(respond) {
+  const source = fs.readFileSync(path.join(root, 'src/components/recommendation-center/RepushModal.tsx'), 'utf8');
+  const start = source.indexOf('  const enqueueDelivery =');
+  const end = source.indexOf('  const handleSendAndRepush', start);
+  assert.ok(start >= 0 && end > start);
+  const code = ts.transpileModule(source.slice(start, end) + '\nexports.enqueue = enqueueDelivery;', {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const exports = {}, calls = [];
+  vm.runInNewContext(code, { exports, AbortController, AbortSignal, window: { setTimeout, clearTimeout },
+    wait: async () => {}, setSendProgress: () => {}, encodeURIComponent,
+    fetch: async (url, options) => { calls.push({ url, options }); return respond(url, options, calls.length); } });
+  return { enqueue: exports.enqueue, calls };
+}
 async function test(name, run) { await run(); console.log('PASS ' + name); passed++; }
 (async () => {
   await test('10 candidates use one read and one atomic commit', async () => {
@@ -84,7 +109,7 @@ async function test(name, run) { await run(); console.log('PASS ' + name); passe
   });
   await test('same request is never enqueued twice, including a lost response', async () => {
     const h = harness({ lost: true }), job = fixture();
-    assert.equal((await h.post(job)).status, 503);
+    assert.equal((await h.post(job)).data.ok, true);
     assert.equal((await h.post(job)).data.ok, true);
     assert.equal(h.queued.length, 1);
   });
@@ -211,13 +236,14 @@ async function test(name, run) { await run(); console.log('PASS ' + name); passe
     assert.match((await h.post(fixture())).data.error, /离线/);
     assert.equal(h.counts().transactions, 0);
   });
-  await test('batch status uses one read and enforces account permissions', async () => {
+  await test('batch status reads only task receipts and matching business records', async () => {
     const h = harness({ allowed: ['a'] });
     await h.post(fixture());
     const before = h.counts().reads;
     const result = await h.get(['request-one']);
     assert.equal(result.data.results[0].status, 'queued');
-    assert.equal(h.counts().reads - before, 1);
+    assert.equal(h.counts().reads - before, 2);
+    assert.deepEqual(h.readKeys.at(-1), ['recruit:tg-delivery:request-one']);
     h.db.set('recruit:tg-delivery:request-other', JSON.stringify({ id: 'request-other', sender: 'b' }));
     const denied = await h.get(['request-other']);
     assert.equal(denied.data.results[0].ok, false);
@@ -228,6 +254,60 @@ async function test(name, run) { await run(); console.log('PASS ' + name); passe
     assert.equal((await h.post({ sender: 'a', batch: [job, job] })).status, 400);
     assert.equal((await h.post({ sender: 'a', batch: [fixture('other', 'b')] })).status, 400);
     assert.equal(h.counts().reads, 0);
+  });
+  await test('transient storage reads and writes recover without duplicate queue items', async () => {
+    for (const options of [{ readFailures: 1 }, { writeFailures: 1 }, { readFailures: 1, writeFailures: 1 }]) {
+      const h = harness(options);
+      assert.equal((await h.post(fixture())).data.ok, true);
+      assert.equal(h.queued.length, 1);
+    }
+  });
+  await test('persistent storage failure stays an error and never enqueues', async () => {
+    const h = harness({ writeFailures: 10 });
+    assert.equal((await h.post(fixture())).status, 503);
+    assert.equal(h.queued.length, 0);
+  });
+  await test('lost batch commit response recovers every receipt without resending', async () => {
+    const h = harness({ lost: true });
+    const response = await h.post({ sender: 'a', batch: [fixture('first'), fixture('second')] });
+    assert.deepEqual(response.data.results.map(row => row.ok), [true, true]);
+    assert.equal(h.queued.length, 2);
+    assert.equal(h.counts().transactions, 1);
+  });
+  await test('single status handles storage failure and avoids full history reads', async () => {
+    const h = harness();
+    await h.post(fixture());
+    assert.equal((await h.getSingle('request-one')).data.status, 'queued');
+    assert.deepEqual(h.readKeys.at(-1), ['recruit:tg-delivery:request-one']);
+    const unavailable = harness({ readFailures: 1 });
+    assert.equal((await unavailable.getSingle('request-one')).status, 503);
+  });
+  await test('UI confirms a lost submission response without a second POST', async () => {
+    const h = enqueueHarness(async (_, options) => {
+      if (options.method === 'POST') throw new Error('Network disconnected');
+      return { ok: true, json: async () => ({ ok: true, results: [{ id: 'request-ui', ok: true, status: 'queued' }] }) };
+    });
+    assert.equal((await h.enqueue({ requestId: 'request-ui' })).status, 'queued');
+    assert.equal(h.calls.filter(call => call.options.method === 'POST').length, 1);
+  });
+  await test('UI retries the identical task after an unconfirmed receipt', async () => {
+    let posts = 0;
+    const h = enqueueHarness(async (_, options) => {
+      if (options.method === 'POST') {
+        if (++posts === 1) return { ok: false, status: 503, json: async () => ({ error: 'Unavailable' }) };
+        return { ok: true, json: async () => ({ ok: true, id: 'request-ui', status: 'queued' }) };
+      }
+      return { ok: true, json: async () => ({ ok: true, results: [] }) };
+    });
+    assert.equal((await h.enqueue({ requestId: 'request-ui' })).status, 'queued');
+    const bodies = h.calls.filter(call => call.options.method === 'POST').map(call => call.options.body);
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[0], bodies[1]);
+  });
+  await test('UI does not recover or retry a permission or validation rejection', async () => {
+    const h = enqueueHarness(async () => ({ ok: false, status: 403, json: async () => ({ error: 'Denied' }) }));
+    await assert.rejects(h.enqueue({ requestId: 'request-ui' }), /Denied/);
+    assert.equal(h.calls.length, 1);
   });
   console.log('Passed ' + passed + ' send-route regression scenarios.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

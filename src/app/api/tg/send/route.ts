@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { del } from '@vercel/blob';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
 import { requireApiSession, requireOwnerSession } from '@/lib/auth-api';
-import { kvCommandStrict, kvTransaction } from '@/lib/kv-server';
+import { kvCommandStrict, kvFindRepushRecords, kvTransaction } from '@/lib/kv-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+// Leave room for receipt recovery after a storage timeout; normal requests do not wait.
+export const maxDuration = 60;
 
 const recordKey = (id: string) => `recruit:tg-delivery:${id}`;
 const DELIVERY_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -245,11 +246,19 @@ function parseBusinessRecommendations(raw: string | null): BusinessRecommendatio
   return parsed as BusinessRecommendation[];
 }
 
-async function deliveryBusinessRecords(record: DeliveryRecord): Promise<BusinessRecommendation[]> {
-  const sender = record.sender === 'b' ? 'b' : 'a';
-  const records = parseBusinessRecommendations(await kvCommandStrict<string | null>('GET', 'recruit:repush'));
-  return records
-    .filter((item) => item.deliveryId === record.id && item.column === sender)
+async function deliveryBusinessRecords(tasks: DeliveryRecord[]): Promise<BusinessRecommendation[]> {
+  const groups = await Promise.all((['a', 'b'] as const).map(async (sender) => {
+    const owned = tasks.filter(task => (task.sender || 'a') === sender);
+    if (!owned.length) return [];
+    const ids = new Set(owned.map(task => task.id));
+    const records = await kvFindRepushRecords({
+      sourceIds: owned.flatMap(task => (task.applications || []).map(app => app.applicationId)),
+      candidateCodes: [], candidateIdentityIds: [],
+      resumeUrls: owned.map(task => task.fileUrl), column: sender,
+    });
+    return records.filter(item => ids.has(String(item.deliveryId)) && item.column === sender) as BusinessRecommendation[];
+  }));
+  return groups.flat()
     .sort((a, b) => Number(a.deliveryIndex ?? Number.MAX_SAFE_INTEGER) - Number(b.deliveryIndex ?? Number.MAX_SAFE_INTEGER));
 }
 
@@ -384,8 +393,15 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
   }));
   const keys = ['recruit:repush', 'recruit:tombstones', accountKeys(sender).heartbeat,
     ...jobs.map(job => recordKey(job.requestId))];
+  const deadline = Date.now() + 18_000;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const raw = await kvCommandStrict<(string | null)[]>('MGET', ...keys);
+    let raw: (string | null)[];
+    try {
+      raw = await kvCommandStrict<(string | null)[]>('MGET', ...keys);
+    } catch (error) {
+      if (attempt === 2 || Date.now() >= deadline) throw error;
+      continue;
+    }
     let repush = parseBusinessRecommendations(raw[0]);
     const tombstones = raw[1] ? JSON.parse(raw[1]) : {};
     const heartbeat = parseHeartbeat(raw[2]);
@@ -474,16 +490,45 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
       }
     }
     if (!writes.length) return results;
-    const committed = await kvTransaction({
-      expected: [
-        { key: keys[0], exists: raw[0] !== null, ...(raw[0] !== null ? { value: raw[0] } : {}) },
-        { key: keys[1], exists: raw[1] !== null, ...(raw[1] !== null ? { value: raw[1] } : {}) },
-        ...expected,
-      ],
-      writes: [...writes, { key: keys[0], value: JSON.stringify(repush) }],
-      lists, increments: ['recruit:version'],
-    });
-    if (committed.ok) return results;
+    try {
+      const committed = await kvTransaction({
+        expected: [
+          { key: keys[0], exists: raw[0] !== null, ...(raw[0] !== null ? { value: raw[0] } : {}) },
+          { key: keys[1], exists: raw[1] !== null, ...(raw[1] !== null ? { value: raw[1] } : {}) },
+          ...expected,
+        ],
+        writes: [...writes, { key: keys[0], value: JSON.stringify(repush) }],
+        lists, increments: ['recruit:version'],
+      });
+      if (committed.ok) return results;
+    } catch (error) {
+      // The transaction may have committed before its response was lost. Read
+      // only its receipts before attempting another compare-and-swap.
+      try {
+        const receipts = await kvCommandStrict<(string | null)[]>('MGET', ...writes.map(write => write.key));
+        const confirmed = receipts.map(parseRecord);
+        if (confirmed.every((receipt, index) => {
+          const planned = parseRecord(writes[index].value)!;
+          return receipt && receipt.id === planned.id && receipt.sender === planned.sender
+            && receipt.createdAt === planned.createdAt && receipt.fileUrl === planned.fileUrl
+            && receipt.target === planned.target && (receipt.retryCount || 0) >= (planned.retryCount || 0);
+        })) {
+          return results.map(result => {
+            const receipt = confirmed.find(record => record?.id === result.id);
+            if (!receipt) return result;
+            const business = repush.filter(row => row.deliveryId === receipt.id && row.column === sender);
+            const deliveries = normalizedDeliveries(receipt);
+            const status = publicStatus(receipt, deliveries);
+            return { ok: status !== 'failed' && status !== 'partial_failed',
+              ...deliverySnapshot(receipt, deliveries, business), error: receipt.error };
+          });
+        }
+      } catch {
+        // Keep the same IDs and re-read before retrying; never replay a blind write.
+      }
+      if (attempt === 2 || Date.now() >= deadline) throw error;
+    }
+    if (Date.now() >= deadline) break;
   }
   throw new Error('推荐数据正在更新，请重试；同一任务不会重复入队');
 }
@@ -515,7 +560,8 @@ export async function POST(request: NextRequest) {
     const result = results[0];
     return NextResponse.json({ ...result, queued: result.ok && 'status' in result
       && (result.status === 'queued' || result.status === 'sending') }, { status: result.ok ? 200 : 409 });
-  } catch {
+  } catch (error) {
+    console.error('[tg-send] submit failed', error instanceof Error ? error.name : 'UnknownError');
     return NextResponse.json({ ok: false, error: '发送任务暂时无法确认，请重试；已提交的任务不会重复入队' }, { status: 503 });
   }
 }
@@ -531,12 +577,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: false, error: '发送编号无效' }, { status: 400 });
     }
     try {
-      const values = await kvCommandStrict<(string | null)[]>('MGET', 'recruit:repush', ...batchIds.map(recordKey));
-      const records = parseBusinessRecommendations(values[0]);
+      const values = await kvCommandStrict<(string | null)[]>('MGET', ...batchIds.map(recordKey));
       const permissions = new Map<'a' | 'b', boolean>();
       const results = [];
+      const tasks = values.map(parseRecord);
+      for (const task of tasks) {
+        if (!task) continue;
+        const sender = task.sender === 'b' ? 'b' : 'a';
+        if (!permissions.has(sender)) permissions.set(sender, !await requireOwnerSession(request, sender));
+      }
+      const records = await deliveryBusinessRecords(tasks.filter((task): task is DeliveryRecord => Boolean(task && permissions.get(task.sender || 'a'))));
       for (const [index, id] of Array.from(batchIds.entries())) {
-        const record = parseRecord(values[index + 1]);
+        const record = tasks[index];
         if (!record) { results.push({ id, ok: false, error: '未找到发送记录' }); continue; }
         const sender = record.sender === 'b' ? 'b' : 'a';
         if (!permissions.has(sender)) permissions.set(sender, !await requireOwnerSession(request, sender));
@@ -554,12 +606,14 @@ export async function GET(request: NextRequest) {
   if (!id || !/^[A-Za-z0-9-]+$/.test(id)) {
     return NextResponse.json({ ok: false, error: '发送编号无效' }, { status: 400 });
   }
-  const record = parseRecord(await kvCommandStrict<string | null>('GET', recordKey(id)));
+  let record: DeliveryRecord | null;
+  try { record = parseRecord(await kvCommandStrict<string | null>('GET', recordKey(id))); }
+  catch { return NextResponse.json({ ok: false, error: '发送进度暂时无法读取，请稍后重试' }, { status: 503 }); }
   if (!record) return NextResponse.json({ ok: false, error: '未找到发送记录' }, { status: 404 });
   const ownerBlocked = await requireOwnerSession(request, record.sender === 'b' ? 'b' : 'a');
   if (ownerBlocked) return ownerBlocked;
   let businessRecords: BusinessRecommendation[];
-  try { businessRecords = await deliveryBusinessRecords(record); }
+  try { businessRecords = await deliveryBusinessRecords([record]); }
   catch { return NextResponse.json({ ok: false, error: '推荐记录格式异常，已停止读取' }, { status: 503 }); }
   const reconciled = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(record), businessRecords);
   const deliveries = reconciled.deliveries;

@@ -364,7 +364,20 @@ export function BulkRepushModal({
           result = data;
           break;
         } catch (error) {
-          if (attempt === 1 || error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
+          if (error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
+          try {
+            const query = tasks.map(task => `ids=${encodeURIComponent(task.body.requestId)}`).join('&');
+            const receipt = await fetch(`/api/tg/send?${query}`, { cache: 'no-store', signal: AbortSignal.timeout(8_000) });
+            const data = await receipt.json();
+            if (receipt.ok && data.ok && tasks.every(task => data.results?.some((row: DeliveryStatusResponse) =>
+              row.id === task.body.requestId && row.ok && ['queued', 'sending', 'sent'].includes(row.status || '')))) {
+              result = data;
+              break;
+            }
+          } catch {
+            // Retry the same batch IDs only when receipts cannot confirm all tasks.
+          }
+          if (attempt === 1) throw error;
           await wait(800);
         }
       }
