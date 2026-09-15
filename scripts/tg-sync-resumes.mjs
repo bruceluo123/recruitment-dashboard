@@ -359,7 +359,7 @@ function fileNameOf(msg) {
 }
 
 function isResumeFile(fileName) {
-  return /\.(pdf|docx?|png|jpe?g|webp)$/i.test(fileName) && !/(\u4f5c\u54c1\u96c6|portfolio|showcase)/i.test(fileName);
+  return /\.(pdf|docx?|png|jpe?g|webp)$/i.test(fileName);
 }
 
 function shouldScanGroupTitle(title) {
@@ -697,7 +697,7 @@ async function collectTargets(client, from, to, limit, account, requestedDialog 
       const previous = messages.filter(item => item.id < msg.id).sort((a, b) => b.id - a.id)[0];
       if (/查重|仅供参考|作品集/.test(msg.message || '')
         || (previous && msg.date - previous.date < 120 && /查重/.test(previous.message || ''))) continue;
-      if (/作品|portfolio/i.test(fileName)) continue;
+      if (/作品|portfolio|showcase/i.test(fileName)) continue;
       if (/\.(png|jpe?g|webp)$/i.test(fileName) && !/简历|resume|cv/i.test(fileName)) continue;
       const stem = fileName.replace(/\.[^.]+$/i, '');
       const [name, ...job] = stem.split(/[-_]/);
@@ -896,6 +896,7 @@ async function main(options = {}) {
         if (previous && (tombstones.repush?.[previous.repushId] || tombstones.talents?.[previous.talentId])) continue;
         if (tombstones.repush?.[`tg-intake:${account}:${createHash('sha1').update(target.key).digest('hex')}`]) continue;
         const p = target.parsed;
+        const attachmentOnly = /作品|portfolio|showcase/i.test(target.fileName);
         if (target.missingFile) throw new Error('推荐文案已发现，等待关联简历附件');
         let manualBuffer = !target.code ? await readTelegram(client.downloadMedia(target.msg, {})) : null;
         if (!target.code && (!Buffer.isBuffer(manualBuffer) || !manualBuffer.length)) throw new Error('手动附件下载失败');
@@ -967,7 +968,7 @@ async function main(options = {}) {
         }
         // One PDF reused for several jobs needs one OCR attempt, not one per job.
         // A failed OCR remains eligible on the next five-minute scan.
-        if (!prepared.resumeText && (!prepared.parseAttemptAt || Date.now() - prepared.parseAttemptAt > 180_000)) {
+        if (!attachmentOnly && !prepared.resumeText && (!prepared.parseAttemptAt || Date.now() - prepared.parseAttemptAt > 180_000)) {
           prepared.parseAttemptAt = Date.now();
           try {
             const parsedResume = await parseResumeFromBlob(prepared.uploaded.url, target.fileName);
@@ -978,8 +979,11 @@ async function main(options = {}) {
             prepared.parseError = err.message || 'parse failed';
           }
         }
-        const { uploaded, resumeText, parseSource, parseError } = prepared;
-        if (!resumeText) failures.push({ key: target.key, date: target.date, error: parseError || '正文等待识别' });
+        const { uploaded } = prepared;
+        const resumeText = attachmentOnly ? '' : prepared.resumeText;
+        const parseSource = attachmentOnly ? 'portfolio-attachment' : prepared.parseSource;
+        const parseError = attachmentOnly ? '' : prepared.parseError;
+        if (!resumeText && !attachmentOnly) failures.push({ key: target.key, date: target.date, error: parseError || '正文等待识别' });
 
         const jobTitle = p.jobTitle || '';
         const orgDept = splitOrgDept(p.organization);
@@ -1082,6 +1086,7 @@ async function main(options = {}) {
         rec.sourceCandidateCode = target.code;
         rec.notes = `TG 原编号 ${target.code} 格式异常或已属于其他人；已按文案与附件姓名分配独立编号，原人选未改动。`;
       }
+      if (attachmentOnly) rec.notes = [rec.notes, '投递文案及作品集附件已收取；作品集不作为简历正文。'].filter(Boolean).join('\n');
 
       ledger.push({
         key: target.key,
@@ -1094,7 +1099,8 @@ async function main(options = {}) {
         resumeUrl: uploaded.url,
         talentId: talent.id,
         repushId: rec.id,
-        parsed: !!resumeText,
+        parsed: !!resumeText || attachmentOnly,
+        attachmentOnly,
         parseSource,
         parseError,
         syncedAt: now,

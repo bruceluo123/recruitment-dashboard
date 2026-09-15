@@ -163,6 +163,12 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   assert.ok(bounded.remaining > 0 && bounded.imported === 25, 'large history checkpoints bounded batches');
   await api.main({ client, write: true, dialog: 'ojisamer' });
   assert.equal(JSON.parse(db.get('recruit:repush')).filter(row => row.candidateName.startsWith('Batch')).length, 27, 'next batch preserves all applications');
+  const portfolio = message(500, 'XYBB00399', 'Designer', '设计师', '瑞升');
+  portfolio.document.attributes[0].fileName = 'Designer_Portfolio.pdf';
+  history.unshift(portfolio);
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  const designer = JSON.parse(db.get('recruit:repush')).find(row => row.candidateName === 'Designer');
+  assert.ok(designer?.resumeUrl && designer.notes.includes('作品集'), 'an explicit recommendation with portfolio attachment is collected, not silently lost');
   console.log('Passed TG intake regressions: pagination, multi-job, multi-person, detached replies, no-code intake, idempotence, retry retention and sender isolation.');
 })().catch(error => {
   console.error(error);
