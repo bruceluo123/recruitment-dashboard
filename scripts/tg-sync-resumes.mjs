@@ -624,7 +624,9 @@ function linkedFile(messages, anchor) {
     if (between) return false;
     return !parsed.name || nameMatchesFile(parsed.name, fileNameOf(item))
       || normalizeIdentity(fileRecommendation.name) === normalizeIdentity(parsed.name);
-  }).sort((a, b) => Math.abs(a.date - anchor.date) - Math.abs(b.date - anchor.date))[0];
+  }).sort((a, b) => Number(/作品|portfolio|showcase/i.test(fileNameOf(a)))
+    - Number(/作品|portfolio|showcase/i.test(fileNameOf(b)))
+    || Math.abs(a.date - anchor.date) - Math.abs(b.date - anchor.date))[0];
 }
 
 async function collectTargets(client, from, to, limit, account, requestedDialog = '') {
