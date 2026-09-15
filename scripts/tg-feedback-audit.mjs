@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import ExcelJS from 'exceljs';
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
@@ -1260,9 +1261,9 @@ async function writeReport(outputDir, meta, noFeedback, interviewFailed, screeni
   }
 }
 
-async function main() {
+async function main(options = {}) {
   loadEnv();
-  const owner = arg('--owner', 'a') === 'b' ? 'b' : 'a';
+  const owner = (options.owner || arg('--owner', 'a')) === 'b' ? 'b' : 'a';
   const accountLabel = owner === 'b' ? '啵啵' : '麦满分';
   const telegramEnv = owner === 'b'
     ? { apiId: 'TG_BB_API_ID', apiHash: 'TG_BB_API_HASH', session: 'TG_BB_SESSION' }
@@ -1283,7 +1284,7 @@ async function main() {
   fs.mkdirSync(imageDir, { recursive: true });
   fs.mkdirSync(cacheDir, { recursive: true });
 
-  const client = new TelegramClient(
+  const client = options.client || new TelegramClient(
     new StringSession(process.env[telegramEnv.session]),
     Number.parseInt(process.env[telegramEnv.apiId], 10),
     process.env[telegramEnv.apiHash],
@@ -1292,12 +1293,12 @@ async function main() {
   const messages = [];
   let imageEntries = [];
   let prepared = [];
-  const telegramSessionTimeout = setTimeout(() => {
+  const telegramSessionTimeout = options.client ? undefined : setTimeout(() => {
     console.error('Telegram evidence collection exceeded 5 minutes; aborting so the delivery worker can recover');
     void client.disconnect().finally(() => process.exit(124));
   }, 5 * 60 * 1000);
   try {
-    await client.connect();
+    if (!options.client) await client.connect();
     if (!await client.checkAuthorization()) throw new Error(`Telegram account ${owner.toUpperCase()} authorization is invalid`);
     const dialogs = await client.getDialogs({ limit: 500 });
     const dialog = dialogs.find((item) => {
@@ -1316,7 +1317,7 @@ async function main() {
     messages.sort((a, b) => Number(a.date) - Number(b.date));
     imageEntries = messages.map((message, index) => ({ message, index })).filter(({ message }) => isImageMessage(message));
     const force = hasFlag('--force-ocr');
-    const reuseOcr = hasFlag('--reuse-ocr');
+    const reuseOcr = options.reuseOcr || hasFlag('--reuse-ocr');
 
     // Telegram 会话只用于拉取消息和截图。先把需要识别的图片下载到本地，
     // 随后立即断开，让常驻发送器恢复；耗时的 OCR 不再长期占用同一会话。
@@ -1354,8 +1355,10 @@ async function main() {
     }), Math.max(1, Number.parseInt(arg('--concurrency', '2'), 10)));
   } finally {
     clearTimeout(telegramSessionTimeout);
-    await client.disconnect().catch(() => undefined);
-    console.log(`__TG_SESSION_RELEASED__:${owner}`);
+    if (!options.client) {
+      await client.disconnect().catch(() => undefined);
+      console.log(`__TG_SESSION_RELEASED__:${owner}`);
+    }
   }
 
   const [repushRaw, candidatesRaw] = await Promise.all([kvGet('recruit:repush'), kvGet('recruit:candidates')]);
@@ -1717,7 +1720,7 @@ async function main() {
     resolvedMessageCount: ledger.filter((item) => item.status === 'resolved').length,
     reviewMessageCount: 0,
   };
-  const feedbackInboxCount = hasFlag('--sync')
+  const feedbackInboxCount = (options.sync || hasFlag('--sync'))
     ? await syncFeedbackInbox(owner, meta, noFeedback, scheduledFeedback, interviewFailed, screeningFailed, ledger, passedFeedback)
     : 0;
   const workbookPath = await writeReport(outputRoot, meta, noFeedback, interviewFailed, screeningFailed, screenshotRows);
@@ -1725,7 +1728,9 @@ async function main() {
   console.log(JSON.stringify({ ok: true, ...meta, feedbackInboxCount, workbookPath }, null, 2));
 }
 
-main().catch((error) => {
+export { main as syncFeedback };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().catch((error) => {
   console.error(JSON.stringify({ ok: false, error: clean(error?.message || error) }));
   process.exitCode = 1;
 });

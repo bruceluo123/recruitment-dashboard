@@ -9,6 +9,17 @@ param(
 )
 
 Set-Location -LiteralPath 'D:\projects\recruitment-dashboard'
+# Routine feedback now shares the sender's connection. Only explicit historical
+# maintenance keeps the standalone path below.
+if (-not $From -and -not $To -and -not $NoSync -and $Days -eq 7) {
+  $routineAccounts = if ($Account -eq 'all') { @('a', 'b') } else { @($Account) }
+  foreach ($routineAccount in $routineAccounts) {
+    $routineTask = if ($routineAccount -eq 'b') { 'PenguinIslandTgDeliveryWorkerBobo' } else { 'PenguinIslandTgDeliveryWorker' }
+    $status = Get-ScheduledTask -TaskName $routineTask -ErrorAction Stop
+    if ($status.Settings.Enabled -and $status.State -ne 'Running') { Start-ScheduledTask -TaskName $routineTask }
+  }
+  exit 0
+}
 . (Join-Path $PSScriptRoot 'windows-system-proxy.ps1')
 
 $proxy = Wait-WindowsSystemProxy

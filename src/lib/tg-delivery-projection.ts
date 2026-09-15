@@ -96,6 +96,25 @@ async function projectPending(): Promise<DeliveryProjectionResult> {
         || !Number.isInteger(index) || index < 0 || !object(deliveries[index])
         || !base.fileName || !base.uploadedAt || !base.candidateName
         || deleted[id] || (typeof base.applicationId === 'string' && deleted[base.applicationId])) continue;
+      // History intake can observe a delivered file before its task receipt is
+      // projected. Link that exact Telegram message instead of duplicating it.
+      const receipt = deliveries[index] as Row;
+      const importedIndex = receipt.messageId == null ? -1 : next.findIndex(row => (
+        row.column === entry.owner && Boolean(row.telegramSourceKey)
+        && !row.deliveryId && !deleted[row.id]
+        && row.candidateCode === base.candidateCode
+        && String(row.telegramMessageId || '') === String(receipt.messageId)
+      ));
+      if (importedIndex !== -1) {
+        const current = next[importedIndex];
+        next[importedIndex] = projectStatus({ ...base, ...current,
+          applicationId: base.applicationId || id, deliveryId: entry.id, deliveryIndex: index,
+        }, task, receipt, index);
+        indices.set(id, importedIndex);
+        if (typeof base.applicationId === 'string') indices.set(base.applicationId, importedIndex);
+        changed++;
+        continue;
+      }
       const row = projectStatus({ ...base, id }, task, deliveries[index], index);
       indices.set(id, next.length);
       if (typeof row.applicationId === 'string') indices.set(row.applicationId, next.length);

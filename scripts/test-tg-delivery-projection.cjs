@@ -70,6 +70,20 @@ function harness({ tasks = [], records = [], tombstones = {}, pendingA, pendingB
 let passed = 0;
 async function test(name, run) { await run(); passed++; console.log('PASS ' + name); }
 (async () => {
+  await test('chat intake before delivery receipt is linked without duplicate applications', async () => {
+    const job = task('race', 'b', 2);
+    const imported = job.businessRecords.map((row, index) => ({ ...row, id: `import-${index}`,
+      applicationId: `import-${index}`, deliveryId: undefined, telegramSourceKey: `chat:${100 + index}`,
+      telegramMessageId: String(100 + index), feedback: 'done' }));
+    const h = harness({ tasks: [job], records: imported }); await h.run();
+    assert.equal(h.records().length, 2);
+    h.records().forEach((row, index) => {
+      assert.equal(row.id, `import-${index}`); assert.equal(row.feedback, 'done');
+      assert.equal(row.deliveryId, job.id); assert.equal(row.deliveryIndex, index);
+      assert.equal(row.applicationId, job.businessRecords[index].applicationId);
+      assert.equal(row.deliveryStatus, 'sent');
+    });
+  });
   await test('new task recommendations become durable with complete identity, attachment and text', async () => {
     const job = task('multi', 'a', 3), h = harness({ tasks: [job] });
     const result = await h.run();

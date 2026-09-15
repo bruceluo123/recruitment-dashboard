@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { put } from '@vercel/blob';
 
 const ROOT = process.cwd();
+const preparedFiles = new Map();
 const CODE_PREFIXES = {
   a: 'XYMMF00',
   b: 'XYBB00',
@@ -347,6 +349,8 @@ function mimeType(fileName) {
 }
 
 function fileNameOf(msg) {
+  if (msg.photo) return `photo-${msg.id}.jpg`;
+  if (msg.document?.attributes?.some(attr => /Sticker|Animated/.test(attr.className || ''))) return '';
   const attrs = msg.document?.attributes || [];
   for (const attr of attrs) {
     if (attr instanceof Api.DocumentAttributeFilename || attr.className === 'DocumentAttributeFilename') return attr.fileName;
@@ -355,7 +359,7 @@ function fileNameOf(msg) {
 }
 
 function isResumeFile(fileName) {
-  return /\.(pdf|docx?)$/i.test(fileName) && !/(\u4f5c\u54c1\u96c6|portfolio|showcase)/i.test(fileName);
+  return /\.(pdf|docx?|png|jpe?g|webp)$/i.test(fileName) && !/(\u4f5c\u54c1\u96c6|portfolio|showcase)/i.test(fileName);
 }
 
 function shouldScanGroupTitle(title) {
@@ -385,6 +389,7 @@ async function kvGet(key) {
     return values[key] ?? null;
   }
   const res = await fetch(`${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`, {
+    signal: AbortSignal.timeout(30_000),
     headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
   });
   if (!res.ok) throw new Error(`KV get ${key} failed: ${res.status}`);
@@ -402,6 +407,7 @@ async function kvHGet(key, field) {
     return key.includes('identity-names') ? entry?.name ?? null : entry?.identity ?? null;
   }
   const res = await fetch(`${process.env.KV_REST_API_URL}/hget/${encodeURIComponent(key)}/${encodeURIComponent(field)}`, {
+    signal: AbortSignal.timeout(30_000),
     headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
   });
   if (!res.ok) throw new Error(`KV hget ${key} failed: ${res.status}`);
@@ -426,6 +432,7 @@ async function kvEval(script, keys, args) {
     throw new Error('Unsupported Supabase resume-sync transaction');
   }
   const res = await fetch(process.env.KV_REST_API_URL, {
+    signal: AbortSignal.timeout(30_000),
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(['EVAL', script, keys.length, ...keys, ...args]),
@@ -440,6 +447,7 @@ async function supabaseReadRaw(keys) {
   const base = process.env.SUPABASE_URL.replace(/\/$/, '');
   const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_read`, {
+    signal: AbortSignal.timeout(30_000),
     method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ p_keys: keys }),
   });
@@ -451,6 +459,7 @@ async function supabaseTx(payload) {
   const base = process.env.SUPABASE_URL.replace(/\/$/, '');
   const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_tx`, {
+    signal: AbortSignal.timeout(30_000),
     method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ p_payload: payload }),
   });
@@ -508,6 +517,7 @@ async function parseResumeFromBlob(url, fileName) {
     method: 'POST',
     headers: { Authorization: `Bearer ${serviceToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ url, fileName }),
+    signal: AbortSignal.timeout(90_000),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) throw new Error(data.error || `parse failed: ${res.status}`);
@@ -522,6 +532,23 @@ async function uploadResume(buffer, fileName) {
     contentType: mimeType(fileName),
   });
   return { url: blob.downloadUrl || blob.url, blobUrl: blob.url };
+}
+
+async function allocateManualCode(target, account, buffer) {
+  // The same original file can be uploaded several times with different job
+  // filenames. File content plus the stated name keeps those jobs together.
+  const identity = `tg:${account}:${createHash('sha256').update(buffer).digest('hex')}:${normalizeIdentity(target.parsed.name)}`;
+  const base = (process.env.RECRUIT_APP_URL || 'https://qieqiuzhidao.vercel.app').replace(/\/$/, '');
+  const response = await fetch(`${base}/api/candidate-code`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.RECRUIT_SERVICE_TOKEN || process.env.SERVICE_API_TOKEN || ''}`,
+      'Content-Type': 'application/json' },
+    body: JSON.stringify({ owner: account, candidateName: target.parsed.name, candidateIdentityId: identity }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.code) throw new Error(data.error || '手动投递编号分配失败');
+  return data.code;
 }
 
 function findNearbyCodeMessage(messages, msg) {
@@ -545,9 +572,63 @@ function findNearbyCodeMessage(messages, msg) {
   return null;
 }
 
-async function collectTargets(client, from, to, limit, account) {
-  const requestedDialog = clean(arg('--dialog', '')).replace(/^@/, '').toLowerCase();
-  const dialogs = await client.getDialogs({ limit: parseInt(arg('--dialog-limit', '500'), 10) });
+function recommendationMessage(msg) {
+  const parsed = parseRecommendation(msg.message || '', codeFromText(msg.message || ''));
+  return Boolean(parsed.name && parsed.jobTitle);
+}
+
+function sameSender(a, b) {
+  return String(a.senderId || '') === String(b.senderId || '') && a.out === b.out;
+}
+
+function nameMatchesFile(name, filename) {
+  const normalized = normalizeIdentity(filename);
+  return Boolean(normalizeIdentity(name)) && (normalized.includes(normalizeIdentity(name))
+    || String(name).split(/[\s/（）()]+/).some(part => normalizeIdentity(part).length >= 3
+      && normalized.includes(normalizeIdentity(part))));
+}
+
+async function readTelegram(promise, timeout = 90_000) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('TG 读取超时，保留本项下次补拉')), timeout);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+function linkedFile(messages, anchor) {
+  const files = messages.filter(item => isResumeFile(fileNameOf(item)) && sameSender(item, anchor));
+  const replyId = Number(anchor.replyTo?.replyToMsgId || 0);
+  const explicit = files.find(item => Number(item.id) === replyId
+    || Number(item.replyTo?.replyToMsgId || 0) === Number(anchor.id));
+  if (explicit) return explicit;
+  const parsed = parseRecommendation(anchor.message || '');
+  return files.filter(item => {
+    if (Math.abs(item.date - anchor.date) > 600) return false;
+    const fileRecommendation = parseRecommendation(item.message || '');
+    const sameCandidate = other => {
+      const candidate = parseRecommendation(other.message || '');
+      return sameSender(other, anchor) && Boolean(parsed.name)
+        && normalizeIdentity(candidate.name) === normalizeIdentity(parsed.name)
+        && (!parsed.code || candidate.code === parsed.code);
+    };
+    // Consecutive recommendations for the same person may share one attachment.
+    // Never borrow a captioned resume belonging to another candidate.
+    if (recommendationMessage(item) && !sameCandidate(item)) return false;
+    const between = messages.some(other => Number(other.id) > Math.min(Number(item.id), Number(anchor.id))
+      && Number(other.id) < Math.max(Number(item.id), Number(anchor.id))
+      && ((recommendationMessage(other) && !sameCandidate(other))
+        || /查重|仅供参考/.test(other.message || '')
+        || (isResumeFile(fileNameOf(other)) && !nameMatchesFile(parsed.name, fileNameOf(other)))));
+    if (between) return false;
+    return !parsed.name || nameMatchesFile(parsed.name, fileNameOf(item))
+      || normalizeIdentity(fileRecommendation.name) === normalizeIdentity(parsed.name);
+  }).sort((a, b) => Math.abs(a.date - anchor.date) - Math.abs(b.date - anchor.date))[0];
+}
+
+async function collectTargets(client, from, to, limit, account, requestedDialog = '') {
+  const dialogs = await readTelegram(client.getDialogs({ limit: parseInt(arg('--dialog-limit', '500'), 10) }));
   const groups = dialogs
     .filter((d) => {
       const title = String(d.title || d.name || '');
@@ -559,72 +640,123 @@ async function collectTargets(client, from, to, limit, account) {
       return shouldScanGroupTitle(title) || shouldScanPrivateDialog(d);
     })
     .map((d) => ({ id: String(d.id || ''), title: String(d.title || d.name || d.id || ''), entity: d.entity }));
+  if (requestedDialog && groups.length === 0) throw new Error(`未找到聊天 @${requestedDialog}，保留补拉起点`);
 
   const targets = [];
   for (const group of groups) {
-    const messages = await client.getMessages(group.entity, { limit });
-    for (const msg of messages) {
+    const messages = [];
+    // Telegram paginates this iterator: 180 messages is a page, not a loss boundary.
+    const iterator = client.iterMessages(group.entity, { limit: undefined })[Symbol.asyncIterator]();
+    while (true) {
+      const page = await readTelegram(iterator.next());
+      if (page.done) break;
+      const item = page.value;
+      messages.push(item);
+      if (item.date * 1000 < from.getTime() - 600_000) break;
+    }
+    const consumed = new Set();
+    for (const msg of messages.filter(recommendationMessage)) {
       const date = new Date(msg.date * 1000);
       if (date < from || date >= to) continue;
-      const fileName = fileNameOf(msg);
-      if (!isResumeFile(fileName)) continue;
+      if (msg.out === false) continue;
       const directCode = codeFromText(msg.message || '');
-      const nearby = directCode ? null : findNearbyCodeMessage(messages, msg);
-      const code = directCode || codeFromText(nearby?.message || '');
-      if (!isTargetCode(code) || !isAccountCode(code, account)) continue;
-      const recommendationText = clean(msg.message || '') ? msg.message : nearby?.message || '';
+      if (directCode && !isAccountCode(directCode, account)) continue;
+      // Explicit foreign codes must not be imported under our account.
+      if (/\bXY[A-Z]+\d+\b/i.test(msg.message || '') && !directCode) continue;
+      let file = isResumeFile(fileNameOf(msg)) ? msg : linkedFile(messages, msg);
+      if (!file && msg.replyTo?.replyToMsgId) {
+        const [replied] = await readTelegram(client.getMessages(group.entity, { ids: [msg.replyTo.replyToMsgId] }));
+        if (replied && sameSender(msg, replied) && isResumeFile(fileNameOf(replied))) file = replied;
+      }
+      const recommendationText = msg.message || '';
+      const code = directCode;
       const parsed = parseRecommendation(recommendationText, code);
-      if (!isTargetCode(parsed.code)) continue;
+      if (file) consumed.add(file.id);
       targets.push({
-        key: `${group.id}:${msg.id}:${parsed.code}`,
+        key: `${group.id}:${file?.id || msg.id}:${parsed.code}:${msg.id}`,
+        legacyKey: file ? `${group.id}:${file.id}:${parsed.code}` : '',
         chatId: group.id,
         chatTitle: group.title,
-        messageId: msg.id,
-        recommendationMessageId: nearby?.id || msg.id,
+        messageId: file?.id || msg.id,
+        recommendationMessageId: msg.id,
         date: date.toISOString(),
-        fileName,
+        fileName: file ? fileNameOf(file) : '',
         code: parsed.code,
         recommendationText,
         parsed,
-        msg,
+        msg: file,
+        missingFile: !file,
       });
+    }
+    for (const msg of messages) {
+      if (consumed.has(msg.id) || recommendationMessage(msg) || msg.out !== true) continue;
+      const date = new Date(msg.date * 1000);
+      const fileName = fileNameOf(msg);
+      if (date < from || date >= to || !isResumeFile(fileName)) continue;
+      if (/\bXY[A-Z]+\d+\b/i.test(msg.message || '')) continue;
+      const previous = messages.filter(item => item.id < msg.id).sort((a, b) => b.id - a.id)[0];
+      if (/查重|仅供参考|作品集/.test(msg.message || '')
+        || (previous && msg.date - previous.date < 120 && /查重/.test(previous.message || ''))) continue;
+      if (/作品|portfolio/i.test(fileName)) continue;
+      if (/\.(png|jpe?g|webp)$/i.test(fileName) && !/简历|resume|cv/i.test(fileName)) continue;
+      const stem = fileName.replace(/\.[^.]+$/i, '');
+      const [name, ...job] = stem.split(/[-_]/);
+      targets.push({ key: `${group.id}:${msg.id}:manual`, chatId: group.id, chatTitle: group.title,
+        messageId: msg.id, recommendationMessageId: msg.id, date: date.toISOString(), fileName, code: '',
+        recommendationText: msg.message || '', parsed: { name: clean(name), jobTitle: job.join('-') },
+        msg, manualReview: true });
     }
   }
   return targets.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function findExistingRecommendation(repush, code, jobTitle, dateIso) {
+function findExistingRecommendation(repush, code, jobTitle, dateIso, target = {}) {
+  const exact = repush.find(item => item.telegramSourceKey === target.key
+    || (String(item.candidateCode || '').toUpperCase() === code
+      && item.column === target.account
+      && String(item.telegramMessageId || '') === String(target.recommendationMessageId || '')
+      && (!item.telegramChatId || item.telegramChatId === target.chatId)));
+  if (exact) return exact;
   const day = localDateKey(dateIso);
-  return repush.find((item) => {
+  const matches = repush.filter((item) => {
     if (String(item.candidateCode || '').toUpperCase() !== code) return false;
-    if (jobTitle && item.jdTitle && clean(item.jdTitle) !== clean(jobTitle)) return false;
+    if (target.account && item.column !== target.account) return false;
+    if (clean(item.jdTitle) !== clean(jobTitle)) return false;
+    const org = splitOrgDept(target.parsed?.organization);
+    if (org.organization && clean(item.organization) !== clean(org.organization)) return false;
+    if (org.department && clean(item.department) !== clean(org.department)) return false;
+    if (item.telegramSourceKey && item.telegramSourceKey !== target.key) return false;
     return localDateKey(item.uploadedAt || '') === day;
   });
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
-async function main() {
+async function main(options = {}) {
   loadEnv();
   const account = arg('--account', process.env.TG_ACCOUNT || 'a') === 'b' ? 'b' : 'a';
-  const stateKey = account === 'b' ? 'recruit:tg-resume-sync-state-b' : 'recruit:tg-resume-sync-state';
+  const dialog = clean(options.dialog || arg('--dialog', '')).replace(/^@/, '').toLowerCase();
+  const stateKey = (account === 'b' ? 'recruit:tg-resume-sync-state-b' : 'recruit:tg-resume-sync-state')
+    + (dialog ? `:${dialog}` : '');
   const ledgerKey = account === 'b' ? 'recruit:tg-resume-sync-ledger-b' : 'recruit:tg-resume-sync-ledger';
   const apiId = process.env[account === 'b' ? 'TG_BB_API_ID' : 'TG_API_ID'] || '';
   const apiHash = process.env[account === 'b' ? 'TG_BB_API_HASH' : 'TG_API_HASH'] || '';
   const session = process.env[account === 'b' ? 'TG_BB_SESSION' : 'TG_SESSION'] || '';
   const dryRun = hasFlag('--dry-run');
-  const write = hasFlag('--write');
+  const write = options.write || hasFlag('--write');
   const limit = parseInt(arg('--limit', process.env.TG_SYNC_LIMIT || '180'), 10);
   const stateRaw = snapshotString(await kvGet(stateKey), stateKey);
   const state = parseObjectSnapshot(stateRaw, stateKey);
   const fromArg = arg('--from', '');
   const toArg = arg('--to', '');
   const todayStart = shanghaiDayStart(shanghaiTodayKey());
-  const stateStart = state.lastScanAt ? addMinutes(new Date(state.lastScanAt), -120) : todayStart;
+  const reconcile = !state.lastReconcileAt || Date.now() - Date.parse(state.lastReconcileAt) > 6 * 60 * 60_000;
+  const stateStart = state.lastScanAt ? addMinutes(new Date(state.lastScanAt), -120) : addMinutes(todayStart, -7 * 1440);
+  let scanStart = reconcile ? new Date(Math.min(stateStart.getTime(), todayStart.getTime() - 7 * 86400_000)) : stateStart;
+  if (state.retryFrom) scanStart = new Date(Math.min(scanStart.getTime(), Date.parse(state.retryFrom)));
   const from = fromArg
     ? shanghaiDayStart(fromArg)
-    : stateStart < todayStart
-      ? todayStart
-      : stateStart;
-  const to = toArg ? shanghaiDayStart(toArg) : new Date(Date.now() + 60 * 1000);
+    : scanStart;
+  const to = toArg ? shanghaiDayStart(toArg) : new Date();
 
   if (!dryRun && !write) throw new Error('Pass --dry-run to preview or --write to sync.');
   if (!apiId || !apiHash || !session) throw new Error(`Missing TG API env for account ${account}.`);
@@ -633,25 +765,33 @@ async function main() {
   if (write && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Missing BLOB_READ_WRITE_TOKEN.');
 
   const proxy = parseProxy(process.env.TG_PROXY);
-  const client = new TelegramClient(
+  const client = options.client || new TelegramClient(
     new StringSession(session.replace(/\s+/g, '')),
     parseInt(apiId, 10),
     apiHash,
     { connectionRetries: 3, ...(proxy ? { proxy } : {}) },
   );
-  await client.connect();
+  const releaseClient = async () => { if (!options.client) await client.disconnect(); };
+  if (!options.client) await client.connect();
   let targets = [];
   try {
-    targets = await collectTargets(client, from, to, limit, account);
+    targets = await collectTargets(client, from, to, limit, account, dialog);
   } finally {
-    if (dryRun) await client.disconnect();
+    if (dryRun) await releaseClient();
   }
 
   const ledgerRaw = snapshotString(await kvGet(ledgerKey), ledgerKey);
   const ledger = parseArraySnapshot(ledgerRaw, ledgerKey);
   // 文件已入库但正文解析失败时不能永久跳过；后续网络恢复后自动重试并补齐全文索引。
   const doneKeys = new Set(ledger.filter((row) => row.parsed !== false).map((row) => row.key));
-  const pending = targets.filter((target) => !doneKeys.has(target.key));
+  const pending = targets.filter((target) => !doneKeys.has(target.key)
+    && !ledger.some(row => row.key === target.legacyKey && row.parsed !== false
+      && Number(row.recommendationMessageId) === Number(target.recommendationMessageId)));
+  // Checkpoint bounded batches. Old failures must not starve newly arrived files.
+  const failedKeys = new Set((state.failures || []).map(item => item.key));
+  const ordered = [...pending].sort((a, b) => Number(failedKeys.has(a.key)) - Number(failedKeys.has(b.key)));
+  const batch = ordered.slice(0, 25);
+  const deferred = ordered.slice(25);
 
   if (dryRun) {
     console.log(JSON.stringify({
@@ -672,8 +812,6 @@ async function main() {
     return;
   }
 
-  for (const target of pending) candidateSequenceSuffix(target.code, account);
-
   if (pending.length === 0) {
     try {
       const nextState = JSON.stringify({
@@ -681,6 +819,7 @@ async function main() {
         lastRunAt: new Date().toISOString(),
         lastFound: targets.length,
         lastImported: 0,
+        lastReconcileAt: reconcile ? to.toISOString() : state.lastReconcileAt,
       });
       const committed = await kvEval(EMPTY_RUN_COMMIT_SCRIPT, [stateKey, ledgerKey], [stateRaw, nextState, ledgerRaw]);
       if (!Array.isArray(committed) || Number(committed[0]) !== 1) {
@@ -694,7 +833,7 @@ async function main() {
         skipped: targets.length,
       }, null, 2));
     } finally {
-      await client.disconnect();
+      await releaseClient();
     }
     return;
   }
@@ -702,6 +841,9 @@ async function main() {
   const talentsKey = 'recruit:talents';
   const repushKey = 'recruit:repush';
   const codeLedgerKey = 'recruit:candidate-code-ledger';
+  const tombstonesKey = 'recruit:tombstones';
+  const tombstonesRaw = snapshotString(await kvGet(tombstonesKey), tombstonesKey);
+  const tombstones = parseObjectSnapshot(tombstonesRaw, tombstonesKey);
   const talentsRaw = snapshotString(await kvGet(talentsKey), talentsKey);
   const repushRaw = snapshotString(await kvGet(repushKey), repushKey);
   const codeLedgerRaw = snapshotString(await kvGet(codeLedgerKey), codeLedgerKey);
@@ -745,12 +887,26 @@ async function main() {
   }
 
   try {
-    for (const target of pending) {
+    for (const target of batch) {
       try {
+        const previous = ledger.find(row => row.key === target.key || (row.key === target.legacyKey
+          && Number(row.recommendationMessageId) === Number(target.recommendationMessageId)));
+        if (previous && (tombstones.repush?.[previous.repushId] || tombstones.talents?.[previous.talentId])) continue;
+        if (tombstones.repush?.[`tg-intake:${account}:${createHash('sha1').update(target.key).digest('hex')}`]) continue;
         const p = target.parsed;
-        const code = target.code;
+        if (target.missingFile) throw new Error('推荐文案已发现，等待关联简历附件');
+        let manualBuffer = !target.code ? await readTelegram(client.downloadMedia(target.msg, {})) : null;
+        if (!target.code && (!Buffer.isBuffer(manualBuffer) || !manualBuffer.length)) throw new Error('手动附件下载失败');
+        let code = target.code || await allocateManualCode(target, account, manualBuffer);
+        try { candidateSequenceSuffix(code, account); } catch (error) {
+          if (!nameMatchesFile(p.name, target.fileName)) throw error;
+          manualBuffer ||= await readTelegram(client.downloadMedia(target.msg, {}));
+          if (!Buffer.isBuffer(manualBuffer) || !manualBuffer.length) throw new Error('简历附件下载失败');
+          code = await allocateManualCode(target, account, manualBuffer);
+          candidateSequenceSuffix(code, account);
+        }
         const owner = code.includes('BB') ? 'BB' : 'MMF';
-        const knownBusinessNames = businessNamesByCode.get(code) || new Set();
+        let knownBusinessNames = businessNamesByCode.get(code) || new Set();
         const knownName = byTalentCode.get(code)?.name
           || byCodeLedger.get(code)?.name
           || repush.find((item) => String(item.candidateCode || '').toUpperCase() === code)?.candidateName
@@ -758,7 +914,17 @@ async function main() {
         const name = p.name || target.fileName.replace(/\.(pdf|docx?)$/i, '').split(/[-_]/)[0] || code;
         const identityName = normalizeIdentity(p.name || knownName || name);
         if (knownBusinessNames.size > 0 && !knownBusinessNames.has(identityName)) {
-          throw new Error(`候选人编号 ${code} 与已有业务记录姓名不一致`);
+          // A manually copied code must never overwrite another person's record.
+          // Only allocate a separate identity when the caption and filename agree.
+          if (identityName.length < 2 || !nameMatchesFile(p.name, target.fileName)) {
+            throw new Error(`候选人编号 ${code} 与已有业务记录姓名不一致，需要核对附件`);
+          }
+          manualBuffer ||= await readTelegram(client.downloadMedia(target.msg, {}));
+          if (!Buffer.isBuffer(manualBuffer) || !manualBuffer.length) throw new Error('简历附件下载失败');
+          code = await allocateManualCode(target, account, manualBuffer);
+          candidateSequenceSuffix(code, account);
+          knownBusinessNames = businessNamesByCode.get(code) || new Set();
+          if (knownBusinessNames.size && !knownBusinessNames.has(identityName)) throw new Error('独立身份分配冲突，保留待核对');
         }
 
         let talent = byTalentCode.get(code);
@@ -777,25 +943,33 @@ async function main() {
           && registry.candidateIdentityId !== '!conflict'
           && registry.candidateIdentityId !== identityName
           && registry.candidateIdentityId !== candidateIdentityId);
-        const allowRegistryRepair = knownBusinessNames.has(identityName)
+        const allowRegistryRepair = knownBusinessNames.size === 1 && knownBusinessNames.has(identityName)
           && (!registryMatchesName || registryIdentityMismatch || registry.candidateIdentityId === '!conflict');
         if ((!registryMatchesName || registry.candidateIdentityId === '!conflict') && !allowRegistryRepair) {
           throw new Error(`候选人编号 ${code} 的身份登记与当前简历不一致`);
         }
 
-        const buffer = await client.downloadMedia(target.msg, {});
-        if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error(`TG download failed: ${target.fileName}`);
-        const uploaded = await uploadResume(buffer, target.fileName);
-        let resumeText = '';
-        let parseSource = '';
-        let parseError = '';
-        try {
-          const parsedResume = await parseResumeFromBlob(uploaded.url, target.fileName);
-          resumeText = parsedResume.text || '';
-          parseSource = parsedResume.source || '';
-        } catch (err) {
-          parseError = err.message || 'parse failed';
+        const cacheKey = `${account}:${target.chatId}:${target.messageId}`;
+        let prepared = preparedFiles.get(cacheKey);
+        if (!prepared) {
+          const buffer = manualBuffer || await readTelegram(client.downloadMedia(target.msg, {}));
+          if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error(`TG download failed: ${target.fileName}`);
+          prepared = { uploaded: await uploadResume(buffer, target.fileName), resumeText: '', parseSource: '', parseError: '' };
+          preparedFiles.set(cacheKey, prepared);
+          if (preparedFiles.size > 200) preparedFiles.delete(preparedFiles.keys().next().value);
         }
+        if (!prepared.resumeText) {
+          try {
+            const parsedResume = await parseResumeFromBlob(prepared.uploaded.url, target.fileName);
+            prepared.resumeText = parsedResume.text || '';
+            prepared.parseSource = parsedResume.source || '';
+            prepared.parseError = '';
+          } catch (err) {
+            prepared.parseError = err.message || 'parse failed';
+          }
+        }
+        const { uploaded, resumeText, parseSource, parseError } = prepared;
+        if (!resumeText) failures.push({ key: target.key, date: target.date, error: parseError || '正文等待识别' });
 
         const jobTitle = p.jobTitle || '';
         const orgDept = splitOrgDept(p.organization);
@@ -845,7 +1019,7 @@ async function main() {
           talent.resumeChars = resumeText.replace(/\s+/g, '').length;
         }
 
-        let rec = findExistingRecommendation(repush, code, jobTitle, target.date);
+        let rec = findExistingRecommendation(repush, code, jobTitle, target.date, { ...target, account });
       const deliveredMessageId = String(target.recommendationMessageId || target.messageId || '');
       if (rec) {
         Object.assign(rec, {
@@ -862,7 +1036,7 @@ async function main() {
         });
       } else {
         rec = {
-          id: genId(),
+          id: `tg-intake:${account}:${createHash('sha1').update(target.key).digest('hex')}`,
           column: owner === 'BB' ? 'b' : 'a',
           fileName: jobTitle ? `${name}-${jobTitle}` : name,
           candidateCode: code,
@@ -887,6 +1061,15 @@ async function main() {
         };
         rec.applicationId = rec.id;
         repush.push(rec);
+      }
+
+      rec.telegramSourceKey = target.key;
+      rec.telegramChatId = target.chatId;
+      rec.telegramFileMessageId = String(target.messageId);
+      if (target.manualReview) rec.notes = 'TG 手动附件已收取；姓名与岗位来自文件名，请核对。';
+      if (target.code && code !== target.code) {
+        rec.sourceCandidateCode = target.code;
+        rec.notes = `TG 原编号 ${target.code} 格式异常或已属于其他人；已按文案与附件姓名分配独立编号，原人选未改动。`;
       }
 
       ledger.push({
@@ -929,6 +1112,8 @@ async function main() {
       } catch (err) {
         failures.push({
           code: target.code,
+          key: target.key,
+          date: target.date,
           fileName: target.fileName,
           messageId: target.messageId,
           error: err instanceof Error ? err.message : String(err),
@@ -936,7 +1121,7 @@ async function main() {
       }
     }
   } finally {
-    await client.disconnect();
+    await releaseClient();
   }
 
   codeLedger = [...byCodeLedger.values()].sort((a, b) => String(a.code).localeCompare(String(b.code)));
@@ -950,8 +1135,13 @@ async function main() {
     lastRunAt: new Date().toISOString(),
     lastFound: targets.length,
     lastImported: results.length,
+    lastReconcileAt: reconcile ? to.toISOString() : state.lastReconcileAt,
+    retryFrom: [...failures, ...deferred].map(item => item.date).sort()[0],
+    remaining: deferred.length,
+    failures,
   });
   const snapshots = [
+    { key: tombstonesKey, expected: tombstonesRaw, value: tombstonesRaw || '{}' },
     { key: talentsKey, expected: talentsRaw, value: JSON.stringify(talents) },
     { key: repushKey, expected: repushRaw, value: JSON.stringify(repush) },
     { key: codeLedgerKey, expected: codeLedgerRaw, value: JSON.stringify(codeLedger) },
@@ -999,9 +1189,12 @@ async function main() {
     results,
     failures,
   }, null, 2));
+  return { remaining: deferred.length, imported: results.length };
 }
 
-main()
+export { main as syncResumes };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main()
   .then(() => process.exit(0))
   .catch((err) => {
     console.error(err);

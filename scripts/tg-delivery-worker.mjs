@@ -1445,6 +1445,52 @@ async function runWatch() {
     writeHeartbeat().catch((error) => console.error(`[tg-delivery] heartbeat: ${error?.message || error}`));
   }, HEARTBEAT_INTERVAL_MS);
 
+  // Inbound history uses this authenticated connection. It must never stop the
+  // sender or wait for OCR on the outgoing delivery loop.
+  let intakeRunning = false;
+  const runIntake = async () => {
+    if (intakeRunning || stopping) return;
+    intakeRunning = true;
+    try {
+      const { syncResumes } = await import('./tg-sync-resumes.mjs');
+      let remaining = 0;
+      do {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const result = await syncResumes({ client, dialog: 'ojisamer', write: true });
+            remaining = result?.imported ? result.remaining : 0;
+            break;
+          } catch (error) {
+            if (attempt === 2) throw error;
+            await wait(5_000);
+          }
+        }
+        if (remaining) await wait(1_000);
+      } while (remaining && !stopping);
+    } catch (error) {
+      console.error(`[tg-intake] ${error?.stack || error}`);
+    } finally {
+      intakeRunning = false;
+    }
+  };
+  const intakeTimer = setInterval(() => { void runIntake(); }, 5 * 60_000);
+  void runIntake();
+  let feedbackRunning = false;
+  const runFeedback = async () => {
+    if (feedbackRunning || stopping) return;
+    feedbackRunning = true;
+    try {
+      const { syncFeedback } = await import('./tg-feedback-audit.mjs');
+      await syncFeedback({ client, owner: ACCOUNT, sync: true, reuseOcr: true });
+    } catch (error) {
+      console.error(`[tg-feedback] ${error?.stack || error}`);
+    } finally {
+      feedbackRunning = false;
+    }
+  };
+  const feedbackTimer = setInterval(() => { void runFeedback(); }, 2 * 60 * 60_000);
+  const feedbackInitialTimer = setTimeout(() => { void runFeedback(); }, 120_000);
+
   try {
     while (!stopping) {
       try {
@@ -1470,6 +1516,9 @@ async function runWatch() {
       }
     }
   } finally {
+    clearInterval(intakeTimer);
+    clearInterval(feedbackTimer);
+    clearTimeout(feedbackInitialTimer);
     clearInterval(heartbeatTimer);
     await client.disconnect().catch(() => {});
   }

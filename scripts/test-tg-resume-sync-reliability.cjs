@@ -10,7 +10,7 @@ const sourcePath = path.join(__dirname, 'tg-sync-resumes.mjs');
 let source = fs.readFileSync(sourcePath, 'utf8')
   .replace(/^#!.*\r?\n/, '')
   .replace(/^import .*;\r?\n/gm, '');
-source = source.slice(0, source.indexOf('\nasync function main()'));
+source = source.slice(0, source.indexOf('\nexport { main'));
 
 const db = new Map();
 const context = vm.createContext({
@@ -21,13 +21,30 @@ const context = vm.createContext({
   setTimeout,
   clearTimeout,
   createHash,
+  path,
+  fs: { existsSync: () => false },
+  Api: { DocumentAttributeFilename: class {} },
+  AbortSignal,
+  put: async () => ({ url: 'https://files.invalid/resume.pdf' }),
   process: {
     argv: ['node', 'offline-test'],
     cwd: () => path.resolve(__dirname, '..'),
-    env: { SUPABASE_URL: 'https://storage.invalid', SUPABASE_SERVICE_ROLE_KEY: 'offline' },
+    env: { SUPABASE_URL: 'https://storage.invalid', SUPABASE_SERVICE_ROLE_KEY: 'offline',
+      TG_ACCOUNT: 'b', TG_BB_API_ID: '1', TG_BB_API_HASH: 'fake', TG_BB_SESSION: 'fake',
+      BLOB_READ_WRITE_TOKEN: 'offline', RECRUIT_SERVICE_TOKEN: 'offline' },
   },
   fetch: async (url, options) => {
     const body = JSON.parse(options.body);
+    if (url.endsWith('/api/resume/parse')) return { ok: true, json: async () => ({ text: '完整简历正文', source: 'test' }) };
+    if (url.endsWith('/api/candidate-code')) {
+      const key = `recruit:candidate-code:state:v1:${body.owner}`;
+      const state = JSON.parse(db.get(key) || '{"sequence":200,"entries":{}}');
+      let code = Object.keys(state.entries).find(code => state.entries[code].identity === body.candidateIdentityId);
+      if (!code) { code = 'XYBB00' + String(++state.sequence).padStart(3, '0'); }
+      state.entries[code] = { identity: body.candidateIdentityId, name: body.candidateName.toLowerCase() };
+      db.set(key, JSON.stringify(state));
+      return { ok: true, json: async () => ({ code }) };
+    }
     if (url.endsWith('recruit_kv_read')) {
       return { ok: true, status: 200, json: async () => Object.fromEntries(body.p_keys.filter(key => db.has(key)).map(key => [key, db.get(key)])) };
     }
@@ -43,7 +60,8 @@ const context = vm.createContext({
     throw new Error(`Unexpected request: ${url}`);
   },
 });
-vm.runInContext(`${source}\nglobalThis.testApi = { findNearbyCodeMessage, recordImportedIdentity, supabaseImportCommit };`, context);
+vm.runInContext(`${source}\nglobalThis.testApi = { findNearbyCodeMessage, recordImportedIdentity, supabaseImportCommit,
+  collectTargets, findExistingRecommendation, main };`, context);
 const api = context.testApi;
 
 const directCode = { id: 100, date: 1000, message: '候选人编码：XYBB00123' };
@@ -72,7 +90,74 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   assert.equal(Number(repaired[0]), 1);
   const state = JSON.parse(db.get(stateKey));
   assert.deepEqual(state.entries.XYBB00123, { identity: 'talent-1', name: '正确姓名' });
-  console.log('Passed 4 TG resume sync reliability regressions.');
+  db.clear();
+  const date = Math.floor(Date.now() / 1000) - 60;
+  const message = (id, code, name, job, org) => ({ id, date, out: true, senderId: 'b',
+    message: `候选人编码：${code}\n候选人姓名：${name}\n应聘岗位：${job}\n推荐编制组织/序列/服务单位：${org}`,
+    document: { id: `file-${id}`, attributes: [{ className: 'DocumentAttributeFilename', fileName: `${name}-${job}.pdf` }] } });
+  const messages = [message(1, 'XYBB00141', 'Alice', '开发', '瑞升'),
+    message(2, 'XYBB00141', 'Alice', '开发', '伊甸维度'), message(3, 'XYBB00142', 'Bob', '开发', '瑞升')];
+  // More than the old hard limit of 180 chat messages.
+  const history = [...Array.from({ length: 220 }, (_, i) => ({ id: i + 10, date, message: '聊天', out: true })), ...messages];
+  let disconnects = 0;
+  const client = {
+    getDialogs: async () => [{ id: 'chat', title: 'ojisamer', isUser: true, entity: { username: 'ojisamer' } }],
+    iterMessages: async function* () { yield* history; },
+    getMessages: async (_, { ids }) => history.filter(msg => ids.includes(msg.id)),
+    downloadMedia: async () => Buffer.from('pdf'),
+    disconnect: async () => { disconnects++; },
+  };
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  let recs = JSON.parse(db.get('recruit:repush'));
+  assert.equal(recs.length, 3, 'same title in two departments and two candidates remain distinct');
+  assert.equal(new Set(recs.map(row => row.id)).size, 3);
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  assert.equal(JSON.parse(db.get('recruit:repush')).length, 3, 'a repeated scan creates no duplicates');
+  assert.equal(disconnects, 0, 'inbound never disconnects the borrowed sender connection');
+  const textOnly = { ...message(240, 'XYBB00141', 'Alice', '产品', '瑞升'), document: undefined, replyTo: { replyToMsgId: 1 } };
+  history.unshift(textOnly);
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  assert.equal(JSON.parse(db.get('recruit:repush')).length, 4, 'a second job can explicitly reference the original attachment');
+  const manual = message(250, '', 'Carol', '测试', '瑞升');
+  history.unshift(manual);
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  recs = JSON.parse(db.get('recruit:repush'));
+  assert.ok(recs.find(row => row.candidateName === 'Carol')?.candidateCode, 'manual submission without a code is collected');
+  const missing = { ...message(260, 'XYBB00145', 'Missing', '产品', '瑞升'), document: undefined };
+  const okay = message(270, 'XYBB00146', 'Good', '产品', '瑞升');
+  history.unshift(okay, missing);
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  assert.ok(JSON.parse(db.get('recruit:repush')).some(row => row.candidateName === 'Good'), 'missing file does not block another candidate');
+  const sync = JSON.parse(db.get('recruit:tg-resume-sync-state-b:ojisamer'));
+  assert.ok(sync.retryFrom && sync.failures.length === 1, 'missing file is durably retained for later retry');
+  const adjacent = [message(300, 'XYBB00147', 'Dora', '开发', '瑞升'),
+    { ...message(301, 'XYBB00147', 'Dora', '开发', '伊甸维度'), document: undefined },
+    { ...message(302, 'XYBB00147', 'Dora', '产品', '经纬'), document: undefined }];
+  history.unshift(...adjacent);
+  history.unshift({ id: 300.5, date, out: true, senderId: 'b', message: '优先推第一个，不行再看下面的' });
+  history.unshift({ id: 310, date, out: true, photo: {}, message: '会议截图' });
+  history.unshift({ ...message(311, '', 'Dora作品', '', ''), message: '作品附件' });
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  recs = JSON.parse(db.get('recruit:repush'));
+  assert.equal(recs.filter(row => row.candidateName === 'Dora').length, 3, 'consecutive multi-job captions share the correct attachment');
+  assert.ok(!recs.some(row => row.telegramMessageId === '310' || row.telegramMessageId === '311'), 'screenshots and portfolios are not resumes');
+  history.unshift(message(320, 'XYBB00142', 'Different', '产品', '瑞升'));
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  recs = JSON.parse(db.get('recruit:repush'));
+  assert.equal(recs.find(row => row.candidateCode === 'XYBB00142').candidateName, 'Bob');
+  const separate = recs.find(row => row.candidateName === 'Different');
+  assert.ok(separate && separate.candidateCode !== 'XYBB00142' && separate.sourceCandidateCode === 'XYBB00142', 'copied wrong code cannot mix two people');
+  const manualAgain = message(330, '', 'Carol', '产品', '经纬'); history.unshift(manualAgain);
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  const carol = JSON.parse(db.get('recruit:repush')).filter(row => row.candidateName === 'Carol');
+  assert.equal(carol.length, 2);
+  assert.equal(new Set(carol.map(row => row.candidateCode)).size, 1, 'same uncoded resume reused for another job retains identity');
+  for (let i = 0; i < 27; i++) history.unshift(message(400 + i, `XYBB00${300 + i}`, `Batch${i}`, '开发', '瑞升'));
+  const bounded = await api.main({ client, write: true, dialog: 'ojisamer' });
+  assert.ok(bounded.remaining > 0 && bounded.imported === 25, 'large history checkpoints bounded batches');
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  assert.equal(JSON.parse(db.get('recruit:repush')).filter(row => row.candidateName.startsWith('Batch')).length, 27, 'next batch preserves all applications');
+  console.log('Passed TG intake regressions: pagination, multi-job, multi-person, detached replies, no-code intake, idempotence, retry retention and sender isolation.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
