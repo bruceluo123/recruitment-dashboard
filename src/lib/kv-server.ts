@@ -56,7 +56,11 @@ async function supabaseRpc<T>(
 }
 
 async function supabaseRead(keys: string[]): Promise<Record<string, string>> {
-  return supabaseRpc<Record<string, string>>('recruit_kv_read', { p_keys: keys }, { attempts: 3, timeoutMs: 5_000 });
+  // The recommendation snapshot is several MB. A 5s cutoff repeatedly aborted
+  // otherwise successful reads (observed at 12s) and restarted the whole transfer.
+  const fullRecommendations = keys.includes('recruit:repush');
+  return supabaseRpc<Record<string, string>>('recruit_kv_read', { p_keys: keys },
+    fullRecommendations ? { attempts: 1, timeoutMs: 18_000 } : { attempts: 2, timeoutMs: 6_000 });
 }
 
 export async function kvFindRepushRecords(args: {

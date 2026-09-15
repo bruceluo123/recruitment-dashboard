@@ -30,7 +30,7 @@ function fixture(suffix = 'one', owner = 'a') {
         candidateCode: source.candidateCode, resumeFileName: source.resumeFileName,
         source: 'repush', repushSourceId: source.id } }] };
 }
-function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'], race, lost = false, readFailures = 0, writeFailures = 0 } = {}) {
+function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'], race, lost = false, readFailures = 0, writeFailures = 0, lookupFails = false } = {}) {
   const db = new Map([
     ['recruit:repush', JSON.stringify(rows)], ['recruit:tombstones', JSON.stringify({ repush: deleted })],
     ['recruit:tg-delivery-worker-heartbeat', JSON.stringify({ at: online ? new Date().toISOString() : '2000-01-01' })],
@@ -56,6 +56,7 @@ function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'],
       },
       kvFindRepushRecords: async args => {
         reads++;
+        if (lookupFails) throw new Error('History lookup timed out');
         const records = JSON.parse(db.get('recruit:repush') || '[]');
         return records.filter(row => row.column === args.column
           && (args.sourceIds.includes(row.id) || args.resumeUrls.includes(row.resumeUrl)));
@@ -76,7 +77,8 @@ function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'],
     },
   });
   return { db, queued, readKeys, post: body => api.POST({ json: async () => clone(body) }),
-    get: ids => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?' + ids.map(id => 'ids=' + id).join('&')) }),
+    get: (ids, receipt = false) => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?'
+      + (receipt ? 'receipt=1&' : '') + ids.map(id => 'ids=' + id).join('&')) }),
     getSingle: id => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?id=' + id) }),
     counts: () => ({ reads, transactions }) };
 }
@@ -96,6 +98,28 @@ function enqueueHarness(respond) {
   return { enqueue: exports.enqueue, calls };
 }
 async function test(name, run) { await run(); console.log('PASS ' + name); passed++; }
+function bulkHarness(respond) {
+  const source = fs.readFileSync(path.join(root, 'src/components/recommendation-center/BulkRepushModal.tsx'), 'utf8');
+  const start = source.indexOf('  const handleSend =');
+  const end = source.indexOf('  const allSent', start);
+  assert.ok(start >= 0 && end > start);
+  const code = ts.transpileModule(source.slice(start, end) + '\nexports.send = handleSend;', {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const exports = {}, calls = [], states = {}, errors = [], stored = new Map();
+  const candidates = ['one', 'two', 'three', 'four'].map(key => ({ key, item: fixture(key, 'b').sourceSnapshot }));
+  let closed = false;
+  vm.runInNewContext(code, { exports, AbortSignal, selectedJd: { id: 'job-one' }, remainingCandidates: candidates,
+    recipient: '@test', owner: 'b', sending: false, crypto: { randomUUID },
+    setSending: () => {}, setError: error => errors.push(error),
+    payloadFor: candidate => { const payload = fixture(candidate.key, 'b'); delete payload.requestId; return payload; },
+    storageKeyFor: async payload => payload.fileUrl,
+    window: { localStorage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) } },
+    syncResponse: () => {}, updateCandidateState: (key, value) => { states[key] = value; },
+    onClose: () => { closed = true; }, wait: async () => {}, encodeURIComponent,
+    fetch: async (url, options) => { calls.push({ url, options }); return respond(url, options, calls); } });
+  return { send: exports.send, calls, states, errors, closed: () => closed };
+}
 (async () => {
   await test('10 candidates use one read and one atomic commit', async () => {
     const h = harness(), jobs = Array.from({ length: 10 }, (_, i) => fixture('batch' + i));
@@ -308,6 +332,66 @@ async function test(name, run) { await run(); console.log('PASS ' + name); passe
     const h = enqueueHarness(async () => ({ ok: false, status: 403, json: async () => ({ error: 'Denied' }) }));
     await assert.rejects(h.enqueue({ requestId: 'request-ui' }), /Denied/);
     assert.equal(h.calls.length, 1);
+  });
+  await test('B account receipts work even when recommendation lookup is unavailable', async () => {
+    const h = harness({ lookupFails: true });
+    await h.post(fixture('b-receipt', 'b'));
+    const before = h.counts().reads;
+    const receipt = await h.get(['request-b-receipt'], true);
+    assert.equal(receipt.data.results[0].status, 'queued');
+    assert.equal(h.counts().reads - before, 1);
+    assert.equal((await h.get(['request-b-receipt'])).status, 503);
+    const denied = harness({ allowed: ['a'] });
+    denied.db.set('recruit:tg-delivery:request-b-receipt', h.db.get('recruit:tg-delivery:request-b-receipt'));
+    assert.equal((await denied.get(['request-b-receipt'], true)).data.results[0].ok, false);
+  });
+  await test('B bulk retry preserves partial success and resubmits only unconfirmed IDs', async () => {
+    let first;
+    const h = bulkHarness(async (url, options) => {
+      if (options.method === 'POST') {
+        const body = JSON.parse(options.body);
+        assert.equal(body.sender, 'b');
+        if (!first) { first = body.batch; throw new Error('Lost batch response'); }
+        assert.deepEqual(body.batch.map(task => task.requestId), first.slice(2).map(task => task.requestId));
+        return { ok: true, json: async () => ({ ok: true, results: body.batch.map(task => ({ id: task.requestId, ok: true, status: 'queued' })) }) };
+      }
+      assert.match(url, /receipt=1/);
+      return { ok: true, json: async () => ({ ok: true, results: first.slice(0, 2).map(task => ({ id: task.requestId, ok: true, status: 'sent' })) }) };
+    });
+    await h.send();
+    assert.deepEqual(Object.values(h.states).map(row => row.status), ['sent', 'sent', 'queued', 'queued']);
+    assert.equal(h.closed(), true);
+  });
+  await test('B bulk timeout keeps known successes and marks others unconfirmed, not failed', async () => {
+    let first;
+    const h = bulkHarness(async (url, options) => {
+      if (options.method === 'POST') {
+        first ||= JSON.parse(options.body).batch;
+        const error = new Error('signal timed out'); error.name = 'TimeoutError'; throw error;
+      }
+      const ids = new URL('https://example.invalid' + url).searchParams.getAll('ids');
+      return { ok: true, json: async () => ({ ok: true, results: ids.includes(first[0].requestId)
+        ? [{ id: first[0].requestId, ok: true, status: 'queued' }] : [] }) };
+    });
+    await h.send();
+    assert.equal(h.states.one.status, 'queued');
+    for (const key of ['two', 'three', 'four']) assert.equal(h.states[key].status, 'unconfirmed');
+    assert.equal(h.closed(), false);
+    assert.match(h.errors.at(-1), /已确认 1\/4/);
+    assert.ok(!h.errors.some(error => /signal timed out/.test(error)));
+  });
+  await test('large recommendation reads get one sufficient budget instead of repeated 5s aborts', async () => {
+    const exports = {}, timeouts = [];
+    const code = ts.transpileModule(fs.readFileSync(path.join(root, 'src/lib/kv-server.ts'), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    vm.runInNewContext(code, { exports, require: name => { assert.equal(name, 'server-only'); return {}; },
+      process: { env: { SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test' } },
+      AbortSignal: { timeout: ms => { timeouts.push(ms); return undefined; } },
+      setTimeout, console, fetch: async () => ({ ok: true, json: async () => ({}) }) });
+    await exports.kvCommandStrict('MGET', 'recruit:repush');
+    await exports.kvCommandStrict('MGET', 'recruit:tg-delivery:example');
+    assert.deepEqual(timeouts, [18000, 6000]);
   });
   console.log('Passed ' + passed + ' send-route regression scenarios.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

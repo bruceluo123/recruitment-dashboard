@@ -586,7 +586,10 @@ export async function GET(request: NextRequest) {
         const sender = task.sender === 'b' ? 'b' : 'a';
         if (!permissions.has(sender)) permissions.set(sender, !await requireOwnerSession(request, sender));
       }
-      const records = await deliveryBusinessRecords(tasks.filter((task): task is DeliveryRecord => Boolean(task && permissions.get(task.sender || 'a'))));
+      // Receipt checks must stay independent of the multi-MB recommendation
+      // snapshot/lookup. They report queue state, not a refreshed business record.
+      const records = request.nextUrl.searchParams.get('receipt') === '1' ? []
+        : await deliveryBusinessRecords(tasks.filter((task): task is DeliveryRecord => Boolean(task && permissions.get(task.sender || 'a'))));
       for (const [index, id] of Array.from(batchIds.entries())) {
         const record = tasks[index];
         if (!record) { results.push({ id, ok: false, error: '未找到发送记录' }); continue; }

@@ -35,9 +35,10 @@ interface DeliveryStatusResponse {
   total?: number;
   records?: RepushItem[];
   error?: string;
+  unconfirmed?: boolean;
 }
 
-type CandidateSendStatus = 'idle' | 'queued' | 'sending' | 'sent' | 'failed';
+type CandidateSendStatus = 'idle' | 'queued' | 'sending' | 'sent' | 'failed' | 'unconfirmed';
 
 interface CandidateSendState {
   status: CandidateSendStatus;
@@ -80,6 +81,7 @@ function wait(ms: number): Promise<void> {
 }
 
 function sendStatusMeta(status: CandidateSendStatus) {
+  if (status === 'unconfirmed') return { label: '待确认', className: 'bg-amber-50 text-amber-700' };
   if (status === 'sent') return { label: '已发送', className: 'bg-emerald-50 text-emerald-700' };
   if (status === 'failed') return { label: '发送失败', className: 'bg-rose-50 text-rose-700' };
   if (status === 'sending') return { label: '发送中', className: 'bg-blue-50 text-blue-700' };
@@ -349,39 +351,53 @@ export function BulkRepushModal({
         return { candidate, body: { ...payload, requestId, retryIfFailed: Boolean(previousId),
           sourceSnapshot: candidate.item } };
       }));
-      const body = JSON.stringify({ sender: owner, batch: tasks.map(task => task.body) });
-      let result: { ok?: boolean; results?: DeliveryStatusResponse[]; error?: string } | undefined;
+      let pendingTasks = tasks;
+      const byId = new Map<string, DeliveryStatusResponse>();
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const response = await fetch('/api/tg/send', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
-            signal: AbortSignal.timeout(25_000),
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sender: owner, batch: pendingTasks.map(task => task.body) }),
+            signal: AbortSignal.timeout(45_000),
           });
           const data = await response.json();
           if (!response.ok || !data.ok) throw Object.assign(new Error(data.error || '加入发送队列失败'), {
             retryable: response.status >= 500 || response.status === 408 || response.status === 429,
           });
-          result = data;
+          for (const row of (data.results || []) as DeliveryStatusResponse[]) {
+            if (row.id) byId.set(row.id, row);
+          }
           break;
         } catch (error) {
           if (error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
           try {
-            const query = tasks.map(task => `ids=${encodeURIComponent(task.body.requestId)}`).join('&');
-            const receipt = await fetch(`/api/tg/send?${query}`, { cache: 'no-store', signal: AbortSignal.timeout(8_000) });
+            const query = pendingTasks.map(task => `ids=${encodeURIComponent(task.body.requestId)}`).join('&');
+            const receipt = await fetch(`/api/tg/send?receipt=1&${query}`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
             const data = await receipt.json();
-            if (receipt.ok && data.ok && tasks.every(task => data.results?.some((row: DeliveryStatusResponse) =>
-              row.id === task.body.requestId && row.ok && ['queued', 'sending', 'sent'].includes(row.status || '')))) {
-              result = data;
-              break;
+            if (receipt.ok && data.ok) {
+              for (const task of pendingTasks) {
+                const row = (data.results as DeliveryStatusResponse[] | undefined)?.find(row => row.id === task.body.requestId);
+                if (row?.ok && ['queued', 'sending', 'sent'].includes(row.status || '')) {
+                  byId.set(task.body.requestId, row);
+                  updateCandidateState(task.candidate.key, { status: row.status as CandidateSendStatus });
+                }
+              }
             }
           } catch {
             // Retry the same batch IDs only when receipts cannot confirm all tasks.
           }
-          if (attempt === 1) throw error;
+          pendingTasks = pendingTasks.filter(task => !byId.has(task.body.requestId));
+          if (!pendingTasks.length) break;
+          if (attempt === 1) {
+            for (const task of pendingTasks) byId.set(task.body.requestId, {
+              id: task.body.requestId, ok: false, unconfirmed: true,
+              error: '网络较慢，提交结果待确认；再次点击将核对同一任务，不会新建重复投递',
+            });
+            break;
+          }
           await wait(800);
         }
       }
-      const byId = new Map((result?.results || []).map(row => [row.id, row]));
       let failed = 0;
       for (const task of tasks) {
         const response = byId.get(task.body.requestId);
@@ -392,14 +408,15 @@ export function BulkRepushModal({
           });
         } else {
           failed++;
-          updateCandidateState(task.candidate.key, { status: 'failed',
+          updateCandidateState(task.candidate.key, { status: response?.unconfirmed ? 'unconfirmed' : 'failed',
             error: response?.error || '任务暂未确认，请重试查看同一任务' });
         }
       }
       if (!failed) onClose();
-      else setError(`已入队 ${tasks.length - failed}/${tasks.length} 位人选，剩余项请查看错误后重试。`);
+      else setError(`已确认 ${tasks.length - failed}/${tasks.length} 位人选，其他人选请查看各自状态；再次点击只处理未确认或失败的任务。`);
     } catch (error) {
-      setError(error instanceof Error ? error.message : '任务暂未确认，请重试查看同一任务');
+      setError(error instanceof Error && !['TimeoutError', 'AbortError'].includes(error.name)
+        ? error.message : '网络较慢，任务暂未确认；再次点击会核对同一任务，不会新建重复投递');
     } finally {
       setSending(false);
     }

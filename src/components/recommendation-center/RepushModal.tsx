@@ -307,8 +307,8 @@ export function RepushModal({
         lastError = error;
         setSendProgress('正在核对发送回执，请勿重复操作…');
         try {
-          const receipt = await fetch(`/api/tg/send?ids=${encodeURIComponent(body.requestId)}`, {
-            cache: 'no-store', signal: AbortSignal.timeout(8_000),
+          const receipt = await fetch(`/api/tg/send?receipt=1&ids=${encodeURIComponent(body.requestId)}`, {
+            cache: 'no-store', signal: AbortSignal.timeout(15_000),
           });
           const status = await receipt.json();
           const task = status.results?.find((row: DeliveryStatusResponse) => row.id === body.requestId);
