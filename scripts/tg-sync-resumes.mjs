@@ -954,9 +954,14 @@ async function main(options = {}) {
         if (!prepared) {
           const buffer = manualBuffer || await readTelegram(client.downloadMedia(target.msg, {}));
           if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error(`TG download failed: ${target.fileName}`);
-          prepared = { uploaded: await uploadResume(buffer, target.fileName), resumeText: '', parseSource: '', parseError: '' };
+          const contentKey = `${account}:content:${createHash('sha256').update(buffer).digest('hex')}:${path.extname(target.fileName).toLowerCase()}`;
+          prepared = preparedFiles.get(contentKey);
+          if (!prepared) {
+            prepared = { uploaded: await uploadResume(buffer, target.fileName), resumeText: '', parseSource: '', parseError: '' };
+            preparedFiles.set(contentKey, prepared);
+          }
           preparedFiles.set(cacheKey, prepared);
-          if (preparedFiles.size > 200) preparedFiles.delete(preparedFiles.keys().next().value);
+          while (preparedFiles.size > 200) preparedFiles.delete(preparedFiles.keys().next().value);
         }
         // One PDF reused for several jobs needs one OCR attempt, not one per job.
         // A failed OCR remains eligible on the next five-minute scan.

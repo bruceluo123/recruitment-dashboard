@@ -13,6 +13,7 @@ let source = fs.readFileSync(sourcePath, 'utf8')
 source = source.slice(0, source.indexOf('\nexport { main'));
 
 const db = new Map();
+let parseRequests = 0;
 const context = vm.createContext({
   console,
   Buffer,
@@ -35,7 +36,7 @@ const context = vm.createContext({
   },
   fetch: async (url, options) => {
     const body = JSON.parse(options.body);
-    if (url.endsWith('/api/resume/parse')) return { ok: true, json: async () => ({ text: '完整简历正文', source: 'test' }) };
+    if (url.endsWith('/api/resume/parse')) { parseRequests++; return { ok: true, json: async () => ({ text: '完整简历正文', source: 'test' }) }; }
     if (url.endsWith('/api/candidate-code')) {
       const key = `recruit:candidate-code:state:v1:${body.owner}`;
       const state = JSON.parse(db.get(key) || '{"sequence":200,"entries":{}}');
@@ -111,6 +112,7 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   let recs = JSON.parse(db.get('recruit:repush'));
   assert.equal(recs.length, 3, 'same title in two departments and two candidates remain distinct');
   assert.equal(new Set(recs.map(row => row.id)).size, 3);
+  assert.equal(parseRequests, 1, 'identical PDF bytes across separate TG messages are OCRed once');
   await api.main({ client, write: true, dialog: 'ojisamer' });
   assert.equal(JSON.parse(db.get('recruit:repush')).length, 3, 'a repeated scan creates no duplicates');
   assert.equal(disconnects, 0, 'inbound never disconnects the borrowed sender connection');
