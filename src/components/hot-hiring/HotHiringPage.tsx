@@ -551,7 +551,7 @@ function SmartAdDialog({ maimanfen, bobo, reasons, regenerating, onRegenerate, o
   useEffect(() => {
     setSegments(
       variant === 'bobo'
-        ? [buildBoboHotHiringCopy()]
+        ? [buildBoboHotHiringCopy(currentJds)]
         : hideSalary
         ? [buildDesensitizedCopy(currentJds)]
         : buildAdCopy(currentJds, '今日智能推荐', variant, 9999),
@@ -673,7 +673,7 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
 
   const buildSegments = (): AdSegment[] => {
     if (!selectedJds.length) return [];
-    if (variant === 'bobo') return [buildBoboHotHiringCopy()];
+    if (variant === 'bobo') return [buildBoboHotHiringCopy(selectedJds)];
     // 脱敏：编号列表模板（无分类/薪资）；常规：按风格生成
     return hideSalary ? [buildDesensitizedCopy(selectedJds)] : buildAdCopy(selectedJds, label, variant, 9999);
   };
@@ -687,7 +687,7 @@ function AdCopyDialog({ jds, label, initialVariant, onClose }: AdCopyDialogProps
   useEffect(() => {
     const segs = sortedAll.length
       ? (variant === 'bobo'
-        ? [buildBoboHotHiringCopy()]
+        ? [buildBoboHotHiringCopy(sortedAll)]
         : hideSalary
           ? [buildDesensitizedCopy(sortedAll)]
           : buildAdCopy(sortedAll, label, variant, 9999))

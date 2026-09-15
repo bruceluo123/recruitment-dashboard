@@ -62,6 +62,16 @@ export function getCategoryEmoji(cat: JDCategory): string {
   return CATEGORY_EMOJI[cat] || '💼';
 }
 
+/** 文案只能使用调用时仍存在、仍在招聘的岗位；按岗位 ID 去重。 */
+function currentHiringJds(jds: JD[]): JD[] {
+  const seen = new Set<string>();
+  return jds.filter((jd) => {
+    if (!jd?.id || !jd.title?.trim() || jd.status === 'paused' || seen.has(jd.id)) return false;
+    seen.add(jd.id);
+    return true;
+  });
+}
+
 /** 远程/居家类地点不在文案中展示。 */
 function isRemoteLocation(loc?: string): boolean {
   if (!loc) return true;
@@ -143,10 +153,11 @@ export function renumberDesensitizedText(text: string): { text: string; count: n
  * 返回单个 AdSegment（可直接放入 segments 数组）。
  */
 export function buildDesensitizedCopy(jds: JD[]): AdSegment {
-  if (jds.length === 0) return { title: '脱敏文案', text: '', count: 0 };
+  const currentJds = currentHiringJds(jds);
+  if (currentJds.length === 0) return { title: '脱敏文案', text: '', count: 0 };
   const now = new Date();
   const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日`;
-  const blocks = groupByCategory(jds).map((group) => {
+  const blocks = groupByCategory(currentJds).map((group) => {
     const heading = `${JD_CATEGORY_LABELS[group.cat]}类`;
     const lines = group.jds.map((jd, i) => `${emojiNum(i + 1)}${jd.title}`);
     return [heading, ...lines].join('\n');
@@ -158,7 +169,7 @@ export function buildDesensitizedCopy(jds: JD[]): AdSegment {
     '',
     '联系方式、欢迎小伙伴投递：',
   ].join('\n');
-  return { title: '脱敏文案', text, count: jds.length };
+  return { title: '脱敏文案', text, count: currentJds.length };
 }
 
 export interface AdSegment {
@@ -170,42 +181,18 @@ export interface AdSegment {
   count: number;
 }
 
-const BOBO_HOT_HIRING_JOBS = [
-  '高级/专家 AI 应用工程师（Agent Ops）',
-  '初/中高级运营专员',
-  'ToC网站综合运营',
-  '运营组长（网站运营）25k-45k/月',
-  '社媒 / 社群运营专员（中级）',
-  '中高级内容运营专员',
-  '运营组长/副主管/主管',
-  '中级社媒运营（KOL & 内容方向）',
-  '中高级产品运营',
-  'APP中级运营',
-  '产品专员',
-  '产品经理',
-  '督导专员',
-  '项目助理',
-  'AI短剧制作',
-  'AI内容创作 / AI漫剧制作',
-  'AI内容编辑（加急）',
-  '视觉交互设计师（AI营销方向）',
-  'UI设计',
-  '数据增长工程师（技术运营方向）',
-  '项目经理',
-  '投融资 · 财税法务',
-  'HRBP/SSC专员',
-];
-
-/** 啵啵热招看板使用的固定对外文案。 */
-export function buildBoboHotHiringCopy(): AdSegment {
+/** 啵啵热招文案只列出本次从当前 JD 库传入的岗位。 */
+export function buildBoboHotHiringCopy(jds: JD[]): AdSegment {
+  const currentJds = currentHiringJds(jds);
+  if (currentJds.length === 0) return { title: '啵啵热招文案', text: '', count: 0 };
   const text = [
     '远程岗急招：',
-    ...BOBO_HOT_HIRING_JOBS,
+    ...currentJds.map((jd) => jd.title),
     '',
     '更多前后端/测试/AI等技术岗位/远程岗位欢迎投递：@heye66888',
   ].join('\n');
 
-  return { title: '啵啵热招文案', text, count: BOBO_HOT_HIRING_JOBS.length };
+  return { title: '啵啵热招文案', text, count: currentJds.length };
 }
 
 interface CategoryGroup {
@@ -239,10 +226,11 @@ function groupByCategory(jds: JD[]): CategoryGroup[] {
  * @param perSegment 每段岗位数上限（参考模板约 20~25）
  */
 export function buildAdCopy(jds: JD[], priorityLabel: string, variant: AdVariant = 'maimanfen', perSegment = 22): AdSegment[] {
-  if (variant === 'bobo') return [buildBoboHotHiringCopy()];
+  const currentJds = currentHiringJds(jds);
+  if (currentJds.length === 0) return [];
+  if (variant === 'bobo') return [buildBoboHotHiringCopy(currentJds)];
   const cfg = VARIANTS[variant];
-  if (jds.length === 0) return [];
-  const groups = groupByCategory(jds);
+  const groups = groupByCategory(currentJds);
 
   // 先把所有行按分类切成「块」，再按 perSegment 装箱；同一分类跨段时重复打小标题
   const segments: { lines: string[]; count: number }[] = [];
