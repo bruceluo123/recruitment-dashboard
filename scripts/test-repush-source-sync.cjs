@@ -109,7 +109,7 @@ async function test(name, run) { await run(); console.log('PASS ' + name); passe
     }
   });
   await test('matching filenames cannot bypass a wrong candidate code or identity', async () => {
-    for (const field of ['candidateCode', 'candidateIdentityId', 'candidateName']) {
+    for (const field of ['candidateCode', 'candidateIdentityId']) {
       const job = fixture();
       job.sourceSnapshot.candidateIdentityId = 'identity-original';
       job.deliveries[0].application.candidateIdentityId = 'identity-original';
@@ -121,16 +121,44 @@ async function test(name, run) { await run(); console.log('PASS ' + name); passe
       assert.equal(h.queued.length, 0);
     }
   });
-  await test('outdated attachment URL and metadata remain blocked with specific messages', async () => {
-    for (const field of ['resumeUrl', 'resumeFileName']) {
+  await test('a changed attachment URL remains blocked', async () => {
       const job = fixture();
-      const current = { ...job.sourceSnapshot, [field]: field === 'resumeUrl' ? 'https://example.invalid/new.pdf' : 'new.pdf' };
+      const current = { ...job.sourceSnapshot, resumeUrl: 'https://example.invalid/new.pdf' };
       const h = harness({ rows: [current] });
       const result = await h.post(job);
       assert.equal(result.data.ok, false);
-      assert.match(result.data.error, field === 'resumeUrl' ? /简历附件与原推荐记录不同/ : /附件名称已更新/);
+      assert.match(result.data.error, /简历附件与原推荐记录不同/);
       assert.equal(h.queued.length, 0);
+  });
+  await test('matching stable identity permits an updated name or alias', async () => {
+    for (const field of ['candidateCode', 'candidateIdentityId']) {
+      const job = fixture();
+      delete job.sourceSnapshot.candidateCode;
+      delete job.deliveries[0].application.candidateCode;
+      job.sourceSnapshot[field] = 'stable-id';
+      job.deliveries[0].application[field] = 'stable-id';
+      const current = { ...job.sourceSnapshot, candidateName: '中文别名' };
+      const h = harness({ rows: [current] });
+      assert.equal((await h.post(job)).data.ok, true);
+      assert.equal(h.queued.length, 1);
+      assert.deepEqual(JSON.parse(h.db.get('recruit:repush'))[0], current);
     }
+  });
+  await test('different names without a matching stable identity remain blocked', async () => {
+    const job = fixture();
+    delete job.deliveries[0].application.candidateCode;
+    job.deliveries[0].application.candidateName = 'Someone Else';
+    const h = harness({ rows: [job.sourceSnapshot] });
+    assert.match((await h.post(job)).data.error, /人选资料/);
+    assert.equal(h.queued.length, 0);
+  });
+  await test('renaming the same attachment does not block delivery or overwrite the source', async () => {
+    const job = fixture();
+    const current = { ...job.sourceSnapshot, resumeFileName: 'new-name.pdf' };
+    const h = harness({ rows: [current] });
+    assert.equal((await h.post(job)).data.ok, true);
+    assert.equal(h.queued.length, 1);
+    assert.deepEqual(JSON.parse(h.db.get('recruit:repush'))[0], current);
   });
   await test('deleted source cannot be resurrected', async () => {
     const job = fixture(), h = harness({ deleted: { [job.sourceSnapshot.id]: 1 } });

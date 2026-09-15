@@ -209,19 +209,19 @@ function repushResumeError(
     if (!sourceId || !source || source.column !== sender) return '复推来源无法核对，已停止发送，请刷新后重试';
 
     const originalCandidateName = cleanText(application.candidateName, 200);
-    const originalResumeFileName = cleanText(application.resumeFileName, 180);
-    const sourceResumeFileName = cleanText(source.resumeFileName || source.fileName, 180);
-    // 文件名可用中文名、英文名或职位名；附件归属由来源记录及 URL 核对，不能靠文件名猜姓名。
-    if (!sameOptionalValue(originalCandidateName, source.candidateName)
+    const sameCandidate = (Boolean(candidateCode)
+      && candidateCode === cleanText(source.candidateCode, 80).toLowerCase())
+      || (Boolean(candidateIdentityId)
+      && candidateIdentityId === cleanText(source.candidateIdentityId, 300).toLowerCase());
+    // 已核对固定编号时允许姓名别名；编号冲突、附件 URL 不同仍阻止发送。
+    // 文件名仅为显示元数据，重命名不代表附件被更换。
+    if ((!sameCandidate && !sameOptionalValue(originalCandidateName, source.candidateName))
       || !sameOptionalValue(application.candidateCode, source.candidateCode)
       || !sameOptionalValue(application.candidateIdentityId, source.candidateIdentityId)) {
       return `${originalCandidateName || '该候选人'}的人选资料与原推荐记录不同，请重新打开复推窗口读取最新资料`;
     }
     if (cleanText(source.resumeUrl, 1000) !== fileUrl) {
       return `${originalCandidateName || '该候选人'}的简历附件与原推荐记录不同，请重新打开复推窗口选择当前附件`;
-    }
-    if (!sameOptionalValue(originalResumeFileName, sourceResumeFileName)) {
-      return `${originalCandidateName || '该候选人'}的附件名称已更新，请重新打开复推窗口读取最新附件`;
     }
   }
   return '';
