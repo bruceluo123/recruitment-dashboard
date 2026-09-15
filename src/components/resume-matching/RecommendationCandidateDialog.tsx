@@ -14,7 +14,8 @@ interface RecommendationCandidateDialogProps {
   onClose: () => void;
   error?: string;
   generating?: boolean;
-  onGenerate: (candidateText: string, resumeFile: File | null, resumeSource: string) => void;
+  hasExistingIdentity?: boolean;
+  onGenerate: (candidateText: string, resumeFile: File | null, resumeSource: string, preserveIdentity?: boolean) => void;
 }
 
 const RESUME_SOURCE_OPTIONS = [
@@ -50,6 +51,7 @@ export function RecommendationCandidateDialog({
   initialResumeSource,
   error,
   generating = false,
+  hasExistingIdentity = false,
   onClose,
   onGenerate,
 }: RecommendationCandidateDialogProps) {
@@ -59,6 +61,7 @@ export function RecommendationCandidateDialog({
     RESUME_SOURCE_OPTIONS.includes(initialResumeSource) ? initialResumeSource : 'boss',
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [preserveIdentity, setPreserveIdentity] = useState(false);
   useEscapeClose(onClose);
 
   const candidatePlaceholder = codePrefix === 'XYBB00'
@@ -123,12 +126,18 @@ export function RecommendationCandidateDialog({
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0] || null;
-                  if (file) setResumeFile(file);
+                  if (file) { setResumeFile(file); setPreserveIdentity(false); }
                   event.target.value = '';
                 }}
               />
             </div>
           </div>
+
+          {hasExistingIdentity && resumeFile !== initialResumeFile && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <p>已更换附件，默认按新候选人重新分配编号，不会沿用上一人的编号。</p>
+            <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={preserveIdentity}
+              onChange={event => setPreserveIdentity(event.target.checked)} disabled={generating} />我确认是同一人更新简历，沿用已有编号</label>
+          </div>}
 
           <div>
             <label htmlFor="recommendation-resume-source" className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
@@ -164,7 +173,7 @@ export function RecommendationCandidateDialog({
           <button type="button" onClick={onClose} disabled={generating} className="h-10 rounded-lg px-4 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50">取消</button>
           <button
             type="button"
-            onClick={() => onGenerate(candidateText.trim(), resumeFile, resumeSource.trim() || 'boss')}
+            onClick={() => onGenerate(candidateText.trim(), resumeFile, resumeSource.trim() || 'boss', preserveIdentity)}
             disabled={generating}
             className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
           >

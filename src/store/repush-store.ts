@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { generateId } from '@/lib/utils';
+import { isTombstoned, rememberDeliveryReceipt } from '@/lib/sync';
+import type { SyncRecord } from '@/lib/record-changes';
 
 // 今日复推池：两个人各自一列，每列是当天要复推的简历清单。
 // 只记录文件名与编制/部门/反馈状态（不存文件本体，避免 localStorage 配额溢出导致丢失）。
@@ -228,6 +230,8 @@ export const useRepushStore = create<RepushStore>()(
       }),
       upsertDeliveryRecommendation: (record) => set((s) => {
         if (!record?.id || (record.column !== 'a' && record.column !== 'b')) return {};
+        if (isTombstoned('repush', record.id) || record.applicationId && isTombstoned('repush', record.applicationId)) return {};
+        rememberDeliveryReceipt(record as unknown as SyncRecord);
         const index = s.items.findIndex((item) => (
           item.id === record.id
           || (record.applicationId && item.applicationId === record.applicationId)
@@ -236,7 +240,9 @@ export const useRepushStore = create<RepushStore>()(
         const current = s.items[index];
         const incomingDeliveryAt = String(record.deliveryUpdatedAt || record.updatedAt || record.uploadedAt);
         const currentDeliveryAt = String(current.deliveryUpdatedAt || '');
-        const acceptsDelivery = !currentDeliveryAt || incomingDeliveryAt > currentDeliveryAt;
+        const acceptsDelivery = !(current.deliveryStatus === 'sent' && record.deliveryStatus !== 'sent')
+          && (!currentDeliveryAt || incomingDeliveryAt > currentDeliveryAt
+            || incomingDeliveryAt === currentDeliveryAt && record.deliveryStatus === 'sent');
         const merged = {
           ...current,
           applicationId: record.applicationId || current.applicationId,

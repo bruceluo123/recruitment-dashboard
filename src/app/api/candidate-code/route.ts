@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { guardApi } from '@/lib/api-guard';
-import { hasValidServiceToken, requireOwnerSession } from '@/lib/auth-api';
-import { kvGetRaw, kvTransaction } from '@/lib/kv-server';
+import { apiSessionUser, hasValidServiceToken, requireOwnerSession } from '@/lib/auth-api';
+import { kvCommandStrict, kvTransaction } from '@/lib/kv-server';
 import type { OwnerId } from '@/lib/auth-core';
 
 export const dynamic = 'force-dynamic';
@@ -39,11 +39,7 @@ function stableIdentity(item: Record<string, unknown>, owner: OwnerId, code: str
 }
 
 async function seedState(owner: OwnerId, prefix: string): Promise<CodeState> {
-  const values = await Promise.all([
-    kvGetRaw('recruit:repush'),
-    kvGetRaw('recruit:candidates'),
-    kvGetRaw('recruit:talents'),
-  ]);
+  const values = await kvCommandStrict<(string | null)[]>('MGET', 'recruit:repush', 'recruit:candidates', 'recruit:talents');
   const pattern = new RegExp(`^${prefix}(\\d{3,9})$`, 'i');
   const identities = new Map<string, { identity: string; name: string }>();
   values.flatMap(rows).forEach((item) => {
@@ -52,9 +48,11 @@ async function seedState(owner: OwnerId, prefix: string): Promise<CodeState> {
     if (!match || Number.parseInt(match[1], 10) < 1) return;
     const name = normalizeIdentity(item.candidateName || item.name);
     const known = identities.get(code);
+    const identity = stableIdentity(item, owner, code);
+    const sameExplicitIdentity = known?.identity === identity && !identity.startsWith('legacy:');
     identities.set(code, {
-      identity: known?.identity || stableIdentity(item, owner, code),
-      name: known?.name && name && known.name !== name ? '!conflict' : known?.name || name,
+      identity: known?.identity || identity,
+      name: known?.name && name && known.name !== name && !sameExplicitIdentity ? '!conflict' : known?.name || name,
     });
   });
   const sequence = Array.from(identities.keys()).reduce((max, code) => {
@@ -73,7 +71,8 @@ export async function POST(request: NextRequest) {
   if (!owner) return NextResponse.json({ error: '所属人无效' }, { status: 400 });
   const unauthorized = await requireOwnerSession(request, owner, true);
   if (unauthorized) return unauthorized;
-  const blocked = hasValidServiceToken(request) ? null : guardApi(request, 'candidate-code', 30, 60_000);
+  const actor = (await apiSessionUser(request))?.sub || 'service';
+  const blocked = hasValidServiceToken(request) ? null : guardApi(request, `candidate-code:${actor}`, 30, 60_000);
   if (blocked) return blocked;
 
   const candidateName = normalizeIdentity(body.candidateName);
@@ -90,7 +89,7 @@ export async function POST(request: NextRequest) {
     const stateKey = codeStateKey(owner);
     const sequenceKey = legacySequenceKey(owner);
     for (let attempt = 0; attempt < 5; attempt++) {
-      const [raw, sequenceRaw] = await Promise.all([kvGetRaw(stateKey), kvGetRaw(sequenceKey)]);
+      const [raw, sequenceRaw] = await kvCommandStrict<(string | null)[]>('MGET', stateKey, sequenceKey);
       const state: CodeState = raw ? JSON.parse(raw) as CodeState : await seedState(owner, prefix);
       state.sequence = Math.max(0, Number(state.sequence) || 0, Number(sequenceRaw) || 0);
       state.entries ||= {};
@@ -98,11 +97,20 @@ export async function POST(request: NextRequest) {
       let code: string;
       let identity: string;
       let reused = false;
-      if (preferredMatch) {
+      const existingIdentity = !preferredMatch && candidateIdentityId
+        ? Object.entries(state.entries).find(([, entry]) => entry.identity === candidateIdentityId && entry.name !== '!conflict')
+        : undefined;
+      if (existingIdentity) {
+        [code] = existingIdentity;
+        identity = candidateIdentityId;
+        state.entries[code] = { identity, name: candidateName };
+        reused = true;
+      } else if (preferredMatch) {
         code = preferredCode;
         const known = state.entries[code];
-        if (known && (known.name === '!conflict' || known.name !== candidateName
-          || (candidateIdentityId && known.identity !== candidateIdentityId))) {
+        const matchesIdentity = Boolean(candidateIdentityId && known?.identity === candidateIdentityId);
+        if (known && (known.name === '!conflict'
+          || (candidateIdentityId ? !matchesIdentity : known.name !== candidateName))) {
           return NextResponse.json({ error: '该候选人编号已属于其他人，请核对编号或移除后重新生成' }, { status: 409 });
         }
         identity = known?.identity || candidateIdentityId || randomUUID();

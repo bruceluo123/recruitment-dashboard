@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, FileCheck2, FileText, Loader2, Send, Users, X } from 'lucide-react';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { cn } from '@/lib/utils';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
+import { createDeliveryTask, submitDeliveryTasks, renewDeliveryTasks, deliverySentTime, deliveryClientError, type DeliveryClientTask, type DeliveryClientResult } from '@/lib/tg-delivery-client';
 
 export interface RecommendationCopyItem {
   jdId: string;
@@ -61,6 +62,7 @@ interface RecommendationCopyDialogProps {
   resumeFileName: string;
   resumeBlobUrl?: string;
   onResumeBlobReady?: (url: string) => void;
+  validateBeforeSend?: (items: RecommendationCopyItem[]) => void;
   onDeliveryUpdate?: (
     items: RecommendationCopyItem[],
     delivery: RecommendationDeliverySnapshot,
@@ -71,7 +73,6 @@ interface RecommendationCopyDialogProps {
 }
 
 const UPLOAD_TIMEOUT_MS = 45_000;
-const SEND_TIMEOUT_MS = 20_000;
 const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 
 function wait(ms: number): Promise<void> {
@@ -86,6 +87,7 @@ export function RecommendationCopyDialog({
   resumeFileName,
   resumeBlobUrl,
   onResumeBlobReady,
+  validateBeforeSend,
   onDeliveryUpdate,
   onEditCandidateInfo,
   onClose,
@@ -99,7 +101,9 @@ export function RecommendationCopyDialog({
   const [sendingMode, setSendingMode] = useState<'current' | 'all' | ''>('');
   const [sendingStep, setSendingStep] = useState<'uploading' | 'queueing' | ''>('');
   const [deliveryNotice, setDeliveryNotice] = useState<{ ok: boolean; text: string } | null>(null);
-  useEscapeClose(onClose);
+  const [sentRequests, setSentRequests] = useState<Array<{ task: DeliveryClientTask; result: DeliveryClientResult; item: RecommendationCopyItem }>>([]);
+  const submitLock = useRef(false);
+  useEscapeClose(onClose, !sendingMode);
 
   useEffect(() => {
     setActiveJdId(initialJdId || items[0]?.jdId || '');
@@ -202,95 +206,26 @@ export function RecommendationCopyDialog({
       : '简历上传超时，请检查网络后重试');
   };
 
-  const enqueueDelivery = async (body: object) => {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
-      try {
-        const response = await fetch('/api/tg/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.ok) throw new Error(data.error || 'TG 发送失败');
-        return data;
-      } catch (error) {
-        lastError = error;
-        if (attempt === 0) await wait(800);
-      } finally {
-        window.clearTimeout(timer);
-      }
-    }
-    throw new Error(lastError instanceof Error && lastError.name !== 'AbortError'
-      ? lastError.message
-      : '加入发送队列超时，请稍后重试');
-  };
-
-  const readDelivery = async (id: string): Promise<RecommendationDeliverySnapshot | null> => {
-    const response = await fetch(`/api/tg/send?id=${encodeURIComponent(id)}`, {
-      cache: 'no-store', signal: AbortSignal.timeout(15_000),
-    });
-    if (response.status === 404) return null;
-    const data = await response.json().catch(() => ({})) as RecommendationDeliverySnapshot;
-    if (!response.ok || !data.ok) throw new Error(data.error || '发送结果读取失败');
-    return { ...data, id: data.id || id };
-  };
-
-  const followDelivery = async (
-    id: string,
-    expected: number,
-    storageKey: string,
-    deliveryItems: RecommendationCopyItem[],
-    fileUrl: string,
-  ) => {
-    let lastReportedSent = 0;
-    for (let attempt = 0; attempt < 48; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-      try {
-        const data = await readDelivery(id);
-        if (!data) throw new Error('未找到发送任务');
-        const sent = data.sent || 0;
-        onDeliveryUpdate?.(deliveryItems, data, fileUrl);
-        if (data.status === 'sent') {
-          setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || expected} 份推荐` });
-          localStorage.removeItem(storageKey);
-          return;
-        }
-        if (data.status === 'sending' && sent > lastReportedSent) {
-          lastReportedSent = sent;
-          setDeliveryNotice({ ok: true, text: `已发送 ${sent}/${expected}，正在继续发送` });
-        }
-        if (data.status === 'failed' || data.status === 'partial_failed') {
-          setDeliveryNotice({ ok: false, text: `已发送 ${data.sent || 0}/${expected}，再次点击只会重试未发送项。${data.error || ''}` });
-          return;
-        }
-      } catch {
-        // 工作站队列稍后仍会继续处理，短暂查询失败不覆盖当前提示。
-      }
-    }
-    setDeliveryNotice({ ok: false, text: '发送仍在后台处理中，请勿重复点击；完成后可在 TG 中确认' });
-  };
-
-  const sendRecommendations = async (deliveryItems: RecommendationCopyItem[], mode: 'current' | 'all') => {
-    if (!recipient.trim() || sendingMode) return;
+  const sendRecommendations = async (deliveryItems: RecommendationCopyItem[], mode: 'current' | 'all', repeatSent = false) => {
+    if (!recipient.trim() || sendingMode || submitLock.current) return;
     if (deliveryItems.length > 10) {
       setDeliveryNotice({ ok: false, text: '一次最多发送 10 个岗位，请减少选择后重试' });
       return;
     }
+    submitLock.current = true;
     setSendingMode(mode);
     setSendingStep(uploadedBlobUrl ? 'queueing' : 'uploading');
     setDeliveryNotice(null);
     try {
+      validateBeforeSend?.(deliveryItems);
       const fileUrl = await ensureResumeBlob();
+      validateBeforeSend?.(deliveryItems);
       setSendingStep('queueing');
-      const payload = {
+      const tasks = repeatSent ? await renewDeliveryTasks(sentRequests.map(row => row.task)) : await Promise.all(deliveryItems.map(item => createDeliveryTask({
         sender: owner,
         target: recipient.trim(),
         fileUrl,
-        deliveries: deliveryItems.map((item) => ({
+        deliveries: [{
           text: item.text,
           fileName: item.fileName,
           application: {
@@ -306,43 +241,25 @@ export function RecommendationCopyDialog({
             resumeFileName,
             source: 'intake' as const,
           },
-        })),
-      };
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
-      const storageKey = `recruit:initial-delivery:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-      let requestId = localStorage.getItem(storageKey) || '';
-      let retry = false;
-      if (requestId) {
-        const previous = await readDelivery(requestId);
-        if (!previous) {
-          localStorage.removeItem(storageKey);
-          requestId = '';
-        } else if (previous.status === 'sent') {
-          onDeliveryUpdate?.(deliveryItems, previous, fileUrl);
-          localStorage.removeItem(storageKey);
-          setDeliveryNotice({ ok: true, text: `已发送 ${previous.sent || deliveryItems.length} 份推荐` });
-          return;
-        } else if (previous.status === 'failed' || previous.status === 'partial_failed') {
-          retry = true;
-        }
-      }
-      requestId ||= typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem(storageKey, requestId);
-      const response = await enqueueDelivery({ ...payload, requestId, retry }) as RecommendationDeliverySnapshot;
-      const data = { ...response, id: response.id || requestId };
-      onDeliveryUpdate?.(deliveryItems, data, fileUrl);
-      if (data.queued && data.id) {
-        setDeliveryNotice({ ok: true, text: retry ? '已重新加入未发送项' : `已加入发送队列，正在上传 0/${deliveryItems.length}` });
-        await followDelivery(data.id, deliveryItems.length, storageKey, deliveryItems, fileUrl);
-      } else {
-        setDeliveryNotice({ ok: true, text: `已发送 ${data.sent || deliveryItems.length} 份推荐` });
-        localStorage.removeItem(storageKey);
-      }
+        }],
+      })));
+      const results = await submitDeliveryTasks(tasks, (data, index) => {
+        if (data.status) onDeliveryUpdate?.([deliveryItems[index]], data, fileUrl);
+      });
+      const accepted = results.filter(data => data.ok && ['queued', 'sending', 'sent'].includes(data.status || ''));
+      const failure = results.find(data => !data.ok || !['queued', 'sending', 'sent'].includes(data.status || ''));
+      const sent = accepted.filter(data => data.status === 'sent').length;
+      const confirmed = results.flatMap((result, index) => result.status === 'sent'
+        ? [{ task: tasks[index], result, item: deliveryItems[index] }] : []);
+      setSentRequests(confirmed);
+      setDeliveryNotice({ ok: !failure, text: failure
+        ? `已确认 ${accepted.length}/${results.length} 项。${failure.error || '部分任务未完成，重试只处理未发送项'}`
+        : sent === results.length ? `这 ${sent} 份推荐已于 ${deliverySentTime(confirmed[0].result)} 送达；如需再次发送请单独确认`
+          : `已加入发送队列 ${accepted.length} 项，可关闭窗口；推荐中心将显示实际送达状态` });
     } catch (error) {
-      setDeliveryNotice({ ok: false, text: (error as Error).message || 'TG 发送失败' });
+      setDeliveryNotice({ ok: false, text: deliveryClientError(error) });
     } finally {
+      submitLock.current = false;
       setSendingMode('');
       setSendingStep('');
     }
@@ -355,7 +272,7 @@ export function RecommendationCopyDialog({
       aria-modal="true"
       aria-label="岗位推荐文案"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget && !sendingMode) onClose();
       }}
     >
       <div className="flex max-h-[86vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
@@ -374,6 +291,7 @@ export function RecommendationCopyDialog({
             <button
               type="button"
               onClick={onEditCandidateInfo}
+              disabled={!!sendingMode}
               className="h-8 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
             >
               修改候选人信息
@@ -381,6 +299,7 @@ export function RecommendationCopyDialog({
             <button
               type="button"
               onClick={onClose}
+              disabled={!!sendingMode}
               className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
               aria-label="关闭"
             >
@@ -457,7 +376,8 @@ export function RecommendationCopyDialog({
                   <input
                     list="tg-recommendation-dialogs"
                     value={recipient}
-                    onChange={(event) => setRecipient(event.target.value)}
+                    disabled={!!sendingMode}
+                    onChange={(event) => { setRecipient(event.target.value); setSentRequests([]); }}
                     placeholder={isLoadingDialogs ? '正在读取 TG 联系人和群组...' : '选择或输入 @用户名 / 群组 ID'}
                     className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                   />
@@ -493,6 +413,12 @@ export function RecommendationCopyDialog({
                   {deliveryNotice.text}
                 </p>
               )}
+              {sentRequests.length > 0 && <button type="button" disabled={!!sendingMode}
+                onClick={() => {
+                  if (window.confirm(`这 ${sentRequests.length} 项推荐此前已送达。确定再次发送相同文案和附件吗？`)) {
+                    void sendRecommendations(sentRequests.map(row => row.item), 'all', true);
+                  }
+                }} className="mt-2 text-xs text-indigo-600 underline disabled:opacity-40">确认再次发送已送达项（{sentRequests.length}）</button>}
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarCheck, Check, CircleX, Clock3, FileText, Loader2, Repeat2, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { recommendationOrganization } from '@/lib/recommendation-copy';
@@ -15,6 +15,7 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 import type { JD } from '@/types/jd';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
 import { buildDeliveryFileName, buildRepushCopy } from './RepushModal';
+import { createDeliveryTask, submitDeliveryTasks, renewDeliveryTasks, deliverySentTime, deliveryClientError, type DeliveryClientTask, type DeliveryClientResult } from '@/lib/tg-delivery-client';
 
 export interface BulkRepushCandidate {
   key: string;
@@ -76,10 +77,6 @@ function formatLastRecommendedAt(value: string): string {
   return `${days} 天前`;
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 function sendStatusMeta(status: CandidateSendStatus) {
   if (status === 'unconfirmed') return { label: '待确认', className: 'bg-amber-50 text-amber-700' };
   if (status === 'sent') return { label: '已发送', className: 'bg-emerald-50 text-emerald-700' };
@@ -108,6 +105,7 @@ export function BulkRepushModal({
   const [sendStates, setSendStates] = useState<Record<string, CandidateSendState>>({});
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [sentRequests, setSentRequests] = useState<Array<{ task: DeliveryClientTask; result: DeliveryClientResult; candidate: BulkRepushCandidate }>>([]);
   const [matchError, setMatchError] = useState('');
   const [coreSelection, setCoreSelection] = useState<{ rules: ReturnType<typeof sameJobCoreRules> | null; ids: string[] }>({ rules: null, ids: [] });
   const [coreMode, setCoreMode] = useState<'all' | 'any'>('all');
@@ -122,7 +120,8 @@ export function BulkRepushModal({
     results: Map<string, CorePrescreenResult>;
   }>({ rules: null, inputs: null, results: new Map() });
   const [visibleCandidateCount, setVisibleCandidateCount] = useState(50);
-  useEscapeClose(onClose);
+  const submitLock = useRef(false);
+  useEscapeClose(onClose, !sending);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,7 +153,7 @@ export function BulkRepushModal({
       .slice(0, 30);
   }, [jds, jobQuery]);
 
-  const selectedJd = jds.find((jd) => jd.id === selectedJdId) || null;
+  const selectedJd = jds.find((jd) => jd.id === selectedJdId && jd.status !== 'paused') || null;
   const coreRules = useMemo(() => selectedJd
     ? sameJobCoreRules(selectedJd)
     : [], [selectedJd]);
@@ -282,7 +281,7 @@ export function BulkRepushModal({
   };
 
   const toggleCandidate = (key: string) => {
-    if (sending) return;
+    if (sending || submitLock.current) return;
     setError('');
     setSelectedCandidateKeys((current) => {
       if (current.includes(key)) return current.filter((candidateKey) => candidateKey !== key);
@@ -305,7 +304,7 @@ export function BulkRepushModal({
     return {
       sender: owner,
       target: recipient.trim(),
-      fileUrl: source.resumeUrl,
+      fileUrl: source.resumeUrl || '',
       deliveries: [{
         text: buildRepushCopy(source, jd),
         fileName: buildDeliveryFileName(source, jd),
@@ -328,96 +327,50 @@ export function BulkRepushModal({
     };
   };
 
-  const storageKeyFor = async (payload: object) => {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
-    return `recruit:bulk-repush-delivery:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-  };
-
   const updateCandidateState = (key: string, state: CandidateSendState) => {
     setSendStates((current) => ({ ...current, [key]: state }));
   };
 
-  const handleSend = async () => {
-    if (!selectedJd || remainingCandidates.length === 0 || !recipient.trim() || sending) return;
+  const handleSend = async (repeatSent = false) => {
+    if (!selectedJd || (!repeatSent && remainingCandidates.length === 0) || !recipient.trim() || sending || submitLock.current) return;
+    submitLock.current = true;
     setSending(true);
     setError('');
     try {
-      const tasks = await Promise.all(remainingCandidates.map(async candidate => {
-        const payload = payloadFor(candidate, selectedJd);
-        const storageKey = await storageKeyFor(payload);
-        const previousId = window.localStorage.getItem(storageKey);
-        const requestId = previousId || crypto.randomUUID();
-        window.localStorage.setItem(storageKey, requestId);
-        return { candidate, body: { ...payload, requestId, retryIfFailed: Boolean(previousId),
-          sourceSnapshot: candidate.item } };
-      }));
-      let pendingTasks = tasks;
-      const byId = new Map<string, DeliveryStatusResponse>();
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const response = await fetch('/api/tg/send', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sender: owner, batch: pendingTasks.map(task => task.body) }),
-            signal: AbortSignal.timeout(45_000),
-          });
-          const data = await response.json();
-          if (!response.ok || !data.ok) throw Object.assign(new Error(data.error || '加入发送队列失败'), {
-            retryable: response.status >= 500 || response.status === 408 || response.status === 429,
-          });
-          for (const row of (data.results || []) as DeliveryStatusResponse[]) {
-            if (row.id) byId.set(row.id, row);
-          }
-          break;
-        } catch (error) {
-          if (error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
-          try {
-            const query = pendingTasks.map(task => `ids=${encodeURIComponent(task.body.requestId)}`).join('&');
-            const receipt = await fetch(`/api/tg/send?receipt=1&${query}`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
-            const data = await receipt.json();
-            if (receipt.ok && data.ok) {
-              for (const task of pendingTasks) {
-                const row = (data.results as DeliveryStatusResponse[] | undefined)?.find(row => row.id === task.body.requestId);
-                if (row?.ok && ['queued', 'sending', 'sent'].includes(row.status || '')) {
-                  byId.set(task.body.requestId, row);
-                  updateCandidateState(task.candidate.key, { status: row.status as CandidateSendStatus });
-                }
-              }
-            }
-          } catch {
-            // Retry the same batch IDs only when receipts cannot confirm all tasks.
-          }
-          pendingTasks = pendingTasks.filter(task => !byId.has(task.body.requestId));
-          if (!pendingTasks.length) break;
-          if (attempt === 1) {
-            for (const task of pendingTasks) byId.set(task.body.requestId, {
-              id: task.body.requestId, ok: false, unconfirmed: true,
-              error: '网络较慢，提交结果待确认；再次点击将核对同一任务，不会新建重复投递',
-            });
-            break;
-          }
-          await wait(800);
-        }
-      }
-      let failed = 0;
-      for (const task of tasks) {
-        const response = byId.get(task.body.requestId);
-        if (response?.ok) {
-          syncResponse(response);
-          updateCandidateState(task.candidate.key, {
+      const submittedCandidates = repeatSent ? sentRequests.map(row => row.candidate) : remainingCandidates;
+      if (repeatSent && sentRequests.some(({ task }) => {
+        const application = task.deliveries[0].application;
+        return application.jdId !== selectedJd.id || application.jdTitle !== selectedJd.title
+          || application.organization !== recommendationOrganization(selectedJd)
+          || application.department !== String(selectedJd.department || '').trim()
+          || application.contactPerson !== String(selectedJd.odc || '').trim();
+      })) throw new Error('岗位或对接信息已变化，请重新选择目标岗位后再发送');
+      const tasks = repeatSent ? await renewDeliveryTasks(sentRequests.map(row => row.task)) : await Promise.all(submittedCandidates.map(candidate => createDeliveryTask({
+        ...payloadFor(candidate, selectedJd), sourceSnapshot: candidate.item,
+      })));
+      const responses = await submitDeliveryTasks(tasks, (response, index) => {
+        const candidate = submittedCandidates[index];
+        if (response.status) syncResponse(response);
+        if (response.ok && ['queued', 'sending', 'sent'].includes(response.status || '')) {
+          updateCandidateState(candidate.key, {
             status: response.status === 'sent' ? 'sent' : response.status === 'sending' ? 'sending' : 'queued',
           });
         } else {
-          failed++;
-          updateCandidateState(task.candidate.key, { status: response?.unconfirmed ? 'unconfirmed' : 'failed',
+          updateCandidateState(candidate.key, { status: response.unconfirmed ? 'unconfirmed' : 'failed',
             error: response?.error || '任务暂未确认，请重试查看同一任务' });
         }
-      }
-      if (!failed) onClose();
+      });
+      const confirmed = responses.flatMap((result, index) => result.status === 'sent'
+        ? [{ task: tasks[index], result, candidate: submittedCandidates[index] }] : []);
+      setSentRequests(confirmed);
+      const failed = responses.filter(response => !response.ok || !['queued', 'sending', 'sent'].includes(response.status || '')).length;
+      if (!failed && confirmed.length === 0) onClose();
+      else if (!failed) setError(`其中 ${confirmed.length} 项已于 ${deliverySentTime(confirmed[0].result)} 送达，如需再次发送请单独确认。`);
       else setError(`已确认 ${tasks.length - failed}/${tasks.length} 位人选，其他人选请查看各自状态；再次点击只处理未确认或失败的任务。`);
     } catch (error) {
-      setError(error instanceof Error && !['TimeoutError', 'AbortError'].includes(error.name)
-        ? error.message : '网络较慢，任务暂未确认；再次点击会核对同一任务，不会新建重复投递');
+      setError(deliveryClientError(error));
     } finally {
+      submitLock.current = false;
       setSending(false);
     }
   };
@@ -615,13 +568,17 @@ export function BulkRepushModal({
               <label htmlFor="bulk-repush-recipient" className="mb-1.5 block text-xs font-medium text-slate-500">统一发送给</label>
               <div className="relative">
                 <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input id="bulk-repush-recipient" list="bulk-repush-tg-dialogs" value={recipient} onChange={(event) => { setRecipient(event.target.value); setError(''); }} disabled={sending} placeholder="@ojisamer" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100" />
+                <input id="bulk-repush-recipient" list="bulk-repush-tg-dialogs" value={recipient} onChange={(event) => { setRecipient(event.target.value); setError(''); }} disabled={sending || targetLocked} placeholder="@ojisamer" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100" />
                 <datalist id="bulk-repush-tg-dialogs">
                   {tgDialogs.map((dialog) => <option key={dialog.id} value={dialog.target}>{dialog.title || dialog.username}</option>)}
                 </datalist>
               </div>
               {selectedJd && selectedDuplicateCount > 0 && <p className="mt-1.5 text-xs text-amber-600">已排除 {selectedDuplicateCount} 位投递过该岗位的人选，不会重复发送。</p>}
               {error && <p role="alert" className="mt-1.5 text-xs text-rose-600">{error}</p>}
+              {sentRequests.length > 0 && <button type="button" disabled={sending}
+                onClick={() => {
+                  if (window.confirm(`这 ${sentRequests.length} 位人选此前已送达。确定再次发送相同文案和附件吗？`)) void handleSend(true);
+                }} className="mt-1.5 text-xs text-violet-600 underline disabled:opacity-40">确认再次发送已送达项（{sentRequests.length}）</button>}
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2">
               <button type="button" onClick={onClose} disabled={sending} className="h-10 rounded-lg px-3 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed">取消</button>

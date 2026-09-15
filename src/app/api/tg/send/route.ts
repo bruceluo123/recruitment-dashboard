@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { del } from '@vercel/blob';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
-import { requireApiSession, requireOwnerSession } from '@/lib/auth-api';
+import { apiSessionUser, requireApiSession, requireOwnerSession } from '@/lib/auth-api';
 import { kvCommandStrict, kvFindRepushRecords, kvTransaction } from '@/lib/kv-server';
 
 export const runtime = 'nodejs';
@@ -10,7 +9,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const recordKey = (id: string) => `recruit:tg-delivery:${id}`;
-const DELIVERY_TTL_SECONDS = 7 * 24 * 60 * 60;
+// Keep the authoritative receipt across browser resets and delayed retries.
+// An intentional repeat uses a new request ID, not expiry of the previous send.
 
 function accountKeys(sender: 'a' | 'b') {
   return sender === 'b'
@@ -69,6 +69,7 @@ interface DeliveryRecord {
   fileUrl: string;
   deliveries: DeliveryItem[];
   applications?: DeliveryApplication[];
+  businessRecords?: BusinessRecommendation[];
   sender?: 'a' | 'b';
   sent?: number;
   error?: string;
@@ -90,8 +91,13 @@ interface WorkerHeartbeat {
 
 function parseRecord(value: DeliveryRecord | string | null): DeliveryRecord | null {
   if (!value) return null;
-  if (typeof value !== 'string') return value;
-  try { return JSON.parse(value) as DeliveryRecord; } catch { return null; }
+  try {
+    const record = typeof value === 'string' ? JSON.parse(value) : value;
+    return record && typeof record === 'object' && typeof record.id === 'string'
+      && Array.isArray(record.deliveries)
+      && record.deliveries.every((item: unknown) => item && typeof item === 'object' && !Array.isArray(item))
+      ? record as DeliveryRecord : null;
+  } catch { return null; }
 }
 
 function parseHeartbeat(value: WorkerHeartbeat | string | null): WorkerHeartbeat | null {
@@ -103,7 +109,8 @@ function parseHeartbeat(value: WorkerHeartbeat | string | null): WorkerHeartbeat
 function normalizedDeliveries(record: DeliveryRecord): DeliveryItem[] {
   const legacySent = Math.max(0, Number(record.sent) || 0);
   return (record.deliveries || []).map((delivery, index) => {
-    const recordedSuccess = delivery.status === 'sent' || delivery.messageId != null || index < legacySent;
+    const recordedSuccess = delivery.status === 'sent' || delivery.messageId != null
+      || (!record.deliveries.some(item => item.status || item.messageId) && index < legacySent);
     return {
       ...delivery,
       status: recordedSuccess ? 'sent' : delivery.status || 'pending',
@@ -235,20 +242,9 @@ type BusinessRecommendation = Record<string, unknown> & {
   deliveryIndex?: number;
 };
 
-function parseBusinessRecommendations(raw: string | null): BusinessRecommendation[] {
-  if (!raw) return [];
-  const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) throw new Error('推荐记录格式异常');
-  if (parsed.some((item) => !(
-    item && typeof item === 'object' && !Array.isArray(item)
-    && typeof (item as BusinessRecommendation).id === 'string'
-  ))) throw new Error('推荐记录格式异常');
-  return parsed as BusinessRecommendation[];
-}
-
 async function deliveryBusinessRecords(tasks: DeliveryRecord[]): Promise<BusinessRecommendation[]> {
   const groups = await Promise.all((['a', 'b'] as const).map(async (sender) => {
-    const owned = tasks.filter(task => (task.sender || 'a') === sender);
+    const owned = tasks.filter(task => (task.sender || 'a') === sender && !task.businessRecords);
     if (!owned.length) return [];
     const ids = new Set(owned.map(task => task.id));
     const records = await kvFindRepushRecords({
@@ -258,7 +254,7 @@ async function deliveryBusinessRecords(tasks: DeliveryRecord[]): Promise<Busines
     });
     return records.filter(item => ids.has(String(item.deliveryId)) && item.column === sender) as BusinessRecommendation[];
   }));
-  return groups.flat()
+  return [...groups.flat(), ...tasks.flatMap(task => task.businessRecords || [])]
     .sort((a, b) => Number(a.deliveryIndex ?? Number.MAX_SAFE_INTEGER) - Number(b.deliveryIndex ?? Number.MAX_SAFE_INTEGER));
 }
 
@@ -274,7 +270,16 @@ function deliverySnapshot(
     total: deliveries.length,
     deliveries: deliveryResults(deliveries),
     applications: record.applications || [],
-    records,
+    records: records.map(row => {
+      const delivery = deliveries[Number(row.deliveryIndex)];
+      if (!delivery) return row;
+      return { ...row,
+        deliveryStatus: delivery.status === 'pending' ? 'queued' : delivery.status,
+        deliveryUpdatedAt: record.updatedAt || record.createdAt,
+        telegramMessageId: delivery.messageId || undefined,
+        deliveredAt: delivery.sentAt || undefined,
+      };
+    }),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt || record.createdAt,
   };
@@ -302,6 +307,9 @@ function prepareDelivery(body: SendInput, id: string, sender: 'a' | 'b') {
     : [{ text: body.text, fileName: body.fileName }];
   if (requestedDeliveries.length > 10) {
     throw new Error('一次最多发送 10 个岗位');
+  }
+  if (requestedDeliveries.some(item => typeof item.text !== 'string' || item.text.length > 20_000)) {
+    throw new Error('单份推荐文案最多 20000 字符，请核对内容');
   }
   if (!body.deliveries?.length || requestedDeliveries.some((item) => (
     !item.application || !cleanText(item.application.jdId, 240)
@@ -350,7 +358,7 @@ function prepareDelivery(body: SendInput, id: string, sender: 'a' | 'b') {
       jdTitle,
       contact: cleanText(application.contact, 300) || undefined,
       contactPerson: cleanText(application.contactPerson, 200) || undefined,
-      rawText: cleanText(item.text, 2000) || undefined,
+      rawText: item.text?.trim() || undefined,
       highlights: cleanText(application.highlights, 1500) || undefined,
       resumeUrl: fileUrl,
       resumeFileName: safeFileName(cleanText(application.resumeFileName, 180) || item.fileName || 'resume.pdf'),
@@ -378,20 +386,21 @@ function prepareDelivery(body: SendInput, id: string, sender: 'a' | 'b') {
     fileUrl,
     deliveries,
     applications,
+    businessRecords,
     sender,
   };
 
   return { record, businessRecords };
 }
 
-// One read and one compare-and-swap for the whole batch. A lost response can be
-// retried with the same IDs: existing tasks are returned without re-enqueueing.
+// The task is the durable outbox. Shared recommendation projection must never
+// participate in enqueue/lease CAS or make unrelated users block each other.
 async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
   const jobs = inputs.map(input => ({
     ...input,
     requestId: cleanText(input.requestId, 80) || crypto.randomUUID(),
   }));
-  const keys = ['recruit:repush', 'recruit:tombstones', accountKeys(sender).heartbeat,
+  const keys = ['recruit:tombstones', accountKeys(sender).heartbeat,
     ...jobs.map(job => recordKey(job.requestId))];
   const deadline = Date.now() + 18_000;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -402,9 +411,21 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
       if (attempt === 2 || Date.now() >= deadline) throw error;
       continue;
     }
-    let repush = parseBusinessRecommendations(raw[0]);
-    const tombstones = raw[1] ? JSON.parse(raw[1]) : {};
-    const heartbeat = parseHeartbeat(raw[2]);
+    const tombstones = raw[0] ? JSON.parse(raw[0]) : {};
+    const heartbeat = parseHeartbeat(raw[1]);
+    const newRepush = jobs.filter((job, index) => !raw[index + 2]
+      && job.deliveries?.some(item => item.application?.source === 'repush'));
+    let sources: RepushSourceRecord[] = [];
+    let sourceReadError = false;
+    if (newRepush.length) {
+      try {
+        sources = await kvFindRepushRecords({
+          sourceIds: newRepush.flatMap(job => (job.deliveries || []).map(item => cleanText(item.application?.repushSourceId, 240))),
+          candidateCodes: [], candidateIdentityIds: [],
+          resumeUrls: newRepush.map(job => cleanText(job.fileUrl, 1000)), column: sender,
+        }) as RepushSourceRecord[];
+      } catch { sourceReadError = true; }
+    }
     const online = Boolean(heartbeat?.at && Date.now() - Date.parse(heartbeat.at) <= 45_000);
     const writes: NonNullable<Parameters<typeof kvTransaction>[0]['writes']> = [];
     const expected: NonNullable<Parameters<typeof kvTransaction>[0]['expected']> = [];
@@ -413,15 +434,27 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
     for (const [index, body] of Array.from(jobs.entries())) {
       const id = body.requestId;
       try {
-        const existing = parseRecord(raw[index + 3]);
+        const existing = parseRecord(raw[index + 2]);
         if (existing) {
           if ((existing.sender || 'a') !== sender) throw new Error('发送任务所属人与请求不一致');
           if (body.target && existing.target !== body.target.trim()
             || body.fileUrl && existing.fileUrl !== body.fileUrl.trim()) {
             throw new Error('发送任务内容已变化，请重新选择推荐岗位');
           }
-          const records = repush.filter(row => row.deliveryId === id && row.column === sender);
-          const deliveries = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(existing), records).deliveries;
+          if (body.deliveries && (body.deliveries.length !== existing.deliveries.length
+            || body.deliveries.some((item, itemIndex) => {
+              const previous = existing.deliveries[itemIndex];
+              const application = existing.applications?.[itemIndex];
+              const business = existing.businessRecords?.find(row => row.deliveryIndex === itemIndex);
+              return item.text?.trim() !== previous.text || safeFileName(item.fileName || 'resume.pdf') !== previous.fileName
+                || (application && cleanText(item.application?.jdId, 240) !== application.jdId)
+                || (business && ['candidateCode', 'candidateIdentityId', 'candidateName', 'repushSourceId'].some(field => (
+                  cleanText(item.application?.[field as keyof DeliveryApplicationInput], 240) !== cleanText(business[field], 240)
+                )));
+            }))) throw new Error('同一任务的文案、人选或岗位已变化，请重新生成推荐');
+          const records = existing.businessRecords || await deliveryBusinessRecords([existing]);
+          const deliveries = existing.businessRecords ? normalizedDeliveries(existing)
+            : reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(existing), records).deliveries;
           const status = publicStatus(existing, deliveries);
           if ((body.retry || body.retryIfFailed) && (status === 'failed' || status === 'partial_failed')) {
             if (!online) throw new Error('TG 发送器当前离线，请确认工作站代理已连接后重试');
@@ -437,15 +470,12 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
               retryCount: (existing.retryCount || 0) + 1,
             };
             delete retryRecord.error; delete retryRecord.finishedAt; delete retryRecord.lease;
-            repush = repush.map(row => row.deliveryId === id && row.column === sender
-              && retryRecord.deliveries[Number(row.deliveryIndex)]?.status === 'pending'
-              ? { ...row, deliveryStatus: 'queued', deliveryUpdatedAt: now, telegramMessageId: undefined, deliveredAt: undefined }
-              : row);
-            writes.push({ key: recordKey(id), value: JSON.stringify(retryRecord), ttlSeconds: DELIVERY_TTL_SECONDS });
-            expected.push({ key: recordKey(id), exists: true, value: raw[index + 3]! });
+            retryRecord.businessRecords = records;
+            writes.push({ key: recordKey(id), value: JSON.stringify(retryRecord) });
+            expected.push({ key: recordKey(id), exists: true, value: raw[index + 2]! });
             lists.push({ op: 'push', key: accountKeys(sender).queue, value: id });
             results.push({ ok: true, ...deliverySnapshot(retryRecord, retryRecord.deliveries,
-              repush.filter(row => row.deliveryId === id && row.column === sender)) });
+              records) });
           } else {
             results.push({ ok: status !== 'failed' && status !== 'partial_failed',
               ...deliverySnapshot(existing, deliveries, records), error: existing.error });
@@ -458,12 +488,13 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
         const deliveries = body.deliveries!;
         const sourceIds = deliveries.filter(row => row.application?.source === 'repush')
           .map(row => cleanText(row.application?.repushSourceId, 240));
+        if (sourceIds.length && sourceReadError) throw new Error('原推荐暂时无法核对，请重试；没有重复入队');
         if (sourceIds.some(sourceId => tombstones?.repush?.[sourceId])) {
           throw new Error('原推荐已被删除，已停止发送，请核对推荐记录');
         }
         let source: RepushSourceRecord | undefined;
         const snapshot = body.sourceSnapshot;
-        if (snapshot && sourceIds.includes(snapshot.id) && !repush.some(row => row.id === snapshot.id)) {
+        if (snapshot && sourceIds.includes(snapshot.id) && !sources.some(row => row.id === snapshot.id)) {
           if (snapshot.column !== sender || !cleanText(snapshot.candidateName, 200)
             || !cleanText(snapshot.fileName, 180) || !Number.isFinite(Date.parse(String(snapshot.uploadedAt || '')))
             || JSON.stringify(snapshot).length > 50_000
@@ -473,15 +504,12 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
           source = snapshot;
         }
         const identityError = repushResumeError(deliveries, record.fileUrl, sender,
-          [...repush, ...(source ? [source] : [])] as RepushSourceRecord[]);
+          [...sources, ...(source ? [source] : [])]);
         if (identityError) throw new Error(identityError);
-        const ids = new Set(repush.flatMap(row => [row.id, row.applicationId].filter(Boolean)));
-        if (businessRecords.some(row => ids.has(row.id) || source?.id === row.id)) {
-          throw new Error('投递记录已存在，请刷新后核对');
+        if (businessRecords.some(row => tombstones?.repush?.[row.id])) {
+          throw new Error('该投递记录已被删除，请核对后重新推荐');
         }
-        // Restore source and enqueue only after every check succeeds, in the same transaction.
-        repush = [...repush, ...(source ? [source] : []), ...businessRecords];
-        writes.push({ key: recordKey(id), value: JSON.stringify(record), ttlSeconds: DELIVERY_TTL_SECONDS });
+        writes.push({ key: recordKey(id), value: JSON.stringify(record) });
         expected.push({ key: recordKey(id), exists: false });
         lists.push({ op: 'push', key: accountKeys(sender).queue, value: id });
         results.push({ ok: true, ...deliverySnapshot(record, record.deliveries, businessRecords) });
@@ -494,11 +522,16 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
       const committed = await kvTransaction({
         expected: [
           { key: keys[0], exists: raw[0] !== null, ...(raw[0] !== null ? { value: raw[0] } : {}) },
-          { key: keys[1], exists: raw[1] !== null, ...(raw[1] !== null ? { value: raw[1] } : {}) },
           ...expected,
         ],
-        writes: [...writes, { key: keys[0], value: JSON.stringify(repush) }],
-        lists, increments: ['recruit:version'],
+        writes,
+        lists: [...lists, ...writes.flatMap(write => {
+          const task = parseRecord(write.value)!;
+          const key = `recruit:tg-delivery-projection-pending${sender === 'b' ? '-b' : ''}`;
+          return [{ op: 'remove' as const, key, value: task.id, count: 0 },
+            { op: 'push' as const, key, value: task.id }];
+        })],
+        increments: ['recruit:version'],
       });
       if (committed.ok) return results;
     } catch (error) {
@@ -516,7 +549,7 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
           return results.map(result => {
             const receipt = confirmed.find(record => record?.id === result.id);
             if (!receipt) return result;
-            const business = repush.filter(row => row.deliveryId === receipt.id && row.column === sender);
+            const business = receipt.businessRecords || [];
             const deliveries = normalizedDeliveries(receipt);
             const status = publicStatus(receipt, deliveries);
             return { ok: status !== 'failed' && status !== 'partial_failed',
@@ -543,7 +576,8 @@ export async function POST(request: NextRequest) {
   const sender = body.sender === 'b' ? 'b' : 'a';
   const ownerBlocked = await requireOwnerSession(request, sender, true);
   if (ownerBlocked) return ownerBlocked;
-  const rateBlocked = guardApi(request, 'tg-send-recommendation', 12, 60_000);
+  const actor = (await apiSessionUser(request))?.sub || 'service';
+  const rateBlocked = guardApi(request, `tg-send-recommendation:${actor}`, 12, 60_000);
   if (rateBlocked) return rateBlocked;
   const jobs = body.batch === undefined ? [body] : body.batch;
   if (!Array.isArray(jobs) || !jobs.length || jobs.length > 10 || jobs.some(job => !job
@@ -569,7 +603,8 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const unauthorized = await requireApiSession(request);
   if (unauthorized) return unauthorized;
-  const blocked = guardApi(request, 'tg-send-status', 60, 60_000);
+  const actor = (await apiSessionUser(request))?.sub || 'service';
+  const blocked = guardApi(request, `tg-send-status:${actor}`, 60, 60_000);
   if (blocked) return blocked;
   const batchIds = request.nextUrl.searchParams.getAll('ids');
   if (batchIds.length) {
@@ -588,7 +623,9 @@ export async function GET(request: NextRequest) {
       }
       // Receipt checks must stay independent of the multi-MB recommendation
       // snapshot/lookup. They report queue state, not a refreshed business record.
-      const records = request.nextUrl.searchParams.get('receipt') === '1' ? []
+      const records = request.nextUrl.searchParams.get('receipt') === '1'
+        ? tasks.filter((task): task is DeliveryRecord => Boolean(task && permissions.get(task.sender || 'a')))
+          .flatMap(task => task.businessRecords || [])
         : await deliveryBusinessRecords(tasks.filter((task): task is DeliveryRecord => Boolean(task && permissions.get(task.sender || 'a'))));
       for (const [index, id] of Array.from(batchIds.entries())) {
         const record = tasks[index];
@@ -597,7 +634,8 @@ export async function GET(request: NextRequest) {
         if (!permissions.has(sender)) permissions.set(sender, !await requireOwnerSession(request, sender));
         if (!permissions.get(sender)) { results.push({ id, ok: false, error: '无权读取该发送任务' }); continue; }
         const business = records.filter(row => row.deliveryId === id && row.column === sender);
-        const deliveries = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(record), business).deliveries;
+        const deliveries = record.businessRecords ? normalizedDeliveries(record)
+          : reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(record), business).deliveries;
         results.push({ ok: true, ...deliverySnapshot(record, deliveries, business), error: record.error || '' });
       }
       return NextResponse.json({ ok: true, results });
@@ -616,33 +654,13 @@ export async function GET(request: NextRequest) {
   const ownerBlocked = await requireOwnerSession(request, record.sender === 'b' ? 'b' : 'a');
   if (ownerBlocked) return ownerBlocked;
   let businessRecords: BusinessRecommendation[];
-  try { businessRecords = await deliveryBusinessRecords([record]); }
+  try { businessRecords = request.nextUrl.searchParams.get('receipt') === '1'
+    ? record.businessRecords || [] : await deliveryBusinessRecords([record]); }
   catch { return NextResponse.json({ ok: false, error: '推荐记录格式异常，已停止读取' }, { status: 503 }); }
-  const reconciled = reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(record), businessRecords);
-  const deliveries = reconciled.deliveries;
-  const status = publicStatus(record, deliveries);
-  if (reconciled.changed && status === 'sent' && record.status !== 'sending') {
-    record.deliveries = deliveries;
-    record.sent = deliveries.length;
-    record.status = 'sent';
-    record.finishedAt ||= new Date().toISOString();
-    record.updatedAt = new Date().toISOString();
-    delete record.error;
-    delete record.lease;
-    await kvCommandStrict('SET', recordKey(id), JSON.stringify(record), 'EX', DELIVERY_TTL_SECONDS);
-  }
-  if (status === 'sent' && !record.cleanedAt) {
-    try {
-      const pathname = new URL(record.fileUrl).pathname;
-      if (pathname.startsWith('/tg-delivery/')) {
-        await del(record.fileUrl);
-        record.cleanedAt = new Date().toISOString();
-        await kvCommandStrict('SET', recordKey(id), JSON.stringify(record), 'EX', DELIVERY_TTL_SECONDS);
-      }
-    } catch {
-      // Cleanup is best-effort and must never turn a successful TG delivery into a failure.
-    }
-  }
+  const deliveries = record.businessRecords ? normalizedDeliveries(record)
+    : reconcileDeliveriesFromBusinessRecords(normalizedDeliveries(record), businessRecords).deliveries;
+  // Status reads are read-only. A file may be referenced by several jobs and
+  // future repushes; delivery receipts must never delete that attachment.
   return NextResponse.json({
     ok: true,
     ...deliverySnapshot(record, deliveries, businessRecords),

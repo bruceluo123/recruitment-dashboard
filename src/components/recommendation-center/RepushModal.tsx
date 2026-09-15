@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, FileText, Loader2, Repeat, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { hasCategory, type JD, type JDCategory } from '@/types/jd';
@@ -9,6 +9,7 @@ import { displayName } from '@/lib/repush-format';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
 import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
+import { createDeliveryTask, submitDeliveryTasks, renewDeliveryTasks, deliverySentTime, deliveryClientError, type DeliveryClientTask, type DeliveryClientResult } from '@/lib/tg-delivery-client';
 
 export interface RepushArgs {
   record?: RepushItem;
@@ -95,11 +96,13 @@ function targetKey(title?: string, organization?: string, department?: string): 
 
 function isSameCandidate(a: RepushItem, b: RepushItem): boolean {
   if (a.column !== b.column) return false;
+  if (a.candidateIdentityId && b.candidateIdentityId) {
+    return a.candidateIdentityId === b.candidateIdentityId;
+  }
   if (a.candidateCode && b.candidateCode) {
     return clean(a.candidateCode).toLowerCase() === clean(b.candidateCode).toLowerCase();
   }
-  return clean(a.candidateName || displayName(a)).toLowerCase()
-    === clean(b.candidateName || displayName(b)).toLowerCase();
+  return a.id === b.id || Boolean(a.resumeUrl && a.resumeUrl === b.resumeUrl);
 }
 
 function candidateName(item: RepushItem): string {
@@ -135,10 +138,6 @@ export function buildDeliveryFileName(item: RepushItem, jd: JD): string {
   return `${[candidateName(item), jd.title].map(safeFilePart).filter(Boolean).join('-')}${extension}`;
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 /** 在推荐中心选择具体 JD，生成文案，并可直接把文案与原简历发送到 TG。 */
 export function RepushModal({
   item,
@@ -167,7 +166,9 @@ export function RepushModal({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [sendProgress, setSendProgress] = useState('');
-  useEscapeClose(onClose);
+  const [sentRequests, setSentRequests] = useState<Array<{ task: DeliveryClientTask; result: DeliveryClientResult; recommendation: { jd: JD; text: string } }>>([]);
+  const submitLock = useRef(false);
+  useEscapeClose(onClose, !sending);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,12 +216,14 @@ export function RepushModal({
 
   const selectedJds = selectedJdIds
     .map((id) => jds.find((jd) => jd.id === id))
-    .filter((jd): jd is JD => Boolean(jd));
+    .filter((jd): jd is JD => Boolean(jd && jd.status !== 'paused'));
   const recommendationTexts = selectedJds.map((jd) => ({ jd, text: buildRepushCopy(item, jd) }));
   const recommendationText = recommendationTexts.map(({ text }) => text).join('\n\n──────────\n\n');
   const hasResume = Boolean(item.resumeUrl);
 
   const toggleJd = (jdId: string) => {
+    if (sending || submitLock.current) return;
+    setSentRequests([]);
     setCopied(false);
     setSendError('');
     if (!selectedJdIds.includes(jdId) && selectedJdIds.length >= 10) {
@@ -240,13 +243,13 @@ export function RepushModal({
     window.setTimeout(() => setCopied(false), 1600);
   };
 
-  const persistRepush = (delivery?: DeliveryStatusResponse, close = true) => {
+  const persistRepush = (delivery?: DeliveryStatusResponse, close = true, deliveredRecommendations = recommendationTexts) => {
     if (selectedJds.length === 0) return;
     const applications = new Map((delivery?.applications || []).map((application) => [application.index, application]));
     const records = new Map((delivery?.records || []).map((record) => [record.deliveryIndex, record]));
     const rows: Array<{ recommendation: typeof recommendationTexts[number]; result: DeliveryResult }> = delivery
       ? (delivery.deliveries || []).flatMap((result) => {
-        const recommendation = recommendationTexts[result.index];
+        const recommendation = deliveredRecommendations[result.index];
         return recommendation ? [{ recommendation, result }] : [];
       })
       : recommendationTexts.map((recommendation, index) => ({
@@ -285,57 +288,27 @@ export function RepushModal({
     if (close) onClose();
   };
 
-  const enqueueDelivery = async (body: { requestId: string; [key: string]: unknown }) => {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), 20_000);
-      try {
-        const response = await fetch('/api/tg/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.ok) throw Object.assign(new Error(data.error || 'TG 发送失败'), {
-          retryable: response.status >= 500 || response.status === 408 || response.status === 429,
-        });
-        return data;
-      } catch (error) {
-        if (error && typeof error === 'object' && 'retryable' in error && !error.retryable) throw error;
-        lastError = error;
-        setSendProgress('正在核对发送回执，请勿重复操作…');
-        try {
-          const receipt = await fetch(`/api/tg/send?receipt=1&ids=${encodeURIComponent(body.requestId)}`, {
-            cache: 'no-store', signal: AbortSignal.timeout(15_000),
-          });
-          const status = await receipt.json();
-          const task = status.results?.find((row: DeliveryStatusResponse) => row.id === body.requestId);
-          if (receipt.ok && status.ok && task?.ok && ['queued', 'sending', 'sent'].includes(task.status)) return task;
-        } catch {
-          // Keep the persisted request ID: a lost receipt must not create a new send.
-        }
-        if (attempt === 0) await wait(800);
-      } finally {
-        window.clearTimeout(timer);
-      }
+  const handleSendAndRepush = async (repeatSent = false) => {
+    if (selectedJds.length === 0 || !item.resumeUrl || !recipient.trim() || sending || submitLock.current) return;
+    if (selectedJds.length !== selectedJdIds.length) {
+      setSendError('部分岗位已关闭或移除，请重新选择目标岗位');
+      return;
     }
-    throw new Error(lastError instanceof Error && lastError.name !== 'AbortError'
-      ? lastError.message
-      : '加入发送队列超时，请稍后重试');
-  };
-
-  const handleSendAndRepush = async () => {
-    if (selectedJds.length === 0 || !item.resumeUrl || !recipient.trim() || sending) return;
+    submitLock.current = true;
     setSending(true);
     setSendError('');
     try {
-      const payload = {
+      const submittedRecommendations = repeatSent ? sentRequests.map(row => row.recommendation) : recommendationTexts;
+      if (submittedRecommendations.some(({ jd }) => !jds.some(current => current.id === jd.id && current.status !== 'paused'
+        && current.title === jd.title && recommendationOrganization(current) === recommendationOrganization(jd)
+        && clean(current.department) === clean(jd.department) && clean(current.odc) === clean(jd.odc)))) {
+        throw new Error('目标岗位或对接信息已变化，请重新选择岗位后生成文案');
+      }
+      const tasks = repeatSent ? await renewDeliveryTasks(sentRequests.map(row => row.task)) : await Promise.all(submittedRecommendations.map(({ jd, text }) => createDeliveryTask({
         sender: item.column,
         target: recipient.trim(),
-        fileUrl: item.resumeUrl,
-        deliveries: recommendationTexts.map(({ jd, text }) => ({
+        fileUrl: item.resumeUrl || '',
+        deliveries: [{
           text,
           fileName: buildDeliveryFileName(item, jd),
           application: {
@@ -353,25 +326,27 @@ export function RepushModal({
             source: recommendationSource,
             repushSourceId,
           },
-        })),
-      };
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
-      const key = `recruit:repush-delivery:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-      const previousId = localStorage.getItem(key);
-      const requestId = previousId || crypto.randomUUID();
-      localStorage.setItem(key, requestId);
-      setSendProgress('正在加入发送队列…');
-      const response = await enqueueDelivery({
-        ...payload, requestId, retryIfFailed: Boolean(previousId),
+        }],
         sourceSnapshot: repushSourceId ? item : undefined,
-      }) as DeliveryStatusResponse;
-      // Keep the request ID until the user changes the payload. Closing the modal
-      // must not allow a second click to create another task for the same send.
-      persistRepush({ ...response, id: response.id || requestId });
+      })));
+      setSendProgress('正在加入发送队列…');
+      const responses = await submitDeliveryTasks(tasks, (response, index) => {
+        if (response.status) persistRepush(response, false, [submittedRecommendations[index]]);
+      });
+      const confirmed = responses.flatMap((result, index) => result.status === 'sent'
+        ? [{ task: tasks[index], result, recommendation: submittedRecommendations[index] }] : []);
+      setSentRequests(confirmed);
+      const failed = responses.filter(response => !response.ok || !['queued', 'sending', 'sent'].includes(response.status || ''));
+      if (failed.length) {
+        setSendProgress(`已确认 ${responses.length - failed.length}/${responses.length} 个岗位`);
+        setSendError(failed.map(response => response.error).filter(Boolean).join('；') || '部分岗位待确认，重试只处理未发送项');
+      } else if (confirmed.length) setSendProgress(`其中 ${confirmed.length} 项已于 ${deliverySentTime(confirmed[0].result)} 送达；如需再次发送请单独确认`);
+      else onClose();
     } catch (error) {
       setSendProgress('');
-      setSendError((error as Error).message || 'TG 发送失败');
+      setSendError(deliveryClientError(error));
     } finally {
+      submitLock.current = false;
       setSending(false);
     }
   };
@@ -417,6 +392,7 @@ export function RepushModal({
                   <button
                     type="button"
                     key={jd.id}
+                    disabled={sending}
                     aria-pressed={active}
                     onClick={() => toggleJd(jd.id)}
                     className={cn(
@@ -482,7 +458,8 @@ export function RepushModal({
                   id="repush-tg-recipient"
                   list="repush-tg-dialogs"
                   value={recipient}
-                  onChange={(event) => { setRecipient(event.target.value); setSendError(''); }}
+                  disabled={sending}
+                  onChange={(event) => { setRecipient(event.target.value); setSendError(''); setSentRequests([]); }}
                   placeholder="@ojisamer"
                   className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
                 />
@@ -491,6 +468,10 @@ export function RepushModal({
                 </datalist>
               </div>
               {sendProgress && <p role="status" className="mt-1.5 text-xs text-violet-600">{sendProgress}</p>}
+              {sentRequests.length > 0 && <button type="button" disabled={sending}
+                onClick={() => {
+                  if (window.confirm(`这 ${sentRequests.length} 项推荐此前已送达。确定再次发送相同文案和附件吗？`)) void handleSendAndRepush(true);
+                }} className="mt-1.5 text-xs text-violet-600 underline disabled:opacity-40">确认再次发送已送达项（{sentRequests.length}）</button>}
               {sendError ? (
                 <p className="mt-1.5 text-xs text-red-500">{sendError}</p>
               ) : !hasResume ? (
@@ -504,7 +485,7 @@ export function RepushModal({
               <button type="button" onClick={() => persistRepush()} disabled={selectedJds.length === 0 || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
                 <Repeat className="h-4 w-4" />仅确认复推{selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}
               </button>
-              <button type="button" onClick={handleSendAndRepush} disabled={selectedJds.length === 0 || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
+              <button type="button" onClick={() => handleSendAndRepush()} disabled={selectedJds.length === 0 || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {sending
                   ? `正在提交 ${selectedJds.length} 个岗位…`

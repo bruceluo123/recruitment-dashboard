@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { kvCommandStrict } from '@/lib/kv-server';
 import { permittedOwners, requireApiSession } from '@/lib/auth-api';
 import { filterAccessibleRecords } from '@/lib/data-ownership';
+import { getBuiltinRequestContext } from 'next/dist/server/lib/builtin-request-context';
+import { projectTgDeliveryRecords } from '@/lib/tg-delivery-projection';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 const KEYS: Record<string, string> = Object.fromEntries([
   'jds', 'jds-epoch', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance', 'version', 'tombstones', 'last-import-diff', 'weekly-added',
 ].map((key) => [key, `recruit:${key}`]));
@@ -13,8 +16,15 @@ export async function GET(request: NextRequest) {
   if (!owners) return NextResponse.json({ error: '未授权，请先登录' }, { status: 401 });
   const keys = request.nextUrl.searchParams.getAll('key');
   if (!keys.length || keys.length > 10 || keys.some((key) => !Object.hasOwn(KEYS, key))) return NextResponse.json({ error: '读取范围无效' }, { status: 400 });
+  const projection = keys.includes('repush') || keys.includes('version')
+    ? projectTgDeliveryRecords().catch(() => undefined) : undefined;
+  const waitUntil = getBuiltinRequestContext()?.waitUntil;
+  if (projection && waitUntil) waitUntil(projection);
   try {
     const values = await kvCommandStrict<(string | null)[]>('MGET', ...keys.map((key) => KEYS[key]));
+    // Vercel keeps the projection alive after responding; local runtimes await the
+    // same concurrent work rather than launching an untracked background promise.
+    if (projection && !waitUntil) await projection;
     const visibleValues = values.map((value, index) => {
       const key = keys[index];
       if (!['candidates', 'repush', 'todos', 'performance'].includes(key) || !value) return value;

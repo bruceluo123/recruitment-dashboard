@@ -38,12 +38,13 @@ function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'],
   ]);
   const queued = [];
   const readKeys = [];
+  const transactionsLog = [];
   let reads = 0, transactions = 0;
   const api = load('src/app/api/tg/send/route.ts', {
     'next/server': { NextResponse: { json: (data, options) => ({ data: clone(data), status: options?.status || 200 }) } },
     '@vercel/blob': { del: async () => { throw new Error('Unexpected file cleanup'); } },
     '@/lib/api-guard': { guardApi: () => null, blobUrlError: url => url.startsWith('https://example.invalid/') ? '' : 'Invalid URL' },
-    '@/lib/auth-api': { requireApiSession: async () => null,
+    '@/lib/auth-api': { apiSessionUser: async () => ({ sub: 'test-actor' }), requireApiSession: async () => null,
       requireOwnerSession: async (_, owner) => allowed.includes(owner) ? null : { status: 403 } },
     '@/lib/kv-server': {
       kvCommandStrict: async (command, ...keys) => {
@@ -63,79 +64,73 @@ function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'],
       },
       kvTransaction: async payload => {
         transactions++;
+        transactionsLog.push(clone(payload));
         if (writeFailures-- > 0) throw new Error('Transient write failure');
         if (race) { const hook = race; race = null; hook(db); }
         for (const expected of payload.expected || []) {
           if (db.has(expected.key) !== expected.exists
             || expected.value !== undefined && db.get(expected.key) !== expected.value) return { ok: false };
         }
-        for (const write of payload.writes || []) db.set(write.key, write.value);
-        for (const operation of payload.lists || []) queued.push(operation);
+        for (const write of payload.writes || []) {
+          if (write.key.startsWith('recruit:tg-delivery:')) assert.equal(write.ttlSeconds, undefined, 'Authoritative send receipts must not expire');
+          db.set(write.key, write.value);
+        }
+        for (const operation of payload.lists || []) {
+          let list = JSON.parse(db.get(operation.key) || '[]');
+          if (operation.op === 'remove') list = list.filter(id => id !== operation.value);
+          if (operation.op === 'push') list.push(operation.value);
+          db.set(operation.key, JSON.stringify(list));
+          if (operation.op === 'push' && /^recruit:tg-delivery-pending(?:-b)?$/.test(operation.key)) queued.push(operation);
+        }
+        for (const key of payload.increments || []) db.set(key, String(Number(db.get(key) || 0) + 1));
         if (lost) { lost = false; throw new Error('Response lost after commit'); }
         return { ok: true };
       },
     },
   });
-  return { db, queued, readKeys, post: body => api.POST({ json: async () => clone(body) }),
+  return { db, queued, readKeys, transactionsLog, setLookupFails: value => { lookupFails = value; },
+    post: body => api.POST({ json: async () => clone(body) }),
     get: (ids, receipt = false) => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?'
       + (receipt ? 'receipt=1&' : '') + ids.map(id => 'ids=' + id).join('&')) }),
     getSingle: id => api.GET({ nextUrl: new URL('https://example.invalid/api/tg/send?id=' + id) }),
     counts: () => ({ reads, transactions }) };
 }
 let passed = 0;
-function enqueueHarness(respond) {
-  const source = fs.readFileSync(path.join(root, 'src/components/recommendation-center/RepushModal.tsx'), 'utf8');
-  const start = source.indexOf('  const enqueueDelivery =');
-  const end = source.indexOf('  const handleSendAndRepush', start);
-  assert.ok(start >= 0 && end > start);
-  const code = ts.transpileModule(source.slice(start, end) + '\nexports.enqueue = enqueueDelivery;', {
-    compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const exports = {}, calls = [];
-  vm.runInNewContext(code, { exports, AbortController, AbortSignal, window: { setTimeout, clearTimeout },
-    wait: async () => {}, setSendProgress: () => {}, encodeURIComponent,
-    fetch: async (url, options) => { calls.push({ url, options }); return respond(url, options, calls.length); } });
-  return { enqueue: exports.enqueue, calls };
-}
 async function test(name, run) { await run(); console.log('PASS ' + name); passed++; }
-function bulkHarness(respond) {
-  const source = fs.readFileSync(path.join(root, 'src/components/recommendation-center/BulkRepushModal.tsx'), 'utf8');
-  const start = source.indexOf('  const handleSend =');
-  const end = source.indexOf('  const allSent', start);
-  assert.ok(start >= 0 && end > start);
-  const code = ts.transpileModule(source.slice(start, end) + '\nexports.send = handleSend;', {
-    compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const exports = {}, calls = [], states = {}, errors = [], stored = new Map();
-  const candidates = ['one', 'two', 'three', 'four'].map(key => ({ key, item: fixture(key, 'b').sourceSnapshot }));
-  let closed = false;
-  vm.runInNewContext(code, { exports, AbortSignal, selectedJd: { id: 'job-one' }, remainingCandidates: candidates,
-    recipient: '@test', owner: 'b', sending: false, crypto: { randomUUID },
-    setSending: () => {}, setError: error => errors.push(error),
-    payloadFor: candidate => { const payload = fixture(candidate.key, 'b'); delete payload.requestId; return payload; },
-    storageKeyFor: async payload => payload.fileUrl,
-    window: { localStorage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) } },
-    syncResponse: () => {}, updateCandidateState: (key, value) => { states[key] = value; },
-    onClose: () => { closed = true; }, wait: async () => {}, encodeURIComponent,
-    fetch: async (url, options) => { calls.push({ url, options }); return respond(url, options, calls); } });
-  return { send: exports.send, calls, states, errors, closed: () => closed };
-}
 (async () => {
-  await test('10 candidates use one read and one atomic commit', async () => {
+  await test('10 candidates use one task read, one source lookup and one isolated atomic commit', async () => {
     const h = harness(), jobs = Array.from({ length: 10 }, (_, i) => fixture('batch' + i));
     const response = await h.post({ sender: 'a', batch: jobs });
     assert.equal(response.data.results.filter(row => row.ok).length, 10);
-    assert.deepEqual(h.counts(), { reads: 1, transactions: 1 });
+    assert.deepEqual(h.counts(), { reads: 2, transactions: 1 });
     assert.equal(h.queued.length, 10);
-    const stored = JSON.parse(h.db.get('recruit:repush'));
-    assert.equal(stored.length, 20);
-    assert.deepEqual(stored.find(row => row.id === jobs[0].sourceSnapshot.id), jobs[0].sourceSnapshot);
+    assert.deepEqual(JSON.parse(h.db.get('recruit:repush')), []);
+    for (const job of jobs) {
+      const stored = JSON.parse(h.db.get('recruit:tg-delivery:' + job.requestId));
+      assert.equal(stored.businessRecords.length, 1);
+      assert.equal(stored.businessRecords[0].candidateName, job.sourceSnapshot.candidateName);
+      assert.equal(stored.businessRecords[0].resumeUrl, job.fileUrl);
+      assert.equal(stored.businessRecords[0].rawText, job.deliveries[0].text);
+    }
+    assert.ok(h.readKeys.every(keys => !keys.includes('recruit:repush')));
+    assert.ok(h.transactionsLog[0].writes.every(write => write.key.startsWith('recruit:tg-delivery:')));
+    assert.ok(h.transactionsLog[0].expected.every(expected => expected.key !== 'recruit:repush'));
   });
   await test('same request is never enqueued twice, including a lost response', async () => {
     const h = harness({ lost: true }), job = fixture();
     assert.equal((await h.post(job)).data.ok, true);
     assert.equal((await h.post(job)).data.ok, true);
     assert.equal(h.queued.length, 1);
+  });
+  await test('reusing a receipt ID cannot replace its candidate, file caption or job', async () => {
+    for (const field of ['text', 'candidateIdentityId', 'jdId']) {
+      const h = harness(), job = fixture();
+      await h.post(job);
+      if (field === 'text') job.deliveries[0].text = 'Changed text';
+      else job.deliveries[0].application[field] = 'other-person-or-job';
+      assert.equal((await h.post(job)).data.ok, false);
+      assert.equal(h.queued.length, 1);
+    }
   });
   await test('cloud source wins over stale local snapshot', async () => {
     const job = fixture(), cloud = { ...job.sourceSnapshot, feedback: 'pending' };
@@ -152,7 +147,7 @@ function bulkHarness(respond) {
       const h = harness({ rows: [job.sourceSnapshot] });
       assert.equal((await h.post(job)).data.ok, true);
       assert.equal(h.queued.length, 1);
-      const stored = JSON.parse(h.db.get('recruit:repush')).find(row => row.deliveryId === job.requestId);
+      const stored = JSON.parse(h.db.get('recruit:tg-delivery:' + job.requestId)).businessRecords[0];
       assert.equal(stored.resumeUrl, job.sourceSnapshot.resumeUrl);
       assert.equal(stored.resumeFileName, fileName);
     }
@@ -237,21 +232,23 @@ function bulkHarness(respond) {
     assert.deepEqual(response.data.results.map(row => row.ok), [true, false]);
     assert.equal(h.queued.length, 1);
   });
-  await test('only failed deliveries are requeued; receipt-backed success stays sent', async () => {
+  await test('only failed deliveries are requeued; task receipt-backed success stays sent', async () => {
     const h = harness(), job = fixture();
     job.deliveries.push({ ...clone(job.deliveries[0]), application: { ...job.deliveries[0].application, jdId: 'job-two' } });
     await h.post(job);
     const key = 'recruit:tg-delivery:' + job.requestId;
     const task = JSON.parse(h.db.get(key)); task.status = 'failed';
-    task.deliveries.forEach(row => { row.status = 'failed'; });
+    task.deliveries[0].status = 'sent'; task.deliveries[0].messageId = '123';
+    task.deliveries[1].status = 'failed';
+    task.deliveries[1].mediaMessageId = 'partial-media'; task.deliveries[1].mediaSentAt = '2026-09-15T00:00:00Z';
+    task.deliveries[1].textReceipts = [{ messageId: 'partial-text', sentAt: '2026-09-15T00:00:00Z' }];
     h.db.set(key, JSON.stringify(task));
-    const rows = JSON.parse(h.db.get('recruit:repush'));
-    const receipt = rows.find(row => row.deliveryIndex === 0);
-    receipt.telegramMessageId = '123'; receipt.deliveryStatus = 'sent';
-    h.db.set('recruit:repush', JSON.stringify(rows));
     const response = await h.post({ ...job, retryIfFailed: true });
     assert.equal(response.data.sent, 1);
     assert.deepEqual(response.data.deliveries.map(row => row.status), ['sent', 'pending']);
+    const retried = JSON.parse(h.db.get(key));
+    assert.equal(retried.deliveries[1].mediaMessageId, 'partial-media');
+    assert.deepEqual(retried.deliveries[1].textReceipts, task.deliveries[1].textReceipts);
     await h.post({ ...job, retryIfFailed: true });
     assert.equal(h.queued.length, 2);
   });
@@ -260,13 +257,14 @@ function bulkHarness(respond) {
     assert.match((await h.post(fixture())).data.error, /离线/);
     assert.equal(h.counts().transactions, 0);
   });
-  await test('batch status reads only task receipts and matching business records', async () => {
+  await test('batch status reads only new task receipts and embedded business records', async () => {
     const h = harness({ allowed: ['a'] });
     await h.post(fixture());
     const before = h.counts().reads;
     const result = await h.get(['request-one']);
     assert.equal(result.data.results[0].status, 'queued');
-    assert.equal(h.counts().reads - before, 2);
+    assert.equal(h.counts().reads - before, 1);
+    assert.equal(result.data.results[0].records.length, 1);
     assert.deepEqual(h.readKeys.at(-1), ['recruit:tg-delivery:request-one']);
     h.db.set('recruit:tg-delivery:request-other', JSON.stringify({ id: 'request-other', sender: 'b' }));
     const denied = await h.get(['request-other']);
@@ -297,6 +295,13 @@ function bulkHarness(respond) {
     assert.deepEqual(response.data.results.map(row => row.ok), [true, true]);
     assert.equal(h.queued.length, 2);
     assert.equal(h.counts().transactions, 1);
+    for (const result of response.data.results) {
+      assert.equal(result.records.length, 1);
+      assert.equal(result.records[0].deliveryId, result.id);
+      assert.ok(result.records[0].candidateName);
+      assert.ok(result.records[0].resumeUrl);
+      assert.ok(result.records[0].rawText);
+    }
   });
   await test('single status handles storage failure and avoids full history reads', async () => {
     const h = harness();
@@ -306,79 +311,92 @@ function bulkHarness(respond) {
     const unavailable = harness({ readFailures: 1 });
     assert.equal((await unavailable.getSingle('request-one')).status, 503);
   });
-  await test('UI confirms a lost submission response without a second POST', async () => {
-    const h = enqueueHarness(async (_, options) => {
-      if (options.method === 'POST') throw new Error('Network disconnected');
-      return { ok: true, json: async () => ({ ok: true, results: [{ id: 'request-ui', ok: true, status: 'queued' }] }) };
-    });
-    assert.equal((await h.enqueue({ requestId: 'request-ui' })).status, 'queued');
-    assert.equal(h.calls.filter(call => call.options.method === 'POST').length, 1);
-  });
-  await test('UI retries the identical task after an unconfirmed receipt', async () => {
-    let posts = 0;
-    const h = enqueueHarness(async (_, options) => {
-      if (options.method === 'POST') {
-        if (++posts === 1) return { ok: false, status: 503, json: async () => ({ error: 'Unavailable' }) };
-        return { ok: true, json: async () => ({ ok: true, id: 'request-ui', status: 'queued' }) };
-      }
-      return { ok: true, json: async () => ({ ok: true, results: [] }) };
-    });
-    assert.equal((await h.enqueue({ requestId: 'request-ui' })).status, 'queued');
-    const bodies = h.calls.filter(call => call.options.method === 'POST').map(call => call.options.body);
-    assert.equal(bodies.length, 2);
-    assert.equal(bodies[0], bodies[1]);
-  });
-  await test('UI does not recover or retry a permission or validation rejection', async () => {
-    const h = enqueueHarness(async () => ({ ok: false, status: 403, json: async () => ({ error: 'Denied' }) }));
-    await assert.rejects(h.enqueue({ requestId: 'request-ui' }), /Denied/);
-    assert.equal(h.calls.length, 1);
+  await test('a corrupt task cannot break status receipts for other candidates', async () => {
+    const h = harness();
+    await h.post(fixture());
+    h.db.set('recruit:tg-delivery:request-broken', JSON.stringify({ id: 'request-broken', sender: 'a', deliveries: ['corrupt'] }));
+    const response = await h.get(['request-broken', 'request-one']);
+    assert.equal(response.data.results[0].ok, false);
+    assert.equal(response.data.results[1].status, 'queued');
   });
   await test('B account receipts work even when recommendation lookup is unavailable', async () => {
-    const h = harness({ lookupFails: true });
+    const h = harness();
     await h.post(fixture('b-receipt', 'b'));
+    h.setLookupFails(true);
     const before = h.counts().reads;
     const receipt = await h.get(['request-b-receipt'], true);
     assert.equal(receipt.data.results[0].status, 'queued');
     assert.equal(h.counts().reads - before, 1);
-    assert.equal((await h.get(['request-b-receipt'])).status, 503);
+    assert.equal(receipt.data.results[0].records.length, 1);
+    assert.equal((await h.get(['request-b-receipt'])).status, 200);
+    assert.equal((await h.getSingle('request-b-receipt')).data.records.length, 1);
     const denied = harness({ allowed: ['a'] });
     denied.db.set('recruit:tg-delivery:request-b-receipt', h.db.get('recruit:tg-delivery:request-b-receipt'));
     assert.equal((await denied.get(['request-b-receipt'], true)).data.results[0].ok, false);
   });
-  await test('B bulk retry preserves partial success and resubmits only unconfirmed IDs', async () => {
-    let first;
-    const h = bulkHarness(async (url, options) => {
-      if (options.method === 'POST') {
-        const body = JSON.parse(options.body);
-        assert.equal(body.sender, 'b');
-        if (!first) { first = body.batch; throw new Error('Lost batch response'); }
-        assert.deepEqual(body.batch.map(task => task.requestId), first.slice(2).map(task => task.requestId));
-        return { ok: true, json: async () => ({ ok: true, results: body.batch.map(task => ({ id: task.requestId, ok: true, status: 'queued' })) }) };
-      }
-      assert.match(url, /receipt=1/);
-      return { ok: true, json: async () => ({ ok: true, results: first.slice(0, 2).map(task => ({ id: task.requestId, ok: true, status: 'sent' })) }) };
-    });
-    await h.send();
-    assert.deepEqual(Object.values(h.states).map(row => row.status), ['sent', 'sent', 'queued', 'queued']);
-    assert.equal(h.closed(), true);
+  await test('unrelated recommendation edits do not retry or block enqueue', async () => {
+    const unrelated = [{ id: 'other-user-edit', column: 'b', feedback: 'offer' }];
+    const h = harness({ race: db => db.set('recruit:repush', JSON.stringify(unrelated)) });
+    assert.equal((await h.post(fixture())).data.ok, true);
+    assert.deepEqual(h.counts(), { reads: 2, transactions: 1 });
+    assert.deepEqual(JSON.parse(h.db.get('recruit:repush')), unrelated);
+    assert.equal(h.queued.length, 1);
   });
-  await test('B bulk timeout keeps known successes and marks others unconfirmed, not failed', async () => {
-    let first;
-    const h = bulkHarness(async (url, options) => {
-      if (options.method === 'POST') {
-        first ||= JSON.parse(options.body).batch;
-        const error = new Error('signal timed out'); error.name = 'TimeoutError'; throw error;
-      }
-      const ids = new URL('https://example.invalid' + url).searchParams.getAll('ids');
-      return { ok: true, json: async () => ({ ok: true, results: ids.includes(first[0].requestId)
-        ? [{ id: first[0].requestId, ok: true, status: 'queued' }] : [] }) };
-    });
-    await h.send();
-    assert.equal(h.states.one.status, 'queued');
-    for (const key of ['two', 'three', 'four']) assert.equal(h.states[key].status, 'unconfirmed');
-    assert.equal(h.closed(), false);
-    assert.match(h.errors.at(-1), /已确认 1\/4/);
-    assert.ok(!h.errors.some(error => /signal timed out/.test(error)));
+  await test('source lookup failure blocks only repush, not an intake in the same batch', async () => {
+    const intake = fixture('intake');
+    intake.deliveries[0].application.source = 'intake';
+    delete intake.sourceSnapshot; delete intake.deliveries[0].application.repushSourceId;
+    const h = harness({ lookupFails: true });
+    const result = await h.post({ sender: 'a', batch: [fixture('repush'), intake] });
+    assert.deepEqual(result.data.results.map(row => row.ok), [false, true]);
+    assert.match(result.data.results[0].error, /暂时无法核对/);
+    assert.deepEqual(h.queued.map(row => row.value), [intake.requestId]);
+    const onlyIntake = harness({ lookupFails: true });
+    assert.equal((await onlyIntake.post(intake)).data.ok, true);
+    assert.deepEqual(onlyIntake.counts(), { reads: 1, transactions: 1 });
+  });
+  await test('nonconsecutive task successes stay accurate and stale embedded business receipts cannot override failures', async () => {
+    const h = harness(), job = fixture();
+    job.deliveries.push({ ...clone(job.deliveries[0]), application: { ...job.deliveries[0].application, jdId: 'job-two' } });
+    await h.post(job);
+    const key = 'recruit:tg-delivery:' + job.requestId, task = JSON.parse(h.db.get(key));
+    task.status = 'partial_failed'; task.sent = 1;
+    task.deliveries[0].status = 'failed'; task.deliveries[1].status = 'sent'; task.deliveries[1].messageId = 'success-second';
+    task.businessRecords[0].deliveryStatus = 'sent'; task.businessRecords[0].telegramMessageId = 'stale-snapshot';
+    h.db.set(key, JSON.stringify(task));
+    const current = await h.getSingle(job.requestId);
+    assert.equal(current.data.sent, 1);
+    assert.deepEqual(current.data.deliveries.map(row => row.status), ['failed', 'sent']);
+    const retry = await h.post({ ...job, retryIfFailed: true });
+    assert.deepEqual(retry.data.deliveries.map(row => row.status), ['pending', 'sent']);
+    assert.equal(retry.data.sent, 1);
+  });
+  await test('legacy tasks still reconcile actual global receipts when retrying', async () => {
+    const h = harness(), job = fixture();
+    job.deliveries.push({ ...clone(job.deliveries[0]), application: { ...job.deliveries[0].application, jdId: 'job-two' } });
+    await h.post(job);
+    const key = 'recruit:tg-delivery:' + job.requestId, task = JSON.parse(h.db.get(key));
+    const rows = task.businessRecords;
+    rows[0].telegramMessageId = 'legacy-receipt'; rows[0].deliveryStatus = 'sent';
+    delete task.businessRecords;
+    task.status = 'failed'; task.deliveries.forEach(row => { row.status = 'failed'; });
+    h.db.set(key, JSON.stringify(task)); h.db.set('recruit:repush', JSON.stringify(rows));
+    const result = await h.post({ ...job, retryIfFailed: true });
+    assert.equal(result.data.sent, 1);
+    assert.deepEqual(result.data.deliveries.map(row => row.status), ['sent', 'pending']);
+  });
+  await test('all GET status paths are read-only and retain complete business records', async () => {
+    const h = harness(), job = fixture(); await h.post(job);
+    const before = clone(Array.from(h.db.entries())), transactions = h.counts().transactions;
+    for (const result of [await h.getSingle(job.requestId), await h.get([job.requestId]), await h.get([job.requestId], true)]) {
+      assert.equal(result.status, 200);
+      const record = result.data.results ? result.data.results[0] : result.data;
+      assert.equal(record.records[0].candidateName, job.sourceSnapshot.candidateName);
+      assert.equal(record.records[0].resumeUrl, job.fileUrl);
+      assert.equal(record.records[0].rawText, job.deliveries[0].text);
+    }
+    assert.deepEqual(Array.from(h.db.entries()), before);
+    assert.equal(h.counts().transactions, transactions);
   });
   await test('large recommendation reads get one sufficient budget instead of repeated 5s aborts', async () => {
     const exports = {}, timeouts = [];

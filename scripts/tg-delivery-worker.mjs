@@ -34,6 +34,9 @@ const QUEUE_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-pending-b' : 'recruit:t
 const PROCESSING_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-processing-b' : 'recruit:tg-delivery-processing';
 const DIALOGS_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-dialogs-b' : 'recruit:tg-delivery-dialogs';
 const HEARTBEAT_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-worker-heartbeat-b' : 'recruit:tg-delivery-worker-heartbeat';
+const PROJECTION_KEY = ACCOUNT === 'b' ? 'recruit:tg-delivery-projection-pending-b' : 'recruit:tg-delivery-projection-pending';
+const RECEIPT_DIRECTORY = path.join(ROOT, 'logs', `tg-delivery-receipts-${ACCOUNT}`);
+const deferredClaims = new Map();
 const WORKER_ID = `${ACCOUNT}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_BATCHES = 10;
@@ -364,7 +367,8 @@ async function supabaseRpc(name, body) {
 }
 
 async function supabaseReadRaw(keys) {
-  return supabaseRpc('recruit_kv_read', { p_keys: keys });
+  try { return await supabaseRpc('recruit_kv_read', { p_keys: keys }); }
+  catch (error) { throw new DeliveryStorageError(error); }
 }
 
 async function supabaseTx(payload) {
@@ -375,7 +379,7 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchWithRetry(input, init) {
+async function fetchWithRetry(input, init, consume) {
   let lastError;
   for (let attempt = 0; attempt <= FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
@@ -383,10 +387,13 @@ async function fetchWithRetry(input, init) {
         ...init,
         signal: init?.signal || AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-      if (response.status < 500 || attempt === FETCH_RETRY_DELAYS_MS.length) return response;
+      if (response.status < 500 || attempt === FETCH_RETRY_DELAYS_MS.length) {
+        return consume ? await consume(response) : response;
+      }
       if (response.body) await response.body.cancel().catch(() => {});
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
+      if (error?.retryable === false) throw error;
       lastError = error;
     }
     await wait(FETCH_RETRY_DELAYS_MS[attempt]);
@@ -462,16 +469,46 @@ function parseRawArray(raw) {
 }
 
 function applicationRowsValid(record, repush) {
-  if (record.applications == null || record.applications.length === 0) return true;
+  if (record.applications == null) return true;
   if (!Array.isArray(record.applications)) return false;
-  const rows = repush.filter((item) => String(item.deliveryId || '') === String(record.id || ''));
+  if (record.applications.length === 0) return true;
+  const rows = repush.filter((item) => item && String(item.deliveryId || '') === String(record.id || ''));
   if (rows.length !== record.applications.length) return false;
   const counts = new Map();
   for (const item of rows) {
     const key = `${Number(item.deliveryIndex ?? -1)}|${String(item.applicationId || item.id || '')}`;
     counts.set(key, (counts.get(key) || 0) + 1);
   }
-  return record.applications.every((item) => counts.get(`${Number(item.index ?? -1)}|${String(item.applicationId || '')}`) === 1);
+  const indices = new Set();
+  return record.applications.every((item) => {
+    if (!item || !Number.isInteger(item.index) || item.index < 0 || item.index >= record.deliveries?.length
+      || indices.has(item.index) || !item.applicationId) return false;
+    indices.add(item.index);
+    return counts.get(`${item.index}|${String(item.applicationId)}`) === 1;
+  }) && indices.size === record.deliveries?.length;
+}
+
+function projectionDirty(id) {
+  return [
+    { op: 'remove', key: PROJECTION_KEY, count: 0, value: id },
+    { op: 'push', key: PROJECTION_KEY, value: id },
+  ];
+}
+
+// A committed transaction can lose its HTTP acknowledgement. Read the exact
+// immutable checkpoint before deciding that the lease was stolen or retrying.
+async function commitTaskCheckpoint(payload, key, nextRaw) {
+  let failure;
+  try {
+    const result = await supabaseTx(payload);
+    if (result.ok) return true;
+  } catch (error) { failure = error; }
+  try {
+    const values = await supabaseReadRaw([key]);
+    if (values[key] === nextRaw) return true;
+  } catch (error) { failure ||= error; }
+  if (failure) throw new DeliveryStorageError(failure);
+  return false;
 }
 
 function syncRepushSnapshot(record, repushRaw) {
@@ -506,13 +543,16 @@ async function supabaseClaim(keys, args) {
     if (!queue?.length) return null;
     const id = String(queue[0]);
     const recordKeyValue = `${args[0]}${id}`;
-    const values = await supabaseReadRaw([recordKeyValue, keys[2]]);
+    const values = await supabaseReadRaw([recordKeyValue]);
     const raw = values[recordKeyValue];
     const record = raw ? parseStored(raw) : null;
-    const repushRaw = values[keys[2]];
-    if (!record || typeof record !== 'object' || record.status !== 'queued') {
+    if (!record || typeof record !== 'object' || record.status !== 'queued'
+      || (record.sender && record.sender !== ACCOUNT)) {
       const skipped = await supabaseTx({
-        expected: [{ key: keys[0], exists: Boolean(queueRaw), ...(queueRaw ? { value: queueRaw } : {}) }],
+        expected: [
+          { key: keys[0], exists: Boolean(queueRaw), ...(queueRaw ? { value: queueRaw } : {}) },
+          { key: recordKeyValue, exists: raw !== undefined, ...(raw !== undefined ? { value: raw } : {}) },
+        ],
         writes: [{ key: keys[0], value: JSON.stringify(queue.slice(1)) }],
       });
       if (skipped.ok) continue;
@@ -526,33 +566,61 @@ async function supabaseClaim(keys, args) {
         expected: [{ key: keys[0], exists: true, value: queueRaw }],
         writes: [{ key: keys[0], value: JSON.stringify(nextQueue) }],
       });
-      if (deferred.ok) return null;
+      if (deferred.ok) continue;
       continue;
     }
-    if (!applicationRowsValid(record, parseRawArray(repushRaw) || [])) return null;
+    let rows = record.businessRecords;
+    if (rows === undefined && record.applications?.length) {
+      const legacy = await supabaseReadRaw([keys[2]]);
+      rows = parseRawArray(legacy[keys[2]]);
+    }
+    const valid = record.id === id && Array.isArray(record.deliveries) && record.deliveries.length > 0
+      && record.target && record.fileUrl
+      && record.deliveries.every(delivery => delivery && typeof delivery.text === 'string' && delivery.fileName)
+      && (rows === undefined || Array.isArray(rows)) && applicationRowsValid(record, rows || []);
+    if (!valid) {
+      // An invalid legacy row is quarantined, not left permanently at the FIFO head.
+      record.id = id;
+      record.deliveries = Array.isArray(record.deliveries)
+        ? record.deliveries.filter(delivery => delivery && typeof delivery === 'object' && !Array.isArray(delivery)) : [];
+      for (const delivery of record.deliveries) {
+        if (delivery.status === 'sent' || delivery.messageId) delivery.status = 'sent';
+        else { delivery.status = 'failed'; delivery.error = '发送任务资料不完整，请重新选择人选和岗位'; }
+      }
+      finishRecord(record);
+      const failedRaw = JSON.stringify(record);
+      await commitTaskCheckpoint({
+        expected: [{ key: keys[0], exists: true, value: queueRaw }, { key: recordKeyValue, exists: true, value: raw }],
+        writes: [{ key: keys[0], value: JSON.stringify(queue.slice(1)) },
+          { key: recordKeyValue, value: failedRaw }],
+        lists: [{ op: 'remove', key: keys[1], count: 0, value: id }, ...projectionDirty(id)],
+      }, recordKeyValue, failedRaw);
+      continue;
+    }
     record.status = 'sending';
     record.updatedAt = args[2];
     record.lease = { workerId: args[1], claimedAt: args[2], expiresAt: args[3] };
     const nextRaw = JSON.stringify(record);
-    const committed = await supabaseTx({
+    const committed = await commitTaskCheckpoint({
       expected: [
         { key: keys[0], exists: true, value: queueRaw },
         { key: recordKeyValue, exists: true, value: raw },
       ],
       writes: [
         { key: keys[0], value: JSON.stringify(nextQueue) },
-        { key: recordKeyValue, value: nextRaw, ttlSeconds: Number(args[4]) || RECORD_TTL_SECONDS },
+        { key: recordKeyValue, value: nextRaw },
       ],
-      lists: [{ op: 'push', key: keys[1], value: id }],
-    });
-    if (committed.ok) return [id, nextRaw];
+      lists: [{ op: 'push', key: keys[1], value: id }, ...projectionDirty(id)],
+    }, recordKeyValue, nextRaw);
+    if (committed) return [id, nextRaw];
   }
   return null;
 }
 
 async function supabaseSaveRecord(keys, args, mode) {
-  const values = await supabaseReadRaw([keys[0], mode === 'finish' ? keys[2] : keys[1]]);
+  const values = await supabaseReadRaw([keys[0]]);
   const currentRaw = values[keys[0]];
+  if (currentRaw === args[3]) return [1];
   if (!currentRaw || currentRaw !== args[0]) return [0];
   const current = parseStored(currentRaw);
   const now = args[2];
@@ -560,28 +628,18 @@ async function supabaseSaveRecord(keys, args, mode) {
     || !current.lease?.expiresAt || current.lease.expiresAt <= now) return [-1];
   const nextRecord = parseStored(args[3]);
   if (!nextRecord || typeof nextRecord !== 'object') return [-1];
-  const repushKey = mode === 'finish' ? keys[2] : keys[1];
-  const versionKey = mode === 'finish' ? keys[3] : keys[2];
-  const repushRaw = values[repushKey];
-  const synced = syncRepushSnapshot(nextRecord, repushRaw);
-  if (!synced) return [-2];
-  const committed = await supabaseTx({
-    expected: [
-      { key: keys[0], exists: true, value: currentRaw },
-      { key: repushKey, exists: Boolean(repushRaw), ...(repushRaw ? { value: repushRaw } : {}) },
-    ],
-    writes: [
-      { key: keys[0], value: args[3], ttlSeconds: Number(args[4]) || RECORD_TTL_SECONDS },
-      ...(synced.changed ? [{ key: repushKey, value: synced.raw }] : []),
-    ],
-    increments: synced.changed ? [versionKey] : [],
-    lists: mode === 'finish' ? [{ op: 'remove', key: keys[1], count: 0, value: args[5] }] : [],
-  });
-  return committed.ok ? [1] : [0];
+  if (nextRecord.id !== current.id || (mode !== 'finish' && nextRecord.lease?.workerId !== args[1])) return [-1];
+  const committed = await commitTaskCheckpoint({
+    expected: [{ key: keys[0], exists: true, value: currentRaw }],
+    writes: [{ key: keys[0], value: args[3] }],
+    lists: [...(mode === 'finish' ? [{ op: 'remove', key: keys[1], count: 0, value: args[5] }] : []),
+      ...projectionDirty(current.id)],
+  }, keys[0], args[3]);
+  return committed ? [1] : [0];
 }
 
 async function supabaseRelease(keys, args) {
-  const values = await supabaseReadRaw([keys[0], keys[3]]);
+  const values = await supabaseReadRaw([keys[0]]);
   const raw = values[keys[0]];
   if (!raw || raw !== args[0]) return [0];
   const record = parseStored(raw);
@@ -592,33 +650,29 @@ async function supabaseRelease(keys, args) {
   record.recoveredAt = args[2];
   delete record.lease;
   for (const delivery of record.deliveries || []) if (delivery.status === 'sending') delivery.status = 'pending';
-  const repushRaw = values[keys[3]];
-  const synced = syncRepushSnapshot(record, repushRaw);
-  if (!synced) return [-2];
-  const committed = await supabaseTx({
-    expected: [
-      { key: keys[0], exists: true, value: raw },
-      { key: keys[3], exists: Boolean(repushRaw), ...(repushRaw ? { value: repushRaw } : {}) },
-    ],
-    writes: [
-      { key: keys[0], value: JSON.stringify(record), ttlSeconds: Number(args[3]) || RECORD_TTL_SECONDS },
-      ...(synced.changed ? [{ key: keys[3], value: synced.raw }] : []),
-    ],
-    increments: synced.changed ? [keys[4]] : [],
+  const nextRaw = JSON.stringify(record);
+  const committed = await commitTaskCheckpoint({
+    expected: [{ key: keys[0], exists: true, value: raw }],
+    writes: [{ key: keys[0], value: nextRaw }],
     lists: [
       { op: 'remove', key: keys[1], count: 0, value: args[4] },
       { op: 'remove', key: keys[2], count: 0, value: args[4] },
       { op: 'push', key: keys[2], value: args[4] },
+      ...projectionDirty(record.id),
     ],
-  });
-  return committed.ok ? [1] : [0];
+  }, keys[0], nextRaw);
+  return committed ? [1] : [0];
 }
 
 async function supabaseRecover(keys, args) {
-  const values = await supabaseReadRaw([keys[2], keys[3]]);
+  const values = await supabaseReadRaw([keys[2]]);
   const raw = values[keys[2]];
   const record = raw ? parseStored(raw) : null;
   if (!record || typeof record !== 'object') {
+    await supabaseTx({ lists: [{ op: 'remove', key: keys[0], count: 0, value: args[0] }] });
+    return [0];
+  }
+  if (record.sender && record.sender !== ACCOUNT) {
     await supabaseTx({ lists: [{ op: 'remove', key: keys[0], count: 0, value: args[0] }] });
     return [0];
   }
@@ -627,6 +681,18 @@ async function supabaseRecover(keys, args) {
     return [0];
   }
   if (record.status === 'sending' && record.lease?.expiresAt > args[1]) return [0];
+  if (!Array.isArray(record.deliveries) || record.deliveries.some(delivery => !delivery || typeof delivery !== 'object')) {
+    record.deliveries = [];
+    finishRecord(record);
+    const nextRaw = JSON.stringify(record);
+    const committed = await commitTaskCheckpoint({
+      expected: [{ key: keys[2], exists: true, value: raw }],
+      writes: [{ key: keys[2], value: nextRaw }],
+      lists: [{ op: 'remove', key: keys[0], count: 0, value: args[0] }, ...projectionDirty(record.id)],
+    }, keys[2], nextRaw);
+    return committed ? [-2] : [0];
+  }
+  restoreLocalReceipts(record);
   const deliveries = record.deliveries || [];
   let sent = 0;
   for (const delivery of deliveries) {
@@ -641,26 +707,18 @@ async function supabaseRecover(keys, args) {
   record.status = complete ? 'sent' : 'queued';
   if (complete) { delete record.error; record.finishedAt = args[1]; }
   else delete record.finishedAt;
-  const repushRaw = values[keys[3]];
-  const synced = syncRepushSnapshot(record, repushRaw);
-  if (!synced) return [-2];
-  const committed = await supabaseTx({
-    expected: [
-      { key: keys[2], exists: true, value: raw },
-      { key: keys[3], exists: Boolean(repushRaw), ...(repushRaw ? { value: repushRaw } : {}) },
-    ],
-    writes: [
-      { key: keys[2], value: JSON.stringify(record), ttlSeconds: Number(args[2]) || RECORD_TTL_SECONDS },
-      ...(synced.changed ? [{ key: keys[3], value: synced.raw }] : []),
-    ],
-    increments: synced.changed ? [keys[4]] : [],
+  const nextRaw = JSON.stringify(record);
+  const committed = await commitTaskCheckpoint({
+    expected: [{ key: keys[2], exists: true, value: raw }],
+    writes: [{ key: keys[2], value: nextRaw }],
     lists: [
       { op: 'remove', key: keys[0], count: 0, value: args[0] },
       { op: 'remove', key: keys[1], count: 0, value: args[0] },
       ...(!complete ? [{ op: 'push', key: keys[1], value: args[0] }] : []),
+      ...projectionDirty(record.id),
     ],
-  });
-  return committed.ok ? [complete ? 2 : 1] : [0];
+  }, keys[2], nextRaw);
+  return committed ? [complete ? 2 : 1] : [0];
 }
 
 async function kvEval(script, keys, args = []) {
@@ -720,6 +778,65 @@ class DeliveryMappingError extends Error {
   }
 }
 
+class DeliveryStorageError extends Error {
+  constructor(cause) {
+    super(`发送回执暂未同步，将保留任务继续核对：${cause?.message || 'storage unavailable'}`);
+    this.name = 'DeliveryStorageError';
+  }
+}
+
+function receiptPath(id) {
+  return path.join(RECEIPT_DIRECTORY, `${createHash('sha256').update(String(id)).digest('hex')}.json`);
+}
+
+function receiptFingerprint(record, delivery) {
+  return createHash('sha256').update(JSON.stringify([
+    ACCOUNT, record.id, record.target, record.fileUrl, delivery.fileName, delivery.text,
+  ])).digest('hex');
+}
+
+function readLocalReceipts(record) {
+  const file = receiptPath(record.id);
+  if (!fs.existsSync(file)) return {};
+  try {
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid local delivery receipt');
+    return value;
+  } catch (error) { throw new DeliveryStorageError(error); }
+}
+
+function saveLocalReceipt(record, index, delivery) {
+  const receipts = readLocalReceipts(record);
+  receipts[index] = { fingerprint: receiptFingerprint(record, delivery),
+    messageId: delivery.messageId, sentAt: delivery.sentAt,
+    mediaMessageId: delivery.mediaMessageId, mediaSentAt: delivery.mediaSentAt,
+    textReceipts: delivery.textReceipts };
+  fs.mkdirSync(RECEIPT_DIRECTORY, { recursive: true });
+  const file = receiptPath(record.id);
+  const temporary = `${file}.${process.pid}.tmp`;
+  const descriptor = fs.openSync(temporary, 'w');
+  try {
+    fs.writeFileSync(descriptor, JSON.stringify(receipts));
+    fs.fsyncSync(descriptor);
+  } finally { fs.closeSync(descriptor); }
+  fs.renameSync(temporary, file);
+}
+
+function restoreLocalReceipts(record) {
+  const receipts = readLocalReceipts(record);
+  record.deliveries?.forEach((delivery, index) => {
+    const receipt = receipts[index];
+    if (receipt?.fingerprint === receiptFingerprint(record, delivery)) {
+      if (receipt.mediaSentAt) {
+        delivery.mediaMessageId = receipt.mediaMessageId;
+        delivery.mediaSentAt = receipt.mediaSentAt;
+        delivery.textReceipts = receipt.textReceipts || [];
+      }
+      if (receipt.sentAt) markDeliveryReconciled(delivery, receipt);
+    }
+  });
+}
+
 class FatalOperationTimeoutError extends Error {
   constructor(label) {
     super(`${label} timed out; worker will restart before processing more deliveries`);
@@ -775,9 +892,14 @@ async function withLeaseRenewal(record, operation) {
   }, LEASE_RENEW_INTERVAL_MS);
   let result;
   let operationError;
-  try { result = await operation(); }
+  let operationFinished = false;
+  try { result = await operation(() => {
+    if (leaseError) throw leaseError;
+    if (operationFinished) throw operationError || new LeaseLostError(record.id);
+  }); }
   catch (error) { operationError = error; }
   finally {
+    operationFinished = true;
     clearInterval(timer);
     await renewal;
   }
@@ -805,8 +927,11 @@ async function finishClaim(record) {
 }
 
 function normalizeDeliveries(record) {
-  const legacySent = Math.max(0, Number(record.sent) || 0);
   const deliveries = Array.isArray(record.deliveries) ? record.deliveries : [];
+  // The legacy count is only a fallback for records without item-level receipts.
+  // Otherwise a success at index 1 must never turn a failure at index 0 into sent.
+  const legacySent = deliveries.every(delivery => !delivery?.status && delivery?.messageId == null)
+    ? Math.max(0, Number(record.sent) || 0) : 0;
   record.deliveries = deliveries;
   deliveries.forEach((delivery, index) => {
     const recordedSuccess = delivery?.status === 'sent' || delivery?.messageId != null || index < legacySent;
@@ -840,7 +965,7 @@ function normalizedDeliveryFileName(value) {
 }
 
 async function findDeliveredMessage(client, entity, record, delivery) {
-  const expectedText = normalizedDeliveryText(String(delivery.text || '').slice(0, 1000));
+  const expectedText = normalizedDeliveryText(splitDeliveryText(delivery.text).caption);
   const expectedFileName = normalizedDeliveryFileName(delivery.fileName);
   if (!expectedText || !expectedFileName) return null;
   const createdAt = new Date(record.createdAt || 0).getTime();
@@ -885,24 +1010,59 @@ function deliveryMimeType(fileName) {
   return 'application/octet-stream';
 }
 
-async function sendDelivery(client, entity, recordId, index, delivery, buffer) {
-  const file = await client.uploadFile({
-    file: new CustomFile(delivery.fileName, buffer.length, '', buffer),
-    workers: UPLOAD_WORKERS,
-  });
-  const request = new Api.messages.SendMedia({
-    peer: entity,
-    media: new Api.InputMediaUploadedDocument({
-      file,
-      mimeType: deliveryMimeType(delivery.fileName),
-      attributes: [new Api.DocumentAttributeFilename({ fileName: delivery.fileName })],
-      forceFile: true,
-    }),
-    message: String(delivery.text || '').slice(0, 1000),
-    randomId: deterministicRandomId(recordId, index),
-  });
-  const result = await client.invoke(request);
-  return client._getResponseMessage(request, result, entity);
+function splitDeliveryText(value) {
+  let remaining = String(value || '');
+  const take = limit => {
+    let end = Math.min(limit, remaining.length);
+    // Telegram limits use UTF-16 units; don't split an emoji's surrogate pair.
+    if (end < remaining.length && /[\uD800-\uDBFF]/.test(remaining[end - 1])) end -= 1;
+    const chunk = remaining.slice(0, end);
+    remaining = remaining.slice(end);
+    return chunk;
+  };
+  const caption = take(1000), parts = [];
+  while (remaining) parts.push(take(4000));
+  return { caption, parts };
+}
+
+async function sendDelivery(client, entity, record, index, delivery, buffer, assertLease = () => {}) {
+  const { caption, parts } = splitDeliveryText(delivery.text);
+  assertLease();
+  if (!delivery.mediaSentAt) {
+    const file = await client.uploadFile({
+      file: new CustomFile(delivery.fileName, buffer.length, '', buffer),
+      workers: UPLOAD_WORKERS,
+    });
+    const request = new Api.messages.SendMedia({
+      peer: entity,
+      media: new Api.InputMediaUploadedDocument({
+        file, mimeType: deliveryMimeType(delivery.fileName),
+        attributes: [new Api.DocumentAttributeFilename({ fileName: delivery.fileName })], forceFile: true,
+      }),
+      message: caption,
+      randomId: deterministicRandomId(record.id, index),
+    });
+    assertLease();
+    const result = await client.invoke(request);
+    delivery.mediaMessageId = telegramMessageId(client._getResponseMessage(request, result, entity));
+    delivery.mediaSentAt = new Date().toISOString();
+    saveLocalReceipt(record, index, delivery);
+  }
+  delivery.textReceipts ||= [];
+  for (const [partIndex, message] of parts.entries()) {
+    if (delivery.textReceipts[partIndex]?.sentAt) continue;
+    const request = new Api.messages.SendMessage({
+      peer: entity, message, randomId: deterministicRandomId(record.id, `${index}:text:${partIndex}`),
+    });
+    assertLease();
+    const result = await client.invoke(request);
+    delivery.textReceipts[partIndex] = {
+      messageId: telegramMessageId(client._getResponseMessage(request, result, entity)),
+      sentAt: new Date().toISOString(),
+    };
+    saveLocalReceipt(record, index, delivery);
+  }
+  return { id: delivery.mediaMessageId };
 }
 
 function finishRecord(record) {
@@ -922,6 +1082,35 @@ function finishRecord(record) {
 }
 
 async function claimNext() {
+  for (const [id, entry] of deferredClaims) {
+    if (entry.retryAt > Date.now()) continue;
+    try {
+      // The checkpoint may have committed while both its ACK and verification
+      // read were lost. Rebase only onto our still-fenced, identical task rather
+      // than retrying the stale snapshot or taking another worker's lease.
+      const values = await supabaseReadRaw([recordKey(id)]);
+      const raw = values[recordKey(id)];
+      const latest = raw ? parseRecordSnapshot(raw) : null;
+      const samePayload = latest && latest.id === id
+        && (latest.sender || 'a') === ACCOUNT
+        && Array.isArray(latest.deliveries)
+        && latest.deliveries.length === entry.record.deliveries.length
+        && latest.deliveries.every((delivery, index) => delivery
+          && receiptFingerprint(latest, delivery) === receiptFingerprint(entry.record, entry.record.deliveries[index]))
+        && JSON.stringify(latest.applications || []) === JSON.stringify(entry.record.applications || []);
+      if (!samePayload || latest.status !== 'sending' || latest.lease?.workerId !== WORKER_ID
+        || !(Date.parse(latest.lease.expiresAt) > Date.now())) {
+        deferredClaims.delete(id);
+        continue;
+      }
+      restoreLocalReceipts(latest);
+      deferredClaims.delete(id);
+      return { id, record: latest };
+    } catch (error) {
+      entry.retryAt = Date.now() + 5_000;
+      console.error(`[tg-delivery] deferred ${id} still unconfirmed: ${error?.message || error}`);
+    }
+  }
   const now = new Date();
   const result = await kvEval(CLAIM_SCRIPT, [QUEUE_KEY, PROCESSING_KEY, 'recruit:repush', 'recruit:version'], [
     'recruit:tg-delivery:',
@@ -953,12 +1142,16 @@ async function recoverStaleClaims() {
   const ids = [...new Set((await kvLRange(PROCESSING_KEY, 0, -1)).map(String))];
   let recovered = 0;
   for (const id of ids) {
-    const result = await kvEval(RECOVER_SCRIPT, [PROCESSING_KEY, QUEUE_KEY, recordKey(id), 'recruit:repush', 'recruit:version'], [
-      id,
-      new Date().toISOString(),
-      String(RECORD_TTL_SECONDS),
-    ]);
-    if (Array.isArray(result) && Number(result[0]) === 1) recovered += 1;
+    try {
+      const result = await kvEval(RECOVER_SCRIPT, [PROCESSING_KEY, QUEUE_KEY, recordKey(id), 'recruit:repush', 'recruit:version'], [
+        id,
+        new Date().toISOString(),
+        String(RECORD_TTL_SECONDS),
+      ]);
+      if (Array.isArray(result) && Number(result[0]) === 1) recovered += 1;
+    } catch (error) {
+      console.error(`[tg-delivery] recovery ${id} isolated: ${error?.message || error}`);
+    }
   }
   if (recovered) console.log(JSON.stringify({ recovered, at: new Date().toISOString() }));
   return recovered;
@@ -1003,24 +1196,39 @@ async function resolveTarget(client, rawTarget, dialogs) {
 }
 
 async function loadResume(fileUrl) {
-  let response;
   try {
-    response = await fetchWithRetry(fileUrl);
+    return await fetchWithRetry(fileUrl, undefined, async response => {
+      if (!response.ok) {
+        const error = new Error(`Resume download failed: ${response.status}`);
+        error.retryable = response.status >= 500 || response.status === 408 || response.status === 429;
+        throw error;
+      }
+      const declaredSize = Number(response.headers.get('content-length') || 0);
+      if (declaredSize > MAX_FILE_BYTES) {
+        const error = new Error('Resume exceeds 50MB'); error.retryable = false; throw error;
+      }
+      // Reading the body is inside the retry boundary too: a dropped download
+      // must not be mistaken for a permanent failure after HTTP 200 headers.
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length === 0 || buffer.length > MAX_FILE_BYTES) {
+        const error = new Error(buffer.length === 0 ? 'Resume is empty' : 'Resume exceeds 50MB');
+        error.retryable = false; throw error;
+      }
+      return buffer;
+    });
   } catch (error) {
     throw new Error(`Resume download failed: ${error?.message || 'network error'}`);
   }
-  if (!response.ok) throw new Error(`Resume download failed: ${response.status}`);
-  const declaredSize = Number(response.headers.get('content-length') || 0);
-  if (declaredSize > MAX_FILE_BYTES) throw new Error('Resume exceeds 50MB');
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_FILE_BYTES) throw new Error('Resume exceeds 50MB');
-  return buffer;
 }
 
 async function processRecord(client, dialogs, claim) {
   const { id, record } = claim;
   const deliveries = normalizeDeliveries(record);
   try {
+    // This account-scoped journal contains only hashes and Telegram receipts, never
+    // resume text. It survives database outages and process restarts after delivery.
+    restoreLocalReceipts(record);
+    normalizeDeliveries(record);
     if (deliveries.length > 0 && record.sent === deliveries.length) {
       await finishClaim(record);
       return;
@@ -1045,9 +1253,11 @@ async function processRecord(client, dialogs, claim) {
         TG_SETUP_TIMEOUT_MS,
         'Telegram target resolution',
       ));
-      buffer = await withLeaseRenewal(record, () => loadResume(record.fileUrl));
+      if (deliveries.some(delivery => delivery.status !== 'sent' && !delivery.mediaSentAt)) {
+        buffer = await withLeaseRenewal(record, () => loadResume(record.fileUrl));
+      }
     } catch (error) {
-      if (error instanceof LeaseLostError || error instanceof DeliveryMappingError || error instanceof FatalOperationTimeoutError) throw error;
+      if (error instanceof LeaseLostError || error instanceof DeliveryMappingError || error instanceof DeliveryStorageError || error instanceof FatalOperationTimeoutError) throw error;
       const message = error?.message || 'TG delivery failed';
       for (const delivery of deliveries) {
         if (delivery.status === 'sent') continue;
@@ -1060,17 +1270,20 @@ async function processRecord(client, dialogs, claim) {
 
     for (const [deliveryIndex, delivery] of deliveries.entries()) {
       if (delivery.status === 'sent') continue;
-      if ((Number(delivery.attempts) || 0) > 0) {
+      if ((Number(delivery.attempts) || 0) > 0 && !delivery.mediaSentAt) {
         const existingMessage = await withLeaseRenewal(record, () => withTimeout(
           findDeliveredMessage(client, entity, record, delivery),
           TG_SETUP_TIMEOUT_MS,
           'Telegram delivery reconciliation',
         ));
         if (existingMessage) {
-          markDeliveryReconciled(delivery, existingMessage);
+          delivery.mediaMessageId = existingMessage.messageId;
+          delivery.mediaSentAt = existingMessage.sentAt;
+          if (splitDeliveryText(delivery.text).parts.length === 0) markDeliveryReconciled(delivery, existingMessage);
+          saveLocalReceipt(record, deliveryIndex, delivery);
           normalizeDeliveries(record);
           await saveLeaseRecord(record);
-          continue;
+          if (delivery.status === 'sent') continue;
         }
       }
       delivery.status = 'sending';
@@ -1078,34 +1291,49 @@ async function processRecord(client, dialogs, claim) {
       delete delivery.error;
       // This checkpoint is the fencing barrier immediately before Telegram I/O.
       await saveLeaseRecord(record);
-      await writeHeartbeat();
+      // Heartbeat is observability, not a second business write required to send.
+      writeHeartbeat().catch(error => console.error(`[tg-delivery] heartbeat: ${error?.message || error}`));
       try {
-        const result = await withLeaseRenewal(record, () => withTimeout(
-          sendDelivery(client, entity, id, deliveryIndex, delivery, buffer),
-          TG_OPERATION_TIMEOUT_MS,
-          'Telegram delivery',
-        ));
-        delivery.status = 'sent';
-        delivery.sentAt = new Date().toISOString();
-        const messageId = telegramMessageId(result);
-        if (messageId) delivery.messageId = messageId;
-        delete delivery.error;
+        await withLeaseRenewal(record, async (assertLease) => {
+          const result = await withTimeout(
+            sendDelivery(client, entity, record, deliveryIndex, delivery, buffer, assertLease),
+            TG_OPERATION_TIMEOUT_MS,
+            'Telegram delivery',
+          );
+          delivery.status = 'sent';
+          delivery.sentAt = new Date().toISOString();
+          const messageId = telegramMessageId(result);
+          if (messageId) delivery.messageId = messageId;
+          delete delivery.error;
+          // Persist before waiting for a lease renewal's network acknowledgement.
+          saveLocalReceipt(record, deliveryIndex, delivery);
+        });
       } catch (error) {
-        if (error instanceof LeaseLostError || error instanceof DeliveryMappingError || error instanceof FatalOperationTimeoutError) throw error;
-        let existingMessage = null;
-        try {
-          existingMessage = await withLeaseRenewal(record, () => withTimeout(
-            findDeliveredMessage(client, entity, record, delivery),
-            TG_SETUP_TIMEOUT_MS,
-            'Telegram delivery reconciliation',
-          ));
-        } catch {
-          // Preserve the original send error when Telegram history is temporarily unavailable.
-        }
-        if (existingMessage) markDeliveryReconciled(delivery, existingMessage);
-        else {
-          delivery.status = 'failed';
-          delivery.error = error?.message || 'TG delivery failed';
+        if (error instanceof LeaseLostError || error instanceof DeliveryMappingError || error instanceof DeliveryStorageError || error instanceof FatalOperationTimeoutError) throw error;
+        // Telegram has replied successfully; a local journal write error must not
+        // turn that successful delivery back into a retryable failure.
+        if (delivery.status === 'sent') {
+          console.error(`[tg-delivery] local receipt: ${error?.message || error}`);
+        } else {
+          let existingMessage = null;
+          if (!delivery.mediaSentAt) {
+            try {
+              existingMessage = await withLeaseRenewal(record, () => withTimeout(
+                findDeliveredMessage(client, entity, record, delivery),
+                TG_SETUP_TIMEOUT_MS,
+                'Telegram delivery reconciliation',
+              ));
+            } catch {
+              // Preserve the original send error when Telegram history is temporarily unavailable.
+            }
+          }
+          if (existingMessage && splitDeliveryText(delivery.text).parts.length === 0) {
+            markDeliveryReconciled(delivery, existingMessage);
+            saveLocalReceipt(record, deliveryIndex, delivery);
+          } else {
+            delivery.status = 'failed';
+            delivery.error = error?.message || 'TG delivery failed';
+          }
         }
       }
       normalizeDeliveries(record);
@@ -1115,7 +1343,15 @@ async function processRecord(client, dialogs, claim) {
 
     await finishClaim(record);
   } catch (error) {
-    if (error instanceof LeaseLostError || error instanceof DeliveryMappingError) return;
+    if (error instanceof LeaseLostError || error instanceof DeliveryMappingError || error instanceof DeliveryStorageError) {
+      if (error instanceof DeliveryStorageError) {
+        // Keep this task's checkpoint locally; recovery of a short outage need not
+        // wait for the ten-minute abandoned-worker lease. CAS still fences retry.
+        deferredClaims.set(id, { record, retryAt: Date.now() + 5_000 });
+      }
+      console.error(`[tg-delivery] task ${id} isolated: ${error.message}`);
+      return;
+    }
     throw error;
   }
 }

@@ -22,6 +22,37 @@ const REPUSH_DELIVERY_FIELDS = new Set([
   'telegramMessageId',
   'deliveredAt',
 ]);
+// Verified task receipts may reach the browser before their background business
+// projection. Keep that small overlay until the cloud catches up, never upload it.
+const deliveryReceipts = new Map<string, SyncRecord>();
+export function rememberDeliveryReceipt(record: SyncRecord): void {
+  if (!record.id || !record.deliveryId || !record.deliveryUpdatedAt) return;
+  const previous = deliveryReceipts.get(record.id);
+  if (previous && (String(previous.deliveryUpdatedAt) > String(record.deliveryUpdatedAt)
+    || previous.deliveryStatus === 'sent' && record.deliveryStatus !== 'sent')) return;
+  deliveryReceipts.set(record.id, { ...record });
+}
+function overlayDeliveryReceipts(rows: SyncRecord[]): SyncRecord[] {
+  const byId = new Map(rows.map(row => [row.id, row]));
+  for (const [id, receipt] of Array.from(deliveryReceipts)) {
+    if (isTombstoned('repush', id) || typeof receipt.applicationId === 'string' && isTombstoned('repush', receipt.applicationId)) {
+      deliveryReceipts.delete(id); continue;
+    }
+    const row = byId.get(id);
+    if (!row) { byId.set(id, receipt); continue; }
+    if (row.column !== receipt.column || row.deliveryId && row.deliveryId !== receipt.deliveryId) {
+      deliveryReceipts.delete(id); continue;
+    }
+    if ((row.deliveryStatus === 'sent' || String(row.deliveryUpdatedAt || '') >= String(receipt.deliveryUpdatedAt))
+      && (receipt.deliveryStatus !== 'sent' || row.deliveryStatus === 'sent')) {
+      deliveryReceipts.delete(id); continue;
+    }
+    const next = { ...row };
+    for (const field of Array.from(REPUSH_DELIVERY_FIELDS)) next[field] = receipt[field];
+    byId.set(id, next);
+  }
+  return Array.from(byId.values());
+}
 let pending: Mutation[] = [];
 const observed: Partial<Record<DataType, SyncRecord[]>> = {};
 const remoteApplyDepth: Partial<Record<DataType, number>> = {};
@@ -35,7 +66,8 @@ let busy = false, reading = false;
 let refreshQueued = false;
 let requestedTypes = new Set<DataType>();
 let loadedVersions: Partial<Record<DataType, number>> = {};
-let editGeneration = 0;
+const editGeneration: Partial<Record<DataType, number>> = {};
+let syncSession = 0;
 let status = '';
 const listeners = new Set<(message: string, conflictCount: number) => void>();
 function conflictCount(): number {
@@ -54,8 +86,14 @@ export function isApplyingRemoteStoreUpdate(type: DataType): boolean {
 }
 export function applyRemoteStoreUpdate(type: DataType, update: () => unknown[]): void {
   remoteApplyDepth[type] = (remoteApplyDepth[type] || 0) + 1;
-  editGeneration++;
-  try { observed[type] = update() as SyncRecord[]; }
+  try {
+    const next = update() as SyncRecord[];
+    // A repeated delivery receipt is not a new edit, and never invalidates JD reads.
+    if (next !== observed[type] && !recordsEqual(next, observed[type])) {
+      editGeneration[type] = (editGeneration[type] || 0) + 1;
+    }
+    observed[type] = next;
+  }
   finally { remoteApplyDepth[type] = Math.max(0, (remoteApplyDepth[type] || 1) - 1); }
 }
 function persistMutation(mutation: Mutation) {
@@ -68,7 +106,7 @@ function quarantineJDMutations(stale: Mutation[]) {
     localStorage.removeItem(`${OUTBOX}:${item.id}`);
     pending = pending.filter((queued) => queued.id !== item.id);
   }
-  if (stale.length) editGeneration++;
+  if (stale.length) editGeneration.jds = (editGeneration.jds || 0) + 1;
 }
 async function readKeys(keys: string[]): Promise<Record<string, string | null>> {
   const params = new URLSearchParams(); keys.forEach((key) => params.append('key', key));
@@ -82,27 +120,32 @@ async function refresh(force = false) {
   if (reading) { refreshQueued ||= force; return; }
   if (!onChange || (!force && document.hidden)) return;
   reading = true;
-  const generation = editGeneration;
+  const generation = { ...editGeneration };
+  const session = syncSession;
   try {
     const head = await readKeys(['version']);
+    if (session !== syncSession || !onChange) return;
     const version = Number(head.version || 0);
     if (!force && version === remoteVersion
       && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return;
     const types = Array.from(requestedTypes);
     if (!types.length) return;
     const values = await readKeys([...types, 'tombstones', ...(types.includes('jds') ? ['jds-epoch'] : [])]);
-    if (generation !== editGeneration) return;
+    if (session !== syncSession || !onChange) return;
+    const changedTypes = new Set(types.filter((type) => (generation[type] || 0) !== (editGeneration[type] || 0)));
     tombstones = parse(values.tombstones) as typeof tombstones || {};
     const staleJDs = types.includes('jds') && !jdReplacing && !busy
       ? pending.filter((item) => item.type === 'jds' && item.jdEpoch !== (values['jds-epoch'] || '0'))
       : [];
     quarantineJDMutations(staleJDs);
     for (const type of types) {
+      if (changedTypes.has(type)) { delete loadedVersions[type]; continue; }
       if (type === 'jds' && jdReplacing) continue;
       if (pending.some((mutation) => mutation.type === type)) continue;
       const rows = values[type] === null ? [] : parse(values[type]);
       if (!Array.isArray(rows)) throw new Error('数据格式异常');
-      const data = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
+      const visible = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
+      const data = type === 'repush' ? overlayDeliveryReceipts(visible) : visible;
       if (type === 'jds') jdEpoch = values['jds-epoch'] || '0';
       observed[type] = data;
       loadedVersions[type] = version;
@@ -127,7 +170,7 @@ export async function refreshSyncedData(): Promise<void> {
 export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown[]>>): Promise<DataType[]> {
   const failed: DataType[] = [];
   for (const type of TYPES) {
-    if (type === 'jds') continue;
+    if (type === 'jds' || type === 'repush') continue;
     const rows = data[type];
     if (!Array.isArray(rows) || !rows.length) continue;
     try {
@@ -187,7 +230,7 @@ export async function retrySync() {
             pending.splice(mutationIndex, 0, readyMutation);
             persistMutation(readyMutation);
           }
-          editGeneration++;
+          editGeneration[mutation.type] = (editGeneration[mutation.type] || 0) + 1;
           announce('已忽略无权修改的本机记录，正在恢复云端数据');
           continue;
         }
@@ -219,7 +262,7 @@ export async function retrySync() {
             pending.push(blockedMutation);
             persistMutation(blockedMutation);
           }
-          editGeneration++;
+          editGeneration[mutation.type] = (editGeneration[mutation.type] || 0) + 1;
           announce('检测到同步冲突，请选择保留本机修改或采用云端版本');
           continue;
         }
@@ -227,7 +270,7 @@ export async function retrySync() {
       }
       localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
       pending.splice(mutationIndex, 1);
-      editGeneration++;
+      editGeneration[mutation.type] = (editGeneration[mutation.type] || 0) + 1;
     }
     announce(conflictCount() ? '检测到同步冲突，请选择保留本机修改或采用云端版本' : '');
     await refresh(true);
@@ -306,7 +349,9 @@ export async function resolveSyncConflicts(strategy: 'local' | 'remote') {
       }
     }
   }
-  editGeneration++;
+  for (const type of Array.from(new Set(blocked.map((mutation) => mutation.type)))) {
+    editGeneration[type] = (editGeneration[type] || 0) + 1;
+  }
   announce('正在处理同步冲突');
   await retrySync();
 }
@@ -321,7 +366,7 @@ export function syncPush(type: DataType, data: unknown[], before?: unknown[]) {
   const changes = diffRecords(baseline, data as SyncRecord[]);
   observed[type] = data as SyncRecord[];
   if (!changes.length) return;
-  editGeneration++;
+  editGeneration[type] = (editGeneration[type] || 0) + 1;
   const mutation = { id: crypto.randomUUID(), type, changes, ...(type === 'jds' ? { jdEpoch } : {}), createdAt: Math.max(Date.now(), (pending.at(-1)?.createdAt || 0) + 1) };
   pending.push(mutation);
   persistMutation(mutation); void retrySync();
@@ -350,6 +395,8 @@ export function requestSyncTypes(types: DataType[]) {
 function onOnline() { void retrySync(); }
 function onVisible() { if (!document.hidden) void refresh(true); }
 export function stopSync() {
+  syncSession++;
+  deliveryReceipts.clear();
   onChange = null;
   if (timer) clearInterval(timer);
   timer = undefined;
@@ -381,7 +428,7 @@ export async function replaceSyncedJDs(snapshot: JDImportSnapshot, jds: JD[], ap
     throw new Error('导入期间有岗位编辑尚未保存，请完成同步后重新导入');
   }
   jdReplacing = true;
-  editGeneration++;
+  editGeneration.jds = (editGeneration.jds || 0) + 1;
   const mutationId = crypto.randomUUID();
   const payload = JSON.stringify({ jds, revision: snapshot.revision, epoch: snapshot.epoch, mutationId });
   const acceptResult = (result: { ok?: boolean; epoch?: string; unchanged?: boolean; jds?: JD[] }): JD[] => {

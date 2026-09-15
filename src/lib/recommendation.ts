@@ -96,6 +96,7 @@ export function parseStructuredResume(text: string): ExtractedRecommendation {
 function fallbackName(text: string): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   for (const line of lines.slice(0, 8)) {
+    if (/^(个人简历|简历|基本信息|个人信息|工作经历|教育经历|项目经历|工作经验|求职意向|自我评价|专业技能|联系方式|Resume|Curriculum Vitae)$/i.test(line)) continue;
     const zh = line.match(/^[\u4e00-\u9fa5]{2,4}$/);
     if (zh) return zh[0];
     const labeled = line.match(/(?:姓\s*名|name)[:：]\s*([^\s,，|]+)/i);
@@ -143,7 +144,7 @@ function fallbackContact(text: string): string {
 export async function extractRecommendationInfo(rawText: string): Promise<ExtractedRecommendation> {
   const text = rawText.slice(0, 3000);
   // 1) 结构化标签解析：拿到姓名+岗位即直接返回，零网络、不漏识别
-  const s = parseStructuredResume(text);
+  const s = parseStructuredResume(rawText);
   if (s.name && s.jobTitle) return s;
   // 2) 结构化结果作为优先回退，缺的字段再用启发式补
   const fb: ExtractedRecommendation = {
@@ -176,17 +177,19 @@ ${text}
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 200 }),
+      signal: AbortSignal.timeout(8_000),
     });
+    if (!res.ok) return fb;
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content;
     if (!content) return fb;
     const parsed = JSON.parse(cleanJson(content));
     return {
-      candidateCode: String(parsed.candidateCode || '').trim() || fb.candidateCode,
-      name: String(parsed.name || '').trim() || fb.name,
-      jobTitle: String(parsed.jobTitle || '').trim() || fb.jobTitle,
-      contact: String(parsed.contact || '').trim() || fb.contact,
-      contactPerson: String(parsed.contactPerson || '').trim() || fb.contactPerson,
+      candidateCode: fb.candidateCode || String(parsed.candidateCode || '').trim(),
+      name: s.name || String(parsed.name || '').trim() || fb.name,
+      jobTitle: fb.jobTitle || String(parsed.jobTitle || '').trim(),
+      contact: fb.contact || String(parsed.contact || '').trim(),
+      contactPerson: fb.contactPerson || String(parsed.contactPerson || '').trim(),
       organization: fb.organization,   // 编制/部门只信结构化标签（AI 不提取）
       department: fb.department,
     };

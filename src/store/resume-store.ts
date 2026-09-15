@@ -10,6 +10,22 @@ import { useJDStore } from './jd-store';
 
 // 同时最多保留的简历数；结果保留到主动清除或关闭页面。
 export const MAX_RESUMES = 5;
+const uploadedResumeBlobs = new WeakMap<File, string>();
+const pendingResumeUploads = new WeakMap<File, Promise<string>>();
+
+async function withResumeTimeout<T>(milliseconds: number, message: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = Object.assign(new Error(message), { name: 'TimeoutError' });
+      reject(error);
+      controller.abort();
+    }, milliseconds);
+  });
+  try { return await Promise.race([operation(controller.signal), deadline]); }
+  finally { clearTimeout(timer!); }
+}
 
 /** 单份简历的一次稳定匹配结果 */
 export interface MatchBatch {
@@ -53,13 +69,16 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
   uploadError: null,
   abortController: null,
 
-  uploadResume: async (file: File) => {
-    if (get().resumes.length >= MAX_RESUMES) {
+  uploadResume: (file: File) => {
+    const pending = pendingResumeUploads.get(file);
+    if (pending) return pending;
+    const existing = get().resumes.find(resume => resume.file === file && resume.parsingStatus === 'failed');
+    if (!existing && get().resumes.length >= MAX_RESUMES) {
       set({ uploadError: `最多同时保留 ${MAX_RESUMES} 份简历，请先删除部分简历` });
-      return '';
+      return Promise.resolve('');
     }
     set({ isUploading: true, uploadError: null });
-    const id = generateId();
+    const id = existing?.id || generateId();
     const lowerName = file.name.toLowerCase();
     const fileType: Resume['fileType'] = lowerName.endsWith('.pdf')
       ? 'pdf'
@@ -70,71 +89,75 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       parsedData: { skills: [], experience: [], education: [] },
       uploadedAt: new Date().toISOString(), parsingStatus: 'parsing',
       file, // 保留原始文件（内存），供后续「存入人才库/录入推荐」把文件本体传 Blob
+      blobUrl: existing?.blobUrl || uploadedResumeBlobs.get(file),
     };
 
-    set((s) => ({ resumes: [...s.resumes, resume], activeResumeId: id }));
+    set((s) => ({ resumes: existing ? s.resumes.map(r => r.id === id ? resume : r) : [...s.resumes, resume], activeResumeId: id }));
+    const finish = (patch: Partial<Resume>) => set(s => {
+      const resumes = s.resumes.map(r => r.id === id ? { ...r, ...patch } : r);
+      return { resumes, isUploading: resumes.some(r => r.parsingStatus === 'parsing') };
+    });
 
-    try {
+    const work = (async () => { try {
+      if (!file.size || file.size > 50 * 1024 * 1024) throw new Error(file.size ? '简历超过 50MB，请压缩后重试' : '简历文件为空，请重新选择');
       // 大文件（>4MB）经 Vercel Blob 客户端直传后再让服务端拉取解析，
       // 绕过 Serverless 4.5MB 请求体上限；小文件走更快的 FormData 直传路径。
       const LARGE_FILE_BYTES = 4 * 1024 * 1024;
-      let parseRequest: () => Promise<Response>;
-      if (file.size > LARGE_FILE_BYTES) {
-        const { upload } = await import('@vercel/blob/client');
-        const blob = await upload(file.name, file, {
-          access: 'public',
-          handleUploadUrl: '/api/resume/blob-upload',
-          contentType: file.type || 'application/octet-stream',
+      let blobUrl = resume.blobUrl;
+      if (!blobUrl && file.size > LARGE_FILE_BYTES) {
+        blobUrl = await withResumeTimeout(60_000, '上传超时，原文件已保留，请点重试', async signal => {
+          const { upload } = await import('@vercel/blob/client');
+          if (signal.aborted) throw new Error('上传已超时，请点重试');
+          const blob = await upload(file.name, file, {
+            access: 'public', handleUploadUrl: '/api/resume/blob-upload',
+            contentType: file.type || 'application/octet-stream', abortSignal: signal,
+          });
+          // Exact File identity: UI retry can remove/re-add the row without losing
+          // the confirmed upload or accidentally reusing another same-name file.
+          uploadedResumeBlobs.set(file, blob.url);
+          set(s => ({ resumes: s.resumes.map(r => r.id === id ? { ...r, blobUrl: blob.url } : r) }));
+          return blob.url;
         });
-        // 大文件已入 Blob：记下链接，「存入人才库/录入推荐」直接复用无需再传
-        set((s) => ({ resumes: s.resumes.map((r) => r.id === id ? { ...r, blobUrl: blob.url } : r) }));
-        parseRequest = () => fetch('/api/resume/parse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: blob.url, fileName: file.name }),
-        });
-      } else {
-        const formData = new FormData();
-        formData.append('file', file);
-        parseRequest = () => fetch('/api/resume/parse', { method: 'POST', body: formData });
       }
-      let res = await parseRequest();
-      if ([502, 503, 504].includes(res.status)) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        res = await parseRequest();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const data = await withResumeTimeout(65_000, '识别超时，原文件和已上传附件已保留，请点重试', async signal => {
+            const form = new FormData();
+            if (!blobUrl) form.append('file', file);
+            const res = await fetch('/api/resume/parse', blobUrl ? {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: blobUrl, fileName: file.name }), signal,
+            } : { method: 'POST', body: form, signal });
+            // Include response-body reading in the deadline/retry boundary.
+            const raw = await res.text();
+            if (!res.ok) throw Object.assign(aiHttpError(res.status, raw), {
+              retryable: [408, 429, 502, 503, 504].includes(res.status),
+            });
+            try { return JSON.parse(raw) as { text?: string; source?: string; error?: string }; }
+            catch { throw new Error('识别结果传输不完整，请点重试'); }
+          });
+          if (data?.error || typeof data?.text !== 'string' || !data.text.trim()) {
+            throw Object.assign(new Error(data?.error || '简历正文为空，无法解析'), { retryable: false });
+          }
+          finish({ rawText: data.text, parseSource: data.source, parsingStatus: 'completed', parseError: undefined });
+          return id;
+        } catch (error) {
+          if (attempt === 1 || (error as { retryable?: boolean }).retryable === false
+            || (error as Error).name === 'TimeoutError') throw error;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
-      // 先按状态处理（413 等非 JSON 错误在此转成可读文案，避免 res.json() 抛 Unexpected token）
-      if (!res.ok) {
-        const errMsg = aiHttpError(res.status, await res.text().catch(() => '')).message;
-        set((s) => ({
-          isUploading: false,
-          resumes: s.resumes.map((r) => r.id === id ? { ...r, parsingStatus: 'failed' as const, parseError: errMsg } : r),
-        }));
-        return id;
-      }
-      const data = await res.json().catch(() => ({} as { text?: string; source?: string; error?: string }));
-      // 解析失败（如图片型 PDF 无法识别）或正文为空 → 标记失败，保留错误信息
-      if (data.error || !data.text) {
-        const errMsg = data.error || '简历正文为空，无法解析';
-        set((s) => ({
-          isUploading: false,
-          resumes: s.resumes.map((r) => r.id === id ? { ...r, parsingStatus: 'failed' as const, parseError: errMsg } : r),
-        }));
-        return id;
-      }
-      set((s) => ({
-        isUploading: false,
-        resumes: s.resumes.map((r) =>
-          r.id === id ? { ...r, rawText: data.text, parseSource: data.source, parsingStatus: 'completed' as const } : r),
-      }));
     } catch (err) {
-      const errMsg = `上传失败：${(err as Error).message || '网络异常，请重试'}`;
-      set((s) => ({
-        isUploading: false,
-        resumes: s.resumes.map((r) => r.id === id ? { ...r, parsingStatus: 'failed' as const, parseError: errMsg } : r),
-      }));
+      const error = err as Error;
+      const errMsg = error.name === 'TypeError' || error.name === 'AbortError'
+        ? '网络连接中断，原文件已保留，请点重试' : error.message || '上传或识别失败，请点重试';
+      finish({ parsingStatus: 'failed', parseError: errMsg });
     }
     return id;
+    })();
+    pendingResumeUploads.set(file, work);
+    void work.finally(() => pendingResumeUploads.delete(file));
+    return work;
   },
 
   setActiveResume: (id) => set({ activeResumeId: id }),

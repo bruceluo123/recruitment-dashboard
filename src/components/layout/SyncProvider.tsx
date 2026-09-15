@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { bootstrapSyncedData, startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, applyRemoteStoreUpdate, type DataType } from '@/lib/sync';
+import { startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, applyRemoteStoreUpdate, type DataType } from '@/lib/sync';
 import { isMockJds } from '@/lib/mock-guard';
 import { mergeUniqueJDs } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
@@ -63,12 +63,15 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         }> };
         if (!active || !result.ok) return;
         const completed = result.results?.filter(row => row.ok) || [];
-        applyRemoteStoreUpdate('repush', () => {
-          for (const task of completed) for (const record of task.records || []) {
-            useRepushStore.getState().upsertDeliveryRecommendation(record);
-          }
-          return useRepushStore.getState().items;
-        });
+        if (completed.some((task) => task.records?.length)) {
+          applyRemoteStoreUpdate('repush', () => {
+            for (const task of completed) for (const record of task.records || []) {
+              // Existing rows accept delivery fields only; manual business edits stay intact.
+              useRepushStore.getState().upsertDeliveryRecommendation(record);
+            }
+            return useRepushStore.getState().items;
+          });
+        }
         const failed = completed.some(row => row.status === 'failed' || row.status === 'partial_failed');
         const pending = useRepushStore.getState().items.some(row => row.deliveryStatus === 'queued' || row.deliveryStatus === 'sending');
         setDeliveryMessage(previous => failed ? '部分 TG 发送未完成，请到推荐中心核对失败记录后重试。'
@@ -123,20 +126,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       } finally { applying.delete(type); }
     };
     let active = true;
-    void bootstrapSyncedData({
-      jds: isMockJds(useJDStore.getState().jds) ? [] : useJDStore.getState().jds,
-      candidates: useInterviewStore.getState().candidates,
-      talents: useTalentStore.getState().talents,
-      repush: useRepushStore.getState().items,
-      todos: useTodoStore.getState().todos,
-      companies: useCompanyStore.getState().companies,
-      performance: usePerformanceStore.getState().records,
-    }).then((failedTypes) => {
-      if (!active) return;
-      const safeTypes = routeTypes(window.location.pathname).filter((type) => !failedTypes.includes(type));
-      startSync(handleRemoteChange, safeTypes);
-      if (failedTypes.length) setMessage('部分本机数据初始化未完成，已保留本机数据，请稍后刷新重试');
-    });
+    // Browser snapshots are a read cache, not recovery writes. Only the persisted
+    // mutation outbox may publish user edits; opening a page must start reading immediately.
+    startSync(handleRemoteChange, routeTypes(window.location.pathname));
     const summaries = async () => {
       if (!routeTypes(window.location.pathname).includes('jds')) return;
       if (document.hidden) return;
