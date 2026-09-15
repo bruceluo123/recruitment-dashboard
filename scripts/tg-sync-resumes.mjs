@@ -145,7 +145,7 @@ function hasFlag(name) {
 }
 
 function clean(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value || '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function normalizeIdentity(value) {
@@ -985,7 +985,9 @@ async function main(options = {}) {
           prepared.parseAttemptAt = Date.now();
           try {
             const parsedResume = await parseResumeFromBlob(prepared.uploaded.url, target.fileName);
-            prepared.resumeText = parsedResume.text || '';
+            // PDF extraction can contain NUL bytes; PostgreSQL JSON/text cannot
+            // store them. Preserve the resume text, removing only these bytes.
+            prepared.resumeText = (parsedResume.text || '').replace(/\u0000/g, '');
             prepared.parseSource = parsedResume.source || '';
             prepared.parseError = '';
           } catch (err) {

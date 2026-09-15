@@ -36,7 +36,7 @@ const context = vm.createContext({
   },
   fetch: async (url, options) => {
     const body = JSON.parse(options.body);
-    if (url.endsWith('/api/resume/parse')) { parseRequests++; return { ok: true, json: async () => ({ text: '完整简历正文', source: 'test' }) }; }
+    if (url.endsWith('/api/resume/parse')) { parseRequests++; return { ok: true, json: async () => ({ text: '完整\u0000简历正文', source: 'test' }) }; }
     if (url.endsWith('/api/candidate-code')) {
       const key = `recruit:candidate-code:state:v1:${body.owner}`;
       const state = JSON.parse(db.get(key) || '{"sequence":200,"entries":{}}');
@@ -199,7 +199,11 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   await api.main({ client, write: true, dialog: 'ojisamer' });
   const eva = JSON.parse(db.get('recruit:repush')).find(row => row.candidateCode === 'XYBB00400');
   assert.equal(eva?.candidateIdentityId, 'eva-id', 'English and Chinese names on the same attachment preserve the registered identity');
-  console.log('Passed TG intake regressions: pagination, multi-job, multi-person, detached replies, no-code intake, idempotence, retry retention and sender isolation.');
+  for (const [key, value] of db) {
+    if (key.startsWith('recruit:talent-text:')) assert.equal(value.includes('\u0000'), false, 'PDF NUL bytes cannot enter PostgreSQL text');
+  }
+  assert.equal(JSON.parse(db.get('recruit:repush')).some(row => row.rawText?.includes('\u0000')), false);
+  console.log('Passed TG intake regressions: pagination, multi-job, multi-person, detached replies, no-code intake, idempotence, retry retention, sender isolation and PDF NUL bytes.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
