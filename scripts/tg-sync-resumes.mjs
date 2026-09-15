@@ -958,7 +958,10 @@ async function main(options = {}) {
           preparedFiles.set(cacheKey, prepared);
           if (preparedFiles.size > 200) preparedFiles.delete(preparedFiles.keys().next().value);
         }
-        if (!prepared.resumeText) {
+        // One PDF reused for several jobs needs one OCR attempt, not one per job.
+        // A failed OCR remains eligible on the next five-minute scan.
+        if (!prepared.resumeText && (!prepared.parseAttemptAt || Date.now() - prepared.parseAttemptAt > 180_000)) {
+          prepared.parseAttemptAt = Date.now();
           try {
             const parsedResume = await parseResumeFromBlob(prepared.uploaded.url, target.fileName);
             prepared.resumeText = parsedResume.text || '';
