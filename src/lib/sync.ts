@@ -116,6 +116,32 @@ async function readKeys(keys: string[]): Promise<Record<string, string | null>> 
 }
 function parse(raw: string | null): unknown { return raw ? JSON.parse(raw) : null; }
 export function isTombstoned(type: DataType, id: string) { return !!tombstones[type]?.[id]; }
+function overlayPendingRecommendations(rows: SyncRecord[]): SyncRecord[] {
+  const result = new Map(rows.map(row => [row.id, row]));
+  for (const mutation of pending.filter(item => item.type === 'repush')) {
+    for (const change of mutation.changes) {
+      // Conflicting edits remain in the durable outbox for explicit resolution.
+      // They must not prevent unrelated cloud records from becoming visible.
+      if (mutation.conflicts?.includes(change.id) || isTombstoned('repush', change.id)) continue;
+      if (!change.after) { result.delete(change.id); continue; }
+      const current = result.get(change.id);
+      if (!current) {
+        if (!change.before) result.set(change.id, change.after);
+        continue;
+      }
+      if (!change.before) continue;
+      const next = { ...current };
+      for (const key of Object.keys({ ...change.before, ...change.after })) {
+        if (key === 'id' || REPUSH_DELIVERY_FIELDS.has(key)
+          || recordsEqual(change.before[key], change.after[key])) continue;
+        if (change.after[key] === undefined) delete next[key];
+        else next[key] = change.after[key];
+      }
+      result.set(change.id, next);
+    }
+  }
+  return Array.from(result.values());
+}
 async function refresh(force = false) {
   if (reading) { refreshQueued ||= force; return; }
   if (!onChange || (!force && document.hidden)) return;
@@ -139,13 +165,13 @@ async function refresh(force = false) {
       : [];
     quarantineJDMutations(staleJDs);
     for (const type of types) {
-      if (changedTypes.has(type)) { delete loadedVersions[type]; continue; }
+      if (changedTypes.has(type) && type !== 'repush') { delete loadedVersions[type]; continue; }
       if (type === 'jds' && jdReplacing) continue;
-      if (pending.some((mutation) => mutation.type === type)) continue;
+      if (type !== 'repush' && pending.some((mutation) => mutation.type === type)) continue;
       const rows = values[type] === null ? [] : parse(values[type]);
       if (!Array.isArray(rows)) throw new Error('数据格式异常');
       const visible = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
-      const data = type === 'repush' ? overlayDeliveryReceipts(visible) : visible;
+      const data = type === 'repush' ? overlayPendingRecommendations(overlayDeliveryReceipts(visible)) : visible;
       if (type === 'jds') jdEpoch = values['jds-epoch'] || '0';
       observed[type] = data;
       loadedVersions[type] = version;

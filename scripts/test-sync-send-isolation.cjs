@@ -155,9 +155,9 @@ async function test(name, run) { await run(); passed++; console.log('PASS ' + na
     h.start(['jds', 'repush']); await tick();
     h.client.applyRemoteStoreUpdate('repush', () => [{ id: 'application', deliveryStatus: 'sent' }]);
     h.release(); await tick();
-    assert.deepEqual(h.applied.map(item => item.type), ['jds']);
+    assert.deepEqual(h.applied.map(item => item.type), ['jds', 'repush']);
     h.directReads(); await h.client.refreshSyncedData();
-    assert.equal(h.applied.filter(item => item.type === 'repush').length, 1);
+    assert.equal(h.applied.filter(item => item.type === 'repush').length, 2);
     h.client.stopSync();
   });
   await test('manual recommendation edits stay pending while JD reads continue', async () => {
@@ -167,10 +167,33 @@ async function test(name, run) { await run(); passed++; console.log('PASS ' + na
     h.start(['jds', 'repush']); await tick();
     h.client.syncPush('repush', after, before); await tick();
     h.release(); await tick();
-    assert.deepEqual(h.applied.map(item => item.type), ['jds']);
+    assert.deepEqual(h.applied.map(item => item.type), ['jds', 'repush']);
+    assert.equal(h.applied.at(-1).rows[0].feedback, 'done');
     assert.equal(h.posted[0].changes[0].after.feedback, 'done');
     assert.equal(Object.keys(h.storage).filter(key => key.startsWith('recruit:record-outbox:v1:')).length, 1);
     h.client.stopSync();
+  });
+  await test('cold start with a persisted conflict still displays cloud recommendations and keeps the edit', async () => {
+    const key = 'recruit:record-outbox:v1:blocked';
+    const mutation = { id: 'blocked', type: 'repush', createdAt: 1, conflicts: ['old'], changes: [
+      { id: 'old', before: { id: 'old', candidateName: 'Old' }, after: { id: 'old', candidateName: 'Local' } },
+    ] };
+    const cloud = [{ id: 'old', candidateName: 'Cloud' }, { id: 'guo', candidateName: '郭哈哈' }];
+    const h = syncHarness({ rows: { repush: cloud }, initialStorage: { [key]: JSON.stringify(mutation) } });
+    h.directReads(); h.start(['repush']); await tick();
+    assert.deepEqual(h.applied.at(-1).rows, cloud);
+    assert.deepEqual(JSON.parse(h.storage.getItem(key)), mutation);
+    assert.equal(h.posted.length, 0, 'a read never resolves or submits the conflicting edit');
+    h.client.stopSync();
+  });
+  await test('cache migration keeps the last visible list and never modifies the outbox', async () => {
+    const { useRepushStore: options } = load('src/store/repush-store.ts', {
+      zustand: { create: () => value => value }, 'zustand/middleware': { persist: (_, options) => options },
+      '@/lib/utils': {}, '@/lib/sync': {},
+    });
+    const cached = { items: [{ id: 'saved', candidateName: 'Saved' }] };
+    assert.deepEqual(clone(options.migrate(cached, 2).items), cached.items);
+    assert.deepEqual(clone(options.migrate({ items: [] }, 3).items), []);
   });
   await test('confirmed task rows and receipts survive delayed cloud projection but never tombstones', async () => {
     const h = syncHarness();

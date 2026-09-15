@@ -300,13 +300,12 @@ export const useRepushStore = create<RepushStore>()(
         columnNames: state.columnNames,
         unfeedbackSnapshots: state.unfeedbackSnapshots,
       }),
-      // v3：推荐列表是云端只读快照，丢弃可能长期滞留的旧本地列表；
-      // 独立 mutation outbox 仍会保留尚未提交的人工修改。
-      migrate: (persisted, version) => {
+      // Preserve the last readable snapshot until a cloud read succeeds.
+      migrate: (persisted) => {
         const s = persisted as Partial<RepushStore> | undefined;
         return {
           ...(s as object),
-          items: version < 3 ? [] : (s?.items || []).map(compactLocalItem),
+          items: (s?.items || []).map(compactLocalItem),
           columnNames: DEFAULT_NAMES,
         } as RepushStore;
       },
