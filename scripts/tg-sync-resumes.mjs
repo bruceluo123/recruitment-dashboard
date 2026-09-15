@@ -711,9 +711,11 @@ async function collectTargets(client, from, to, limit, account, requestedDialog 
 }
 
 function findExistingRecommendation(repush, code, jobTitle, dateIso, target = {}) {
-  const exact = repush.find(item => item.telegramSourceKey === target.key
-    || (String(item.candidateCode || '').toUpperCase() === code
+  const exact = repush.find(item => (target.key && item.telegramSourceKey === target.key)
+    || ((String(item.candidateCode || '').toUpperCase() === code
+        || (!item.candidateCode && normalizeIdentity(item.candidateName) === normalizeIdentity(target.parsed?.name)))
       && item.column === target.account
+      && Boolean(target.recommendationMessageId)
       && String(item.telegramMessageId || '') === String(target.recommendationMessageId || '')
       && (!item.telegramChatId || item.telegramChatId === target.chatId)));
   if (exact) return exact;
@@ -1031,6 +1033,7 @@ async function main(options = {}) {
       const deliveredMessageId = String(target.recommendationMessageId || target.messageId || '');
       if (rec) {
         Object.assign(rec, {
+          candidateCode: rec.candidateCode || code,
           resumeUrl: uploaded.url,
           resumeFileName: target.fileName,
           rawText: rawText.slice(0, 2000),

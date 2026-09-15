@@ -64,6 +64,10 @@ const context = vm.createContext({
 vm.runInContext(`${source}\nglobalThis.testApi = { findNearbyCodeMessage, recordImportedIdentity, supabaseImportCommit,
   collectTargets, findExistingRecommendation, main };`, context);
 const api = context.testApi;
+const legacyDelivered = { id: 'legacy-no-code', column: 'b', candidateName: 'Alice', telegramMessageId: '9' };
+assert.equal(api.findExistingRecommendation([legacyDelivered], 'XYBB00141', '开发', new Date().toISOString(),
+  { account: 'b', recommendationMessageId: 9, parsed: { name: 'Alice' } }), legacyDelivered,
+  'an existing delivered message without a candidate code is linked, not duplicated');
 
 const directCode = { id: 100, date: 1000, message: '候选人编码：XYBB00123' };
 const adjacentResume = { id: 101, date: 1001, message: '' };
