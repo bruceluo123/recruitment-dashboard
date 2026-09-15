@@ -4,6 +4,12 @@ const nextConfig = {
     // 对图标/图表库做更彻底的按需引入，减小客户端 bundle
     optimizePackageImports: ['lucide-react', 'recharts'],
     serverComponentsExternalPackages: ['pdf-to-png-converter', '@napi-rs/canvas'],
+    // pdf.js loads its worker and font resources dynamically; trace them into
+    // serverless functions so scanned resumes work after deployment as well.
+    outputFileTracingIncludes: {
+      '/api/resume/parse': ['node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', 'node_modules/pdfjs-dist/cmaps/**', 'node_modules/pdfjs-dist/standard_fonts/**', 'node_modules/pdfjs-dist/wasm/**'],
+      '/api/talent/scan': ['node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', 'node_modules/pdfjs-dist/cmaps/**', 'node_modules/pdfjs-dist/standard_fonts/**', 'node_modules/pdfjs-dist/wasm/**'],
+    },
   },
   async headers() {
     return [
