@@ -673,6 +673,9 @@ async function collectTargets(client, from, to, limit, account, requestedDialog 
       const recommendationText = msg.message || '';
       const code = directCode;
       const parsed = parseRecommendation(recommendationText, code);
+      const contentFingerprint = createHash('sha1')
+        .update(`${recommendationText}\n${file ? fileNameOf(file) : ''}`)
+        .digest('hex');
       if (file) consumed.add(file.id);
       targets.push({
         key: `${group.id}:${file?.id || msg.id}:${parsed.code}:${msg.id}`,
@@ -681,6 +684,8 @@ async function collectTargets(client, from, to, limit, account, requestedDialog 
         chatTitle: group.title,
         messageId: file?.id || msg.id,
         recommendationMessageId: msg.id,
+        editedAt: msg.editDate ? new Date(msg.editDate * 1000).toISOString() : '',
+        contentFingerprint,
         date: date.toISOString(),
         fileName: file ? fileNameOf(file) : '',
         code: parsed.code,
@@ -713,14 +718,11 @@ async function collectTargets(client, from, to, limit, account, requestedDialog 
 }
 
 function findExistingRecommendation(repush, code, jobTitle, dateIso, target = {}) {
-  const exact = repush.find(item => (target.key && item.telegramSourceKey === target.key)
-    || ((String(item.candidateCode || '').toUpperCase() === code
-        || (!item.candidateCode && normalizeIdentity(item.candidateName) === normalizeIdentity(target.parsed?.name)
-          && clean(item.jdTitle) === clean(jobTitle)))
-      && item.column === target.account
+  const exact = repush.find(item => target.key && item.telegramSourceKey === target.key)
+    || repush.find(item => item.column === target.account
       && Boolean(target.recommendationMessageId)
       && String(item.telegramMessageId || '') === String(target.recommendationMessageId || '')
-      && (!item.telegramChatId || item.telegramChatId === target.chatId)));
+      && (!item.telegramChatId || item.telegramChatId === target.chatId));
   if (exact) return exact;
   const day = localDateKey(dateIso);
   const matches = repush.filter((item) => {
@@ -788,10 +790,14 @@ async function main(options = {}) {
   const ledgerRaw = snapshotString(await kvGet(ledgerKey), ledgerKey);
   const ledger = parseArraySnapshot(ledgerRaw, ledgerKey);
   // 文件已入库但正文解析失败时不能永久跳过；后续网络恢复后自动重试并补齐全文索引。
-  const doneKeys = new Set(ledger.filter((row) => row.parsed !== false).map((row) => row.key));
-  const pending = targets.filter((target) => !doneKeys.has(target.key)
-    && !ledger.some(row => row.key === target.legacyKey && row.parsed !== false
-      && Number(row.recommendationMessageId) === Number(target.recommendationMessageId)));
+  const completed = (row, target) => row.parsed !== false
+    && (!row.contentFingerprint || row.contentFingerprint === target.contentFingerprint)
+    && (!target.editedAt || Date.parse(target.editedAt) <= Date.parse(row.syncedAt || ''));
+  const pending = targets.filter((target) => !ledger.some(row => (
+    (row.key === target.key || (row.key === target.legacyKey
+      && Number(row.recommendationMessageId) === Number(target.recommendationMessageId)))
+    && completed(row, target)
+  )));
   // Checkpoint bounded batches. Old failures must not starve newly arrived files.
   const failedKeys = new Set((state.failures || []).map(item => item.key));
   const ordered = [...pending].sort((a, b) => Number(failedKeys.has(a.key)) - Number(failedKeys.has(b.key)));
@@ -1044,7 +1050,12 @@ async function main(options = {}) {
       const deliveredMessageId = String(target.recommendationMessageId || target.messageId || '');
       if (rec) {
         Object.assign(rec, {
-          candidateCode: rec.candidateCode || code,
+          fileName: jobTitle ? `${name}-${jobTitle}` : name,
+          candidateCode: code,
+          candidateName: name,
+          jdTitle: jobTitle || rec.jdTitle,
+          contact: p.contact && p.contact !== '/' ? p.contact : rec.contact,
+          contactPerson: p.recommender || rec.contactPerson,
           resumeUrl: uploaded.url,
           resumeFileName: target.fileName,
           rawText: rawText.slice(0, 2000),
@@ -1055,6 +1066,8 @@ async function main(options = {}) {
           deliveryUpdatedAt: target.date,
           telegramMessageId: deliveredMessageId || rec.telegramMessageId,
           deliveredAt: target.date,
+          organization: orgDept.organization || rec.organization,
+          department: orgDept.department || rec.department,
         });
       } else {
         rec = {
@@ -1102,6 +1115,7 @@ async function main(options = {}) {
         chatTitle: target.chatTitle,
         messageId: target.messageId,
         recommendationMessageId: target.recommendationMessageId,
+        contentFingerprint: target.contentFingerprint,
         fileName: target.fileName,
         resumeUrl: uploaded.url,
         talentId: talent.id,

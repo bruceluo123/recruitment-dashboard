@@ -120,6 +120,16 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   await api.main({ client, write: true, dialog: 'ojisamer' });
   assert.equal(JSON.parse(db.get('recruit:repush')).length, 3, 'a repeated scan creates no duplicates');
   assert.equal(disconnects, 0, 'inbound never disconnects the borrowed sender connection');
+  const edited = messages[0];
+  edited.message = edited.message.replace('应聘岗位：开发', '应聘岗位：高级开发');
+  edited.editDate = Math.floor(Date.now() / 1000);
+  const editedLedger = JSON.parse(db.get('recruit:tg-resume-sync-ledger-b'));
+  editedLedger.find(row => row.recommendationMessageId === edited.id).syncedAt = new Date(Date.now() - 60_000).toISOString();
+  db.set('recruit:tg-resume-sync-ledger-b', JSON.stringify(editedLedger));
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  recs = JSON.parse(db.get('recruit:repush'));
+  assert.equal(recs.length, 3, 'an edited Telegram caption updates the original application without duplicating it');
+  assert.equal(recs.find(row => row.telegramMessageId === '1').jdTitle, '高级开发');
   const textOnly = { ...message(240, 'XYBB00141', 'Alice', '产品', '瑞升'), document: undefined, replyTo: { replyToMsgId: 1 } };
   history.unshift(textOnly);
   await api.main({ client, write: true, dialog: 'ojisamer' });
@@ -153,6 +163,20 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   assert.equal(recs.find(row => row.candidateCode === 'XYBB00142').candidateName, 'Bob');
   const separate = recs.find(row => row.candidateName === 'Different');
   assert.ok(separate && separate.candidateCode !== 'XYBB00142' && separate.sourceCandidateCode === 'XYBB00142', 'copied wrong code cannot mix two people');
+  const correctedMessage = message(325, 'XYBB00141', 'Corrected', '产品', '经纬');
+  history.unshift(correctedMessage);
+  const beforeCorrection = JSON.parse(db.get('recruit:repush'));
+  beforeCorrection.push({ id: 'platform-corrected', applicationId: 'platform-corrected', column: 'b',
+    candidateCode: 'XYBB00141', candidateIdentityId: 'alice-id', candidateName: 'Alice', jdTitle: '旧岗位',
+    fileName: 'Alice-旧岗位', telegramMessageId: '325', deliveryId: 'task-325', deliveryStatus: 'sent',
+    uploadedAt: new Date(date * 1000).toISOString(), feedback: 'pending' });
+  db.set('recruit:repush', JSON.stringify(beforeCorrection));
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  recs = JSON.parse(db.get('recruit:repush'));
+  const corrected = recs.find(row => row.telegramMessageId === '325');
+  assert.equal(recs.filter(row => row.telegramMessageId === '325').length, 1, 'a manually corrected delivered message is not split into a hidden duplicate');
+  assert.equal(corrected.candidateName, 'Corrected');
+  assert.notEqual(corrected.candidateCode, 'XYBB00141', 'the corrected person receives an independent identity');
   const manualAgain = message(330, '', 'Carol', '产品', '经纬'); history.unshift(manualAgain);
   await api.main({ client, write: true, dialog: 'ojisamer' });
   const carol = JSON.parse(db.get('recruit:repush')).filter(row => row.candidateName === 'Carol');
