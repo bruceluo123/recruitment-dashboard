@@ -713,7 +713,8 @@ async function collectTargets(client, from, to, limit, account, requestedDialog 
 function findExistingRecommendation(repush, code, jobTitle, dateIso, target = {}) {
   const exact = repush.find(item => (target.key && item.telegramSourceKey === target.key)
     || ((String(item.candidateCode || '').toUpperCase() === code
-        || (!item.candidateCode && normalizeIdentity(item.candidateName) === normalizeIdentity(target.parsed?.name)))
+        || (!item.candidateCode && normalizeIdentity(item.candidateName) === normalizeIdentity(target.parsed?.name)
+          && clean(item.jdTitle) === clean(jobTitle)))
       && item.column === target.account
       && Boolean(target.recommendationMessageId)
       && String(item.telegramMessageId || '') === String(target.recommendationMessageId || '')
