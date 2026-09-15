@@ -15,7 +15,7 @@ export type ProfileTagDimension =
   | 'creative';
 
 export const TAG_TAXONOMY_VERSION = '2026-09-09.2';
-export const TAG_EXTRACTOR_VERSION = '3';
+export const TAG_EXTRACTOR_VERSION = '4';
 
 export interface ProfileTagEvidence {
   source: string;
@@ -381,6 +381,23 @@ function isAlternativeEvidence(value: string): boolean {
   return /(?:或|或者|任一|任意一种|至少一种|二选一)/.test(value);
 }
 
+function splitSharedArchitectureRequirement(value: string): {
+  alternatives: string;
+  sharedRequiredTagIds: string[];
+} | null {
+  const alternativeIndex = value.search(/(?:或|或者|任一|任意一种|至少一种|二选一)/);
+  if (alternativeIndex < 0) return null;
+  const architectureMatches = Array.from(value.matchAll(/(?:系统)?架构(?:设计|决策|治理|演进)/g));
+  const sharedMatch = architectureMatches.find((match) => (match.index ?? -1) > alternativeIndex);
+  if (!sharedMatch?.index) return null;
+  const sharedTail = value.slice(sharedMatch.index);
+  if (!/(?:落地|经验|能力|负责|主导)/.test(sharedTail)) return null;
+  return {
+    alternatives: value.slice(0, sharedMatch.index),
+    sharedRequiredTagIds: ['level:architect'],
+  };
+}
+
 function fingerprint(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -453,18 +470,28 @@ export function extractJDTagProfile(jd: JD): TagProfile {
     { name: 'preferred', text: (jd.preferredQualifications || []).join('\n'), weight: 1, required: false, quality: 'fact' },
     { name: 'notes', text: jd.notes || '', weight: 2, required: false, quality: 'fact' },
   ], jd.categories);
-  const requiredAnyGroups = jd.requirements
-    .flatMap((requirement) => requirement.split(/[\n\r。；;，,]+/).map((item) => item.trim()).filter(Boolean))
-    .filter((requirement) => isAlternativeEvidence(requirement) && !isPreferredEvidence(requirement))
-    .map((requirement, index) => {
-      const normalizedRequirement = normalize(requirement);
+  const requirementParts = jd.requirements.flatMap((requirement) => requirement
+    .split(/[\n\r。；;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .flatMap((clause) => {
+      const shared = splitSharedArchitectureRequirement(clause);
+      if (shared) return [{ evidence: clause, searchable: shared.alternatives, sharedRequiredTagIds: shared.sharedRequiredTagIds }];
+      return clause.split(/[，,]+/).map((item) => ({ evidence: item.trim(), searchable: item.trim(), sharedRequiredTagIds: [] as string[] }));
+    }))
+    .filter((part) => part.evidence && isAlternativeEvidence(part.searchable) && !isPreferredEvidence(part.evidence));
+  const sharedRequiredTagIds = new Set(requirementParts.flatMap((part) => part.sharedRequiredTagIds));
+  const requiredAnyGroups = requirementParts
+    .map((part, index) => {
+      const normalizedRequirement = normalize(part.searchable);
       const definitions = COMPILED_DEFINITIONS.filter((definition) => {
+        if (part.sharedRequiredTagIds.includes(definition.id)) return false;
         const categoryMatches = !definition.jdCategories
           || definition.jdCategories.some((category) => jd.categories.includes(category));
         if (!categoryMatches) return false;
         const searchable = withoutExcludedAliases(normalizedRequirement, definition.excludeAliases);
         return definition.matchers.some((matches) => matches(searchable))
-          && !isNegatedEvidence(requirement, definition.aliases);
+          && !isNegatedEvidence(part.evidence, definition.aliases);
       });
       const tagIds = Array.from(new Set(definitions.map((definition) => definition.id)));
       if (tagIds.length < 2) return null;
@@ -472,11 +499,14 @@ export function extractJDTagProfile(jd: JD): TagProfile {
         id: `any:${index}:${tagIds.join('|')}`,
         tagIds,
         labels: tagIds.map((id) => definitions.find((definition) => definition.id === id)?.label || id),
-        evidence: requirement,
+        evidence: part.evidence,
       };
     })
     .filter((group): group is NonNullable<typeof group> => Boolean(group));
-  return requiredAnyGroups.length ? { ...profile, requiredAnyGroups } : profile;
+  const tags = sharedRequiredTagIds.size
+    ? profile.tags.map((tag) => sharedRequiredTagIds.has(tag.id) ? { ...tag, required: true } : tag)
+    : profile.tags;
+  return requiredAnyGroups.length || tags !== profile.tags ? { ...profile, tags, requiredAnyGroups } : profile;
 }
 
 export function extractCandidateTagProfile(candidate: CandidateTagSource): TagProfile {
