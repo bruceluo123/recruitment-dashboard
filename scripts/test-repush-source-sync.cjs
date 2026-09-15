@@ -19,7 +19,6 @@ function load(relative, mocks) {
   }, crypto: { randomUUID }, Date, URL, console });
   return exports;
 }
-const identity = load('src/lib/resume-identity.ts', {});
 function fixture(suffix = 'one', owner = 'a') {
   const source = { id: 'source-' + suffix, column: owner, candidateName: 'Example' + suffix,
     candidateCode: 'TEST' + suffix, fileName: 'Example' + suffix + '.pdf',
@@ -45,7 +44,6 @@ function harness({ rows = [], deleted = {}, online = true, allowed = ['a', 'b'],
     '@/lib/api-guard': { guardApi: () => null, blobUrlError: url => url.startsWith('https://example.invalid/') ? '' : 'Invalid URL' },
     '@/lib/auth-api': { requireApiSession: async () => null,
       requireOwnerSession: async (_, owner) => allowed.includes(owner) ? null : { status: 403 } },
-    '@/lib/resume-identity': identity,
     '@/lib/kv-server': {
       kvCommandStrict: async (command, ...keys) => {
         reads++;
@@ -95,6 +93,44 @@ async function test(name, run) { await run(); console.log('PASS ' + name); passe
     const h = harness({ rows: [cloud] });
     assert.equal((await h.post(job)).data.ok, true);
     assert.deepEqual(JSON.parse(h.db.get('recruit:repush'))[0], cloud);
+  });
+  await test('bound resume may use a Chinese name, role title, or generic filename', async () => {
+    for (const fileName of ['张三-开发工程师.pdf', '高级工程师简历.pdf', 'resume_2026.pdf']) {
+      const job = fixture();
+      job.sourceSnapshot.candidateName = 'Example English';
+      job.sourceSnapshot.resumeFileName = fileName;
+      Object.assign(job.deliveries[0].application, { candidateName: 'Example English', resumeFileName: fileName });
+      const h = harness({ rows: [job.sourceSnapshot] });
+      assert.equal((await h.post(job)).data.ok, true);
+      assert.equal(h.queued.length, 1);
+      const stored = JSON.parse(h.db.get('recruit:repush')).find(row => row.deliveryId === job.requestId);
+      assert.equal(stored.resumeUrl, job.sourceSnapshot.resumeUrl);
+      assert.equal(stored.resumeFileName, fileName);
+    }
+  });
+  await test('matching filenames cannot bypass a wrong candidate code or identity', async () => {
+    for (const field of ['candidateCode', 'candidateIdentityId', 'candidateName']) {
+      const job = fixture();
+      job.sourceSnapshot.candidateIdentityId = 'identity-original';
+      job.deliveries[0].application.candidateIdentityId = 'identity-original';
+      job.deliveries[0].application[field] = 'someone-else';
+      const h = harness({ rows: [job.sourceSnapshot] });
+      const result = await h.post(job);
+      assert.equal(result.data.ok, false);
+      assert.match(result.data.error, /人选资料/);
+      assert.equal(h.queued.length, 0);
+    }
+  });
+  await test('outdated attachment URL and metadata remain blocked with specific messages', async () => {
+    for (const field of ['resumeUrl', 'resumeFileName']) {
+      const job = fixture();
+      const current = { ...job.sourceSnapshot, [field]: field === 'resumeUrl' ? 'https://example.invalid/new.pdf' : 'new.pdf' };
+      const h = harness({ rows: [current] });
+      const result = await h.post(job);
+      assert.equal(result.data.ok, false);
+      assert.match(result.data.error, field === 'resumeUrl' ? /简历附件与原推荐记录不同/ : /附件名称已更新/);
+      assert.equal(h.queued.length, 0);
+    }
   });
   await test('deleted source cannot be resurrected', async () => {
     const job = fixture(), h = harness({ deleted: { [job.sourceSnapshot.id]: 1 } });

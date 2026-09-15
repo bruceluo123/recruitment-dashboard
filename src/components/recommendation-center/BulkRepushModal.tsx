@@ -15,7 +15,6 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 import type { JD } from '@/types/jd';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
 import { buildDeliveryFileName, buildRepushCopy } from './RepushModal';
-import { resumeFileMatchesCandidate } from '@/lib/resume-identity';
 
 export interface BulkRepushCandidate {
   key: string;
@@ -301,9 +300,6 @@ export function BulkRepushModal({
     const source = candidate.item;
     const candidateName = source.candidateName || candidate.candidateName;
     const resumeFileName = source.resumeFileName || source.fileName;
-    if (!resumeFileMatchesCandidate(candidateName, resumeFileName)) {
-      throw new Error(`${candidateName} 的姓名与简历文件不一致，已停止发送，请先核对简历`);
-    }
     return {
       sender: owner,
       target: recipient.trim(),

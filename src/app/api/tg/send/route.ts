@@ -3,7 +3,6 @@ import { del } from '@vercel/blob';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
 import { requireApiSession, requireOwnerSession } from '@/lib/auth-api';
 import { kvCommandStrict, kvTransaction } from '@/lib/kv-server';
-import { resumeFileMatchesCandidate } from '@/lib/resume-identity';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -211,15 +210,18 @@ function repushResumeError(
 
     const originalCandidateName = cleanText(application.candidateName, 200);
     const originalResumeFileName = cleanText(application.resumeFileName, 180);
-    const sourceCandidateName = cleanText(source.candidateName, 200) || originalCandidateName;
     const sourceResumeFileName = cleanText(source.resumeFileName || source.fileName, 180);
+    // 文件名可用中文名、英文名或职位名；附件归属由来源记录及 URL 核对，不能靠文件名猜姓名。
     if (!sameOptionalValue(originalCandidateName, source.candidateName)
       || !sameOptionalValue(application.candidateCode, source.candidateCode)
-      || !sameOptionalValue(application.candidateIdentityId, source.candidateIdentityId)
-      || cleanText(source.resumeUrl, 1000) !== fileUrl
-      || !sameOptionalValue(originalResumeFileName, sourceResumeFileName)
-      || !resumeFileMatchesCandidate(sourceCandidateName, sourceResumeFileName)) {
-      return `${originalCandidateName || '该候选人'}的身份与简历文件不一致，已停止发送，请先核对简历`;
+      || !sameOptionalValue(application.candidateIdentityId, source.candidateIdentityId)) {
+      return `${originalCandidateName || '该候选人'}的人选资料与原推荐记录不同，请重新打开复推窗口读取最新资料`;
+    }
+    if (cleanText(source.resumeUrl, 1000) !== fileUrl) {
+      return `${originalCandidateName || '该候选人'}的简历附件与原推荐记录不同，请重新打开复推窗口选择当前附件`;
+    }
+    if (!sameOptionalValue(originalResumeFileName, sourceResumeFileName)) {
+      return `${originalCandidateName || '该候选人'}的附件名称已更新，请重新打开复推窗口读取最新附件`;
     }
   }
   return '';

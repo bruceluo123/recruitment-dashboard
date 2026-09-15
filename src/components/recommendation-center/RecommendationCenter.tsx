@@ -28,7 +28,6 @@ import type { FeedbackCenterItem, FeedbackCenterState } from '@/types/feedback-c
 import { fetchFeedback } from '@/lib/feedback-client';
 import { applyRemoteStoreUpdate, refreshSyncedData } from '@/lib/sync';
 import { recommendationOrganization } from '@/lib/recommendation-copy';
-import { resumeFileMatchesCandidate } from '@/lib/resume-identity';
 import type { JD } from '@/types/jd';
 import type { Talent } from '@/types/talent';
 import type { Candidate } from '@/types/interview';
@@ -147,11 +146,7 @@ function sameJobCandidateOptions(
   const interviewCandidateById = new Map(interviewCandidates.map((candidate) => [candidate.id, candidate]));
   const options = new Map<string, BulkRepushCandidate>();
   const newestFirst = items
-    .filter((item) => Boolean(item.resumeUrl)
-      && resumeFileMatchesCandidate(
-        item.candidateName || displayName(item).split('-')[0],
-        item.resumeFileName || item.fileName,
-      ))
+    .filter((item) => Boolean(item.resumeUrl))
     .slice()
     .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
   for (const item of newestFirst) {
