@@ -103,6 +103,20 @@ export async function extractPdfTextViaDeepSeek(
   if (!apiKey) throw new Error('未配置 DEEPSEEK_API_KEY，无法识别图片型 PDF');
   if (buffer.length > MAX_PDF_BYTES) throw new Error('PDF 超过 50MB，请压缩后重试');
 
+  // pdf.js 6 expects browser geometry globals even on its Node legacy build.
+  // Vercel's Node runtime does not provide them, while the converter's own
+  // canvas runtime does. Install those globals before pdf.js is imported.
+  const canvas = await import('@napi-rs/canvas');
+  if (typeof globalThis.DOMMatrix === 'undefined') {
+    Object.defineProperty(globalThis, 'DOMMatrix', { value: canvas.DOMMatrix, configurable: true });
+  }
+  if (typeof globalThis.ImageData === 'undefined') {
+    Object.defineProperty(globalThis, 'ImageData', { value: canvas.ImageData, configurable: true });
+  }
+  if (typeof globalThis.Path2D === 'undefined') {
+    Object.defineProperty(globalThis, 'Path2D', { value: canvas.Path2D, configurable: true });
+  }
+
   const { pdfToPng, VerbosityLevel } = await import('pdf-to-png-converter');
   const metadata = await pdfToPng(buffer, {
     returnMetadataOnly: true,

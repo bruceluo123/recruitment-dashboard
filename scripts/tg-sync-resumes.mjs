@@ -56,6 +56,7 @@ for _, entry in ipairs(candidateEntries) do
   local suffix = tonumber(entry[2]) or 0
   local candidateIdentityId = tostring(entry[3] or '')
   local identityName = tostring(entry[4] or '')
+  local allowRepair = tostring(entry[5] or '') == '1'
   if suffix < 1 or suffix > 999999999 then return redis.error_reply('candidate code suffix is out of range') end
   if suffix > maximum then maximum = suffix end
   local used = redis.call('SISMEMBER', usedKey, code)
@@ -68,16 +69,17 @@ for _, entry in ipairs(candidateEntries) do
   local nameMismatch = knownName and knownName ~= identityName
   local duplicateMismatch = (identityUpdates[code] and identityUpdates[code] ~= candidateIdentityId)
     or (identityNameUpdates[code] and identityNameUpdates[code] ~= identityName)
-  if candidateIdentityId == ''
+  local invalidIdentity = candidateIdentityId == ''
     or identityName == ''
     or candidateIdentityId == '!conflict'
     or identityName == '!conflict'
-    or knownTalentId == '!conflict'
+    or duplicateMismatch
+  local registeredMismatch = knownTalentId == '!conflict'
     or knownName == '!conflict'
     or identityMismatch
     or nameMismatch
-    or duplicateMismatch
-    or (used == 1 and not knownTalentId) then
+    or (used == 1 and not knownTalentId)
+  if invalidIdentity or (registeredMismatch and not allowRepair) then
     table.insert(identityConflicts, code)
   else
     identityUpdates[code] = candidateIdentityId
@@ -190,17 +192,19 @@ function candidateSequenceSuffix(code, account) {
   return String(suffix);
 }
 
-function recordImportedIdentity(identities, code, candidateIdentityId, name) {
+function recordImportedIdentity(identities, code, candidateIdentityId, name, allowRepair = false) {
   const normalizedCode = String(code || '').trim().toUpperCase();
   const identityName = normalizeIdentity(name);
   const known = identities.get(normalizedCode) || '';
-  const next = { candidateIdentityId: String(candidateIdentityId || ''), name: identityName };
+  const next = { candidateIdentityId: String(candidateIdentityId || ''), name: identityName, allowRepair };
   if (!known) {
     identities.set(normalizedCode, next);
     return;
   }
   if (known === '!conflict' || known.candidateIdentityId !== next.candidateIdentityId || known.name !== next.name) {
     identities.set(normalizedCode, '!conflict');
+  } else if (allowRepair && !known.allowRepair) {
+    identities.set(normalizedCode, { ...known, allowRepair: true });
   }
 }
 
@@ -471,11 +475,12 @@ async function supabaseImportCommit(keys, args) {
   state.entries ||= {};
   state.sequence = Math.max(0, Number(state.sequence) || 0, Number(current[sequenceKey]) || 0);
   const candidateEntries = JSON.parse(args[1 + count * 2] || '[]');
-  for (const [code, suffixRaw, identity, name] of candidateEntries) {
+  for (const [code, suffixRaw, identity, name, allowRepairRaw] of candidateEntries) {
     const suffix = Number(suffixRaw);
     const known = state.entries[code];
+    const allowRepair = String(allowRepairRaw || '') === '1';
     if (!identity || !name || identity === '!conflict' || name === '!conflict'
-      || (known && (known.identity !== identity || known.name !== name))) return [-1, code];
+      || (known && (known.identity !== identity || known.name !== name) && !allowRepair)) return [-1, code];
     state.entries[code] = { identity, name };
     state.sequence = Math.max(state.sequence, suffix);
   }
@@ -526,7 +531,18 @@ function findNearbyCodeMessage(messages, msg) {
     .map((item) => ({ item, distance: Math.abs(item.date * 1000 - msgDate) }))
     .filter((x) => x.distance <= 10 * 60 * 1000)
     .sort((a, b) => a.distance - b.distance);
-  return candidates[0]?.item || null;
+  for (const candidate of candidates) {
+    const lowerId = Math.min(Number(candidate.item.id), Number(msg.id));
+    const upperId = Math.max(Number(candidate.item.id), Number(msg.id));
+    // A detached resume used for duplicate checking must not inherit the code
+    // from an earlier recommendation when another chat message sits between them.
+    const hasInterveningMessage = messages.some((item) => {
+      const id = Number(item.id);
+      return id > lowerId && id < upperId;
+    });
+    if (!hasInterveningMessage) return candidate.item;
+  }
+  return null;
 }
 
 async function collectTargets(client, from, to, limit, account) {
@@ -695,12 +711,24 @@ async function main() {
 
   const byTalentCode = new Map(talents.filter((t) => t?.candidateCode).map((t) => [String(t.candidateCode).toUpperCase(), t]));
   const byCodeLedger = new Map(codeLedger.filter((x) => x?.code).map((x) => [String(x.code).toUpperCase(), x]));
+  const businessNamesByCode = new Map();
+  function rememberBusinessName(code, name) {
+    const normalizedCode = String(code || '').toUpperCase();
+    const normalizedName = normalizeIdentity(name);
+    if (!normalizedCode || !normalizedName) return;
+    if (!businessNamesByCode.has(normalizedCode)) businessNamesByCode.set(normalizedCode, new Set());
+    businessNamesByCode.get(normalizedCode).add(normalizedName);
+  }
+  for (const talent of talents) rememberBusinessName(talent?.candidateCode, talent?.name);
+  for (const row of codeLedger) rememberBusinessName(row?.code, row?.name);
+  for (const row of repush) rememberBusinessName(row?.candidateCode, row?.candidateName);
   const talentTextWrites = new Map();
   const importedIdentities = new Map();
   const identityRegistry = new Map();
   const identitiesKey = `recruit:candidate-code:identities:${account}`;
   const identityNamesKey = `recruit:candidate-code:identity-names:${account}`;
   const results = [];
+  const failures = [];
 
   async function candidateIdentityRegistryEntry(code) {
     if (!identityRegistry.has(code)) {
@@ -718,35 +746,66 @@ async function main() {
 
   try {
     for (const target of pending) {
-      const buffer = await client.downloadMedia(target.msg, {});
-      if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error(`TG download failed: ${target.fileName}`);
-      const uploaded = await uploadResume(buffer, target.fileName);
-      let resumeText = '';
-      let parseSource = '';
-      let parseError = '';
       try {
-        const parsedResume = await parseResumeFromBlob(uploaded.url, target.fileName);
-        resumeText = parsedResume.text || '';
-        parseSource = parsedResume.source || '';
-      } catch (err) {
-        parseError = err.message || 'parse failed';
-      }
+        const p = target.parsed;
+        const code = target.code;
+        const owner = code.includes('BB') ? 'BB' : 'MMF';
+        const knownBusinessNames = businessNamesByCode.get(code) || new Set();
+        const knownName = byTalentCode.get(code)?.name
+          || byCodeLedger.get(code)?.name
+          || repush.find((item) => String(item.candidateCode || '').toUpperCase() === code)?.candidateName
+          || '';
+        const name = p.name || target.fileName.replace(/\.(pdf|docx?)$/i, '').split(/[-_]/)[0] || code;
+        const identityName = normalizeIdentity(p.name || knownName || name);
+        if (knownBusinessNames.size > 0 && !knownBusinessNames.has(identityName)) {
+          throw new Error(`候选人编号 ${code} 与已有业务记录姓名不一致`);
+        }
 
-      const p = target.parsed;
-      const code = target.code;
-      const owner = code.includes('BB') ? 'BB' : 'MMF';
-      const knownName = byTalentCode.get(code)?.name || byCodeLedger.get(code)?.name || '';
-      const name = p.name || target.fileName.replace(/\.(pdf|docx?)$/i, '').split(/[-_]/)[0] || code;
-      const jobTitle = p.jobTitle || '';
-      const orgDept = splitOrgDept(p.organization);
-      const rawText = [target.recommendationText, resumeText ? `\n\n--- resume text ---\n${resumeText}` : ''].filter(Boolean).join('');
-      const cats = categories(jobTitle, rawText);
-      const now = new Date().toISOString();
+        let talent = byTalentCode.get(code);
+        const nextTalentId = talent?.id || genId();
+        const registry = await candidateIdentityRegistryEntry(code);
+        const registryName = normalizeIdentity(registry.name);
+        const registryMatchesName = !registryName || registryName === identityName;
+        const registryIdentityId = registryMatchesName
+          && registry.candidateIdentityId
+          && registry.candidateIdentityId !== identityName
+          && registry.candidateIdentityId !== '!conflict'
+          ? registry.candidateIdentityId
+          : '';
+        const candidateIdentityId = talent?.candidateIdentityId || registryIdentityId || nextTalentId;
+        const registryIdentityMismatch = Boolean(registry.candidateIdentityId
+          && registry.candidateIdentityId !== '!conflict'
+          && registry.candidateIdentityId !== identityName
+          && registry.candidateIdentityId !== candidateIdentityId);
+        const allowRegistryRepair = knownBusinessNames.has(identityName)
+          && (!registryMatchesName || registryIdentityMismatch || registry.candidateIdentityId === '!conflict');
+        if ((!registryMatchesName || registry.candidateIdentityId === '!conflict') && !allowRegistryRepair) {
+          throw new Error(`候选人编号 ${code} 的身份登记与当前简历不一致`);
+        }
 
-      let talent = byTalentCode.get(code);
-      if (!talent) {
-        talent = {
-          id: genId(),
+        const buffer = await client.downloadMedia(target.msg, {});
+        if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error(`TG download failed: ${target.fileName}`);
+        const uploaded = await uploadResume(buffer, target.fileName);
+        let resumeText = '';
+        let parseSource = '';
+        let parseError = '';
+        try {
+          const parsedResume = await parseResumeFromBlob(uploaded.url, target.fileName);
+          resumeText = parsedResume.text || '';
+          parseSource = parsedResume.source || '';
+        } catch (err) {
+          parseError = err.message || 'parse failed';
+        }
+
+        const jobTitle = p.jobTitle || '';
+        const orgDept = splitOrgDept(p.organization);
+        const rawText = [target.recommendationText, resumeText ? `\n\n--- resume text ---\n${resumeText}` : ''].filter(Boolean).join('');
+        const cats = categories(jobTitle, rawText);
+        const now = new Date().toISOString();
+
+        if (!talent) {
+          talent = {
+          id: nextTalentId,
           candidateCode: code,
           name,
           jobTitle,
@@ -761,10 +820,10 @@ async function main() {
           createdAt: now,
           updatedAt: now,
         };
-        talents.unshift(talent);
-        byTalentCode.set(code, talent);
-      } else {
-        Object.assign(talent, {
+          talents.unshift(talent);
+          byTalentCode.set(code, talent);
+        } else {
+          Object.assign(talent, {
           name: talent.name || name,
           jobTitle: jobTitle || talent.jobTitle,
           categories: cats.length ? cats : talent.categories,
@@ -775,26 +834,18 @@ async function main() {
           recruiter: p.recommender || talent.recruiter,
           archived: false,
           updatedAt: now,
-        });
-      }
-      const identityName = normalizeIdentity(p.name || knownName || talent.name || name);
-      const registry = await candidateIdentityRegistryEntry(code);
-      const registryIdentityId = registry.name === identityName
-        && registry.candidateIdentityId
-        && registry.candidateIdentityId !== identityName
-        && registry.candidateIdentityId !== '!conflict'
-        ? registry.candidateIdentityId
-        : '';
-      const candidateIdentityId = talent.candidateIdentityId || registryIdentityId || talent.id;
-      talent.candidateIdentityId = candidateIdentityId;
-      recordImportedIdentity(importedIdentities, code, candidateIdentityId, identityName);
-      if (resumeText) {
-        talentTextWrites.set(`recruit:talent-text:${talent.id}`, resumeText);
-        talent.hasResumeText = true;
-        talent.resumeChars = resumeText.replace(/\s+/g, '').length;
-      }
+          });
+        }
+        talent.candidateIdentityId = candidateIdentityId;
+        recordImportedIdentity(importedIdentities, code, candidateIdentityId, identityName, allowRegistryRepair);
+        rememberBusinessName(code, name);
+        if (resumeText) {
+          talentTextWrites.set(`recruit:talent-text:${talent.id}`, resumeText);
+          talent.hasResumeText = true;
+          talent.resumeChars = resumeText.replace(/\s+/g, '').length;
+        }
 
-      let rec = findExistingRecommendation(repush, code, jobTitle, target.date);
+        let rec = findExistingRecommendation(repush, code, jobTitle, target.date);
       const deliveredMessageId = String(target.recommendationMessageId || target.messageId || '');
       if (rec) {
         Object.assign(rec, {
@@ -874,7 +925,15 @@ async function main() {
         resumeFileName: target.fileName,
         recoveredAt: now,
       });
-      results.push({ code, name, jobTitle, fileName: target.fileName, chatTitle: target.chatTitle, parsed: !!resumeText, parseError });
+        results.push({ code, name, jobTitle, fileName: target.fileName, chatTitle: target.chatTitle, parsed: !!resumeText, parseError });
+      } catch (err) {
+        failures.push({
+          code: target.code,
+          fileName: target.fileName,
+          messageId: target.messageId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   } finally {
     await client.disconnect();
@@ -905,6 +964,7 @@ async function main() {
     candidateSequenceSuffix(code, account),
     identity === '!conflict' ? '!conflict' : identity.candidateIdentityId,
     identity === '!conflict' ? '!conflict' : identity.name,
+    identity === '!conflict' ? '0' : identity.allowRepair ? '1' : '0',
   ]);
   const committed = await kvEval(IMPORT_COMMIT_SCRIPT, [
     ...snapshots.map((snapshot) => snapshot.key),
@@ -934,8 +994,10 @@ async function main() {
     found: targets.length,
     imported: results.length,
     skipped: targets.length - pending.length,
+    failed: failures.length,
     version,
     results,
+    failures,
   }, null, 2));
 }
 
