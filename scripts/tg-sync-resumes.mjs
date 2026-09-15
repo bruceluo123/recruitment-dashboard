@@ -925,7 +925,9 @@ async function main(options = {}) {
           || '';
         const name = p.name || target.fileName.replace(/\.(pdf|docx?)$/i, '').split(/[-_]/)[0] || code;
         const identityName = normalizeIdentity(p.name || knownName || name);
-        if (knownBusinessNames.size > 0 && !knownBusinessNames.has(identityName)) {
+        const registeredName = normalizeIdentity((await candidateIdentityRegistryEntry(code)).name);
+        const sharedCodeConflict = knownBusinessNames.size > 1 && registeredName && registeredName !== identityName;
+        if (knownBusinessNames.size > 0 && (!knownBusinessNames.has(identityName) || sharedCodeConflict)) {
           // A manually copied code must never overwrite another person's record.
           // Only allocate a separate identity when the caption and filename agree.
           if (identityName.length < 2 || !nameMatchesFile(p.name, target.fileName)) {
