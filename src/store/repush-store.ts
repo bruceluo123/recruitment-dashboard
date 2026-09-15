@@ -294,18 +294,19 @@ export const useRepushStore = create<RepushStore>()(
     }),
     {
       name: 'recruitai-repush-store',
-      version: 2,
+      version: 3,
       partialize: (state) => ({
         items: state.items.map(compactLocalItem),
         columnNames: state.columnNames,
         unfeedbackSnapshots: state.unfeedbackSnapshots,
       }),
-      // v2：浏览器本地缓存移除旧版 base64 简历；云端完整数据不变。
-      migrate: (persisted) => {
+      // v3：推荐列表是云端只读快照，丢弃可能长期滞留的旧本地列表；
+      // 独立 mutation outbox 仍会保留尚未提交的人工修改。
+      migrate: (persisted, version) => {
         const s = persisted as Partial<RepushStore> | undefined;
         return {
           ...(s as object),
-          items: (s?.items || []).map(compactLocalItem),
+          items: version < 3 ? [] : (s?.items || []).map(compactLocalItem),
           columnNames: DEFAULT_NAMES,
         } as RepushStore;
       },
