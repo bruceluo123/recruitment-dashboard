@@ -935,7 +935,11 @@ async function main(options = {}) {
         const nextTalentId = talent?.id || genId();
         const registry = await candidateIdentityRegistryEntry(code);
         const registryName = normalizeIdentity(registry.name);
-        const registryMatchesName = !registryName || registryName === identityName;
+        const statedNames = String(p.name || '').match(/[a-z]+(?:[ .'-][a-z]+)*|[\u4e00-\u9fff]+/gi) || [];
+        const verifiedAlias = knownBusinessNames.size === 0 && Boolean(registryName)
+          && statedNames.some(part => normalizeIdentity(part) === registryName)
+          && nameMatchesFile(p.name, target.fileName);
+        const registryMatchesName = !registryName || registryName === identityName || verifiedAlias;
         const registryIdentityId = registryMatchesName
           && registry.candidateIdentityId
           && registry.candidateIdentityId !== identityName
@@ -947,8 +951,8 @@ async function main(options = {}) {
           && registry.candidateIdentityId !== '!conflict'
           && registry.candidateIdentityId !== identityName
           && registry.candidateIdentityId !== candidateIdentityId);
-        const allowRegistryRepair = knownBusinessNames.size === 1 && knownBusinessNames.has(identityName)
-          && (!registryMatchesName || registryIdentityMismatch || registry.candidateIdentityId === '!conflict');
+        const allowRegistryRepair = verifiedAlias || (knownBusinessNames.size === 1 && knownBusinessNames.has(identityName)
+          && (!registryMatchesName || registryIdentityMismatch || registry.candidateIdentityId === '!conflict'));
         if ((!registryMatchesName || registry.candidateIdentityId === '!conflict') && !allowRegistryRepair) {
           throw new Error(`候选人编号 ${code} 的身份登记与当前简历不一致`);
         }

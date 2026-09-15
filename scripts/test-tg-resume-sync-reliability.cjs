@@ -169,6 +169,12 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   await api.main({ client, write: true, dialog: 'ojisamer' });
   const designer = JSON.parse(db.get('recruit:repush')).find(row => row.candidateName === 'Designer');
   assert.ok(designer?.resumeUrl && designer.notes.includes('作品集'), 'an explicit recommendation with portfolio attachment is collected, not silently lost');
+  const registry = JSON.parse(db.get(stateKey)); registry.entries.XYBB00400 = { identity: 'eva-id', name: 'eva' };
+  db.set(stateKey, JSON.stringify(registry));
+  history.unshift(message(510, 'XYBB00400', 'Eva马迅', '运营', '瑞升'));
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  const eva = JSON.parse(db.get('recruit:repush')).find(row => row.candidateCode === 'XYBB00400');
+  assert.equal(eva?.candidateIdentityId, 'eva-id', 'English and Chinese names on the same attachment preserve the registered identity');
   console.log('Passed TG intake regressions: pagination, multi-job, multi-person, detached replies, no-code intake, idempotence, retry retention and sender isolation.');
 })().catch(error => {
   console.error(error);
