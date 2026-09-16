@@ -261,7 +261,7 @@ export function InterviewCalendarPage() {
     }
   };
 
-  // Excel看板：按面试流程点击日期回溯，复制为可直接粘贴 Excel 的制表符文本。
+  // Excel看板：按面试流程点击日期回溯；无约面流程的直接 Offer 按确认日期纳入。
   const openExcelPicker = () => {
     setSelectedExcelIds(reportRows.map((row) => row.key));
     setShowExcelPicker(true);
@@ -473,7 +473,7 @@ export function InterviewCalendarPage() {
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <FileSpreadsheet className="w-5 h-5 text-indigo-500" />Excel看板
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">按点击面试流程的日期统计；未通过的人选也会保留。</p>
+                <p className="text-xs text-gray-500 mt-1">按点击面试流程的日期统计；无约面直接 Offer 按确认日期纳入，未通过的人选也会保留。</p>
               </div>
               <button onClick={() => setShowExcelPicker(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
@@ -502,7 +502,7 @@ export function InterviewCalendarPage() {
 
             <div className="max-h-[56vh] overflow-y-auto pr-1 space-y-4">
               {reportRows.length === 0 && (
-                <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">该统计范围内暂无约面记录</div>
+                <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">该统计范围内暂无面试或 Offer 记录</div>
               )}
               {reportDays.map(([day, rows]) => {
                 const dayIds = rows.map((row) => row.key);

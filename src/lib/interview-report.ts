@@ -87,7 +87,7 @@ export interface RecruitmentReportRow {
   candidateIds: string[];
   name: string;
   jdTitle: string;
-  stage: InterviewRound;
+  stage: InterviewRound | 'Offer';
   interviewDates: string;
   status: '通过' | 'pass';
   salaryPlan: string;
@@ -174,17 +174,25 @@ function hasPassed(candidates: Candidate[]): boolean {
  * 淘汰候选人不会被排除；不同部门永远分行。
  */
 export function buildRecruitmentReportRows(candidates: Candidate[], range: RecruitmentReportRange): RecruitmentReportRow[] {
-  const grouped = new Map<string, { candidates: Candidate[]; events: InterviewEvent[] }>();
+  const grouped = new Map<string, { candidates: Candidate[]; events: InterviewEvent[]; offerAppliedAt?: string }>();
   for (const candidate of candidates) {
-    const events = candidateEvents(candidate).filter((event) => {
+    const allEvents = candidateEvents(candidate);
+    const events = allEvents.filter((event) => {
       const key = localDateKey(event.scheduledAt);
       return key >= range.start && key <= range.end;
     });
-    if (!events.length) continue;
+    const directOfferAt = allEvents.length === 0 && candidate.stage === 'offer'
+      ? candidate.offerAppliedAt || candidate.updatedAt
+      : undefined;
+    const directOfferKey = directOfferAt ? localDateKey(directOfferAt) : '';
+    if (!events.length && (!directOfferKey || directOfferKey < range.start || directOfferKey > range.end)) continue;
     const key = reportIdentity(candidate);
     const group = grouped.get(key) || { candidates: [], events: [] };
     group.candidates.push(candidate);
     group.events.push(...events);
+    if (directOfferAt && (!group.offerAppliedAt || directOfferAt < group.offerAppliedAt)) {
+      group.offerAppliedAt = directOfferAt;
+    }
     grouped.set(key, group);
   }
 
@@ -197,10 +205,12 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
     const offerCandidate = newest.find((candidate) => candidate.offerAppliedAt)
       || newest.find((candidate) => candidate.regularSalary || candidate.onboardDate)
       || latestCandidate;
-    const stage = uniqueEvents.reduce<InterviewRound>(
-      (latest, event) => roundRank(event.round) > roundRank(latest) ? event.round : latest,
-      '一面',
-    );
+    const stage = uniqueEvents.length
+      ? uniqueEvents.reduce<InterviewRound>(
+        (latest, event) => roundRank(event.round) > roundRank(latest) ? event.round : latest,
+        '一面',
+      )
+      : 'Offer';
     const commission = getOfferCommissionForCandidate(offerCandidate, candidates);
     const payout = getCommissionPayout(commission, offerCandidate.commissionTenureMonths || 0);
     return {
@@ -209,7 +219,9 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       name: latestCandidate.name,
       jdTitle: latestCandidate.jdTitle,
       stage,
-      interviewDates: uniqueEvents.map(formatInterviewDay).join('/'),
+      interviewDates: uniqueEvents.length
+        ? uniqueEvents.map(formatInterviewDay).join('/')
+        : group.offerAppliedAt ? `${formatOnboardDay(group.offerAppliedAt)}确认Offer` : '',
       status: hasPassed(group.candidates) ? '通过' : 'pass',
       salaryPlan: salaryPlan(offerCandidate),
       department: latestCandidate.department || latestCandidate.organization || '',
@@ -218,7 +230,9 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       salaryTier: commission?.salaryTier || '',
       commission: payout.amount ? String(payout.amount) : '',
       source: latestCandidate.recommendationSource === 'repush' ? '转推荐' : '人才库',
-      sortAt: uniqueEvents.length ? new Date(uniqueEvents[0].interviewDate).getTime() : Number.MAX_SAFE_INTEGER,
+      sortAt: uniqueEvents.length
+        ? new Date(uniqueEvents[0].interviewDate).getTime()
+        : new Date(group.offerAppliedAt!).getTime(),
     };
   }).sort((a, b) => a.sortAt - b.sortAt || a.name.localeCompare(b.name, 'zh-CN'));
 }
