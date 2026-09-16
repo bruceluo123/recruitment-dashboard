@@ -1,6 +1,6 @@
 /**
  * 寻英当前负责的在招岗位快照。
- * 来源：在招岗位整合_截至2026.09.09 17时.xlsx
+ * 来源：在招非业务岗位 / 在招业务岗位（截至 2026.09.16 17:00）
  * 口径：主负责招聘团队含“寻英”，且当前缺口 HC > 0；重复岗位已合并。
  */
 export interface XunyingResponsibleJob {
@@ -10,7 +10,6 @@ export interface XunyingResponsibleJob {
 }
 
 export const XUNYING_RESPONSIBLE_JOBS: XunyingResponsibleJob[] = [
-  { organization: '技术中心', department: '', title: '项目经理' },
   { organization: '技术中心', department: 'SD组', title: 'AI 内容训练师' },
   { organization: '运营中心', department: '体验中心', title: '产品专员' },
   { organization: '运营中心', department: '体验中心', title: '效能支撑部-项目助理' },
@@ -53,34 +52,29 @@ export const XUNYING_RESPONSIBLE_JOBS: XunyingResponsibleJob[] = [
   { organization: '北斗-瑞升', department: '产品运营部', title: '高级产品经理' },
   { organization: '北斗-瑞升', department: '产品运营部', title: '高级产品经理（增长方向）' },
   { organization: '北斗-瑞升', department: '技术', title: 'Flutter 开发工程师' },
-  { organization: '北斗-瑞升', department: '技术', title: 'Golang开发工程师' },
-  { organization: '北斗-瑞升', department: '技术', title: '中高级前端开发' },
+  { organization: '北斗-瑞升', department: '效能先锋营', title: '高级/专家 AI 应用工程师（Agent Ops）' },
   { organization: '北斗-瑞升', department: '瑞升运营四部 · 增长1组，增长2组', title: '社媒 / 社群运营专员（中级）' },
-  { organization: '北斗-瑞升', department: '运营1/2/3部', title: '中高级平面设计师' },
   { organization: '北斗-瑞升', department: '运营3部', title: 'AI内容创作 / AI漫剧制作' },
   { organization: '北斗-瑞升', department: '运营三部/流量组', title: '中级远程社媒运营（KOL & 内容方向）' },
-  { organization: '北斗-伊甸维度', department: '运营1部', title: '高级产品经理' },
-  { organization: '北斗-伊甸维度', department: '运营一部', title: '中高级产品内容运营' },
+  { organization: '北斗-伊甸维度', department: '渠道部', title: '渠道扩展专员' },
   { organization: '北斗-伊甸维度', department: '运营一部', title: '中高级产品运营（加急）' },
   { organization: '北斗-伊甸维度', department: '运营二部', title: '中高级产品运营' },
+  { organization: '北斗-伊甸维度', department: '运营二部', title: '网站运营' },
   { organization: '北斗-伊甸维度', department: '运营公共部', title: 'AI内容编辑（加急）' },
   { organization: '北斗-伊甸维度', department: '运营公共部', title: 'AI动漫短剧编剧' },
   { organization: '北斗-伊甸维度', department: '运营公共部', title: 'UI设计师' },
   { organization: '北斗-伊甸维度', department: '运营公共部', title: '新媒体运营' },
-  { organization: '北斗-经纬', department: 'Ops效能先锋营', title: 'AI 短剧生成师' },
   { organization: '北斗-经纬', department: '技术部', title: '高级技术架构师（Go方向）' },
   { organization: '北斗-经纬', department: '运营部', title: 'AI短剧分镜师' },
+  { organization: '北斗-经纬', department: '运营部', title: 'AI短剧剪辑师' },
   { organization: '北斗-经纬', department: '运营部', title: 'AI短剧编剧（兼选题、角色设定）' },
   { organization: '北斗-经纬', department: '运营部', title: 'AI短剧配音师/音频制作' },
   { organization: '北斗-经纬', department: '运营部', title: 'AI视频生成师' },
   { organization: '北斗-经纬', department: '运营部', title: '中高级产品运营' },
-  { organization: '北斗-经纬', department: '运营部', title: '产品经理' },
   { organization: 'Happy-美国', department: '机房', title: 'AI Algorithm Engineer' },
   { organization: '内务部', department: '内务部', title: 'HRBP' },
   { organization: '内务部', department: '内务部', title: 'HR助理（HRBP方向）' },
   { organization: '内务部', department: '内务部', title: '项目助理 Project Assistant(1–2 名)' },
-  { organization: '法务部', department: '法务部', title: 'AI与知识产权法务' },
-  { organization: '法务部', department: '法务部', title: '公司治理法务' },
   { organization: '法务部', department: '法务部', title: '英国法务助理' },
   { organization: 'COE', department: '专家中心 COE —— A组', title: 'COE 专家（规则与框架方向）' },
 ];

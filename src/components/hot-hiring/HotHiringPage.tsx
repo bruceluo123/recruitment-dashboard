@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { groupPriorityLabel, groupPriorityRank } from '@/lib/group-priority';
+import { matchXunyingResponsibleJob } from '@/lib/xunying-responsible-jobs';
 
 function parseGap(gap?: string): number {
   if (!gap) return 0;
@@ -180,16 +181,24 @@ export function HotHiringPage() {
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
   const selectJD = useJDStore((s) => s.selectJD);
+  const xunyingJDs = useMemo(
+    () => jds.filter((jd) => Boolean(matchXunyingResponsibleJob({
+      title: jd.title,
+      department: jd.department,
+      organizations: [jd.organization, jd.serviceUnit],
+    }))),
+    [jds],
+  );
   // 本周新增 = 最近 5 个工作日内新增（按 createdAt 滚动窗口，跨周末，与 JD 库角标一致）
   const weeklyJds = useMemo<JD[]>(
-    () => recentlyAddedJds(jds).sort((a, b) => timestampOf(b.createdAt) - timestampOf(a.createdAt)),
-    [jds],
+    () => recentlyAddedJds(xunyingJDs).sort((a, b) => timestampOf(b.createdAt) - timestampOf(a.createdAt)),
+    [xunyingJDs],
   );
 
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
-  const availableJDs = jds.filter((jd) => jd.status !== 'paused');
+  const availableJDs = xunyingJDs.filter((jd) => jd.status !== 'paused');
   const departmentGroups = buildDepartmentGroups(availableJDs);
   const categoryGroups = departmentGroups.flatMap((department) => department.groups);
   const selectedCategoryGroups = categoryGroups.filter((group) => selectedGroups.has(group.key));
@@ -228,7 +237,7 @@ export function HotHiringPage() {
     try {
       const rotationDate = shanghaiDateKey();
       const history = readSmartRotationHistory();
-      const byId = new Map(jds.map((jd) => [jd.id, jd]));
+      const byId = new Map(xunyingJDs.map((jd) => [jd.id, jd]));
       const today = history.find((item) => item.date === rotationDate);
       if (today && !forceNew) {
         const maimanfen = today.maimanfen.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
@@ -249,7 +258,7 @@ export function HotHiringPage() {
           rotationDate,
           rotationVariant,
           recentIds,
-          jobs: jds.map((jd) => ({
+          jobs: xunyingJDs.map((jd) => ({
             id: jd.id,
             title: jd.title,
             categories: jd.categories,
@@ -300,7 +309,7 @@ export function HotHiringPage() {
       <div>
         <h2 className="page-title">热招看板</h2>
         <p className="page-subtitle">
-          {departmentGroups.length} 个服务单位 · {categoryGroups.length} 个岗位类别 · {availableJDs.length} 个在招岗位
+          寻英负责 · {departmentGroups.length} 个服务单位 · {categoryGroups.length} 个岗位类别 · {availableJDs.length} 个在招岗位
         </p>
       </div>
 
@@ -321,7 +330,7 @@ export function HotHiringPage() {
           <div className="flex-1" />
           <button
             onClick={() => handleSmartGenerate()}
-            disabled={smartLoading || jds.length === 0}
+            disabled={smartLoading || xunyingJDs.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
           >
             <Sparkles className={cn('w-4 h-4', smartLoading && 'animate-spin')} />
@@ -374,7 +383,7 @@ export function HotHiringPage() {
             ))}
           </div>
         ) : (
-          <div className="py-12 text-center text-sm text-gray-400">暂无在招岗位</div>
+          <div className="py-12 text-center text-sm text-gray-400">暂无寻英负责的在招岗位</div>
         )}
       </GlassPanel>
 
