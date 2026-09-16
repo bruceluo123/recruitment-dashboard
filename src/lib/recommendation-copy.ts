@@ -3,7 +3,7 @@ import type { JD } from '@/types/jd';
 
 const OWNER_RECOMMENDER: Record<RepushColumnId, string> = {
   a: '麦满分 @bruceluo123',
-  b: 'BOBO @bobomiepucha',
+  b: 'BOBO @forforle',
 };
 
 export interface RecommendationCandidateFields {
