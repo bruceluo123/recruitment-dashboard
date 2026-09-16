@@ -11,6 +11,7 @@ interface StageKanbanCardProps {
   offerCommission?: OfferCommission;
   onClick: () => void;
   onFail: (id: string) => void;
+  onDeleteCandidate?: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
   onDeleteOffer?: (id: string) => void;
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
@@ -30,7 +31,7 @@ function formatOnboardDate(isoStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}号(周${week})`;
 }
 
-export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const accent = STAGE_ACCENTS[candidate.stage];
   const payout = getCommissionPayout(offerCommission, candidate.commissionTenureMonths || 0);
@@ -130,19 +131,32 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
               {COMMISSION_TENURE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
-        ) : candidate.outcome === 'failed' ? (
-          <span className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-medium text-red-500">
-            <CircleX className="h-3.5 w-3.5" />未通过
-          </span>
-        ) : confirming ? (
-          <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
-            <button onClick={(event) => { event.stopPropagation(); onFail(candidate.id); setConfirming(false); }} className="h-6 rounded-md bg-red-500 px-2 text-[11px] font-medium text-white hover:bg-red-600">确认未通过</button>
-            <button onClick={(event) => { event.stopPropagation(); setConfirming(false); }} className="h-6 rounded-md px-2 text-[11px] text-gray-500 hover:bg-gray-100">取消</button>
-          </div>
         ) : (
-          <button title="标记面试未通过" onClick={(event) => { event.stopPropagation(); setConfirming(true); }} className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-gray-400 transition-all hover:bg-red-50 hover:text-red-500">
-            <CircleX className="h-3.5 w-3.5" />未通过
-          </button>
+          <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+            <button
+              title="删除面试记录"
+              onClick={() => {
+                if (window.confirm(`确认删除 ${candidate.name} 的这条面试记录吗？已生成的 Offer 记录不会受影响。`)) onDeleteCandidate?.(candidate.id);
+              }}
+              className="flex h-7 items-center rounded-md px-1.5 text-gray-400 transition-all hover:bg-rose-50 hover:text-rose-500"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+            {candidate.outcome === 'failed' ? (
+              <span className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-medium text-red-500">
+                <CircleX className="h-3.5 w-3.5" />未通过
+              </span>
+            ) : confirming ? (
+              <>
+                <button onClick={() => { onFail(candidate.id); setConfirming(false); }} className="h-6 rounded-md bg-red-500 px-2 text-[11px] font-medium text-white hover:bg-red-600">确认未通过</button>
+                <button onClick={() => setConfirming(false)} className="h-6 rounded-md px-2 text-[11px] text-gray-500 hover:bg-gray-100">取消</button>
+              </>
+            ) : (
+              <button title="标记面试未通过" onClick={() => setConfirming(true)} className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-gray-400 transition-all hover:bg-red-50 hover:text-red-500">
+                <CircleX className="h-3.5 w-3.5" />未通过
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

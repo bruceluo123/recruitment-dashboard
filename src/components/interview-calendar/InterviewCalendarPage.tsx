@@ -209,6 +209,14 @@ export function InterviewCalendarPage() {
     setCopyMsg(`已删除 ${candidate.name} 的 Offer 记录`);
   };
 
+  const handleDeleteInterview = (id: string) => {
+    const candidate = candidates.find((item) => item.id === id);
+    if (!candidate || candidate.stage === 'offer') return;
+    removeCandidate(id);
+    if (selectedId === id) setSelectedId(null);
+    setCopyMsg(`已删除 ${candidate.name} 的面试记录，Offer 记录未受影响`);
+  };
+
   const handleCopyToday = async () => {
     const now = new Date();
     const isToday = (iso: string) => {
@@ -436,7 +444,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} />
+        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} />
       ) : (
         <WeekGridView candidates={activeOwnerCandidates} onCandidateClick={setSelectedId} />
       )}

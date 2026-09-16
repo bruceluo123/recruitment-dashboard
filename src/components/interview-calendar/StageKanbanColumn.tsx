@@ -18,6 +18,7 @@ interface StageKanbanColumnProps {
   owner?: CandidateOwner;
   onCandidateClick: (candidateId: string) => void;
   onFailCandidate: (id: string) => void;
+  onDeleteCandidate?: (id: string) => void;
   onEarlyDeparture: (id: string) => void;
   onDeleteOffer?: (id: string) => void;
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
@@ -29,7 +30,7 @@ const LANE_TONES: Record<CandidateStatus, string> = {
   offer: 'bg-emerald-50/70',
 };
 
-export function StageKanbanColumn({ stage, candidates, title, subtitle, performanceMonth, owner, onCandidateClick, onFailCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanColumnProps) {
+export function StageKanbanColumn({ stage, candidates, title, subtitle, performanceMonth, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanColumnProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
@@ -102,6 +103,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
             offerCommission={commissions.get(candidate.id) || undefined}
             onClick={() => onCandidateClick(candidate.id)}
             onFail={onFailCandidate}
+            onDeleteCandidate={onDeleteCandidate}
             onEarlyDeparture={onEarlyDeparture}
             onDeleteOffer={onDeleteOffer}
             onCommissionTenureChange={onCommissionTenureChange}
