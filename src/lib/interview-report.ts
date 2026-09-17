@@ -237,7 +237,8 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
   }).sort((a, b) => a.sortAt - b.sortAt || a.name.localeCompare(b.name, 'zh-CN'));
 }
 
-export function buildRecruitmentReportText(rows: RecruitmentReportRow[], title?: string): string {
+/** Excel 看板粘贴区已有固定表头，只复制候选人数据行。 */
+export function buildRecruitmentReportText(rows: RecruitmentReportRow[]): string {
   const body = rows.map((row) => [
     row.name,
     row.jdTitle,
@@ -252,7 +253,7 @@ export function buildRecruitmentReportText(rows: RecruitmentReportRow[], title?:
     row.commission,
     row.source,
   ].join('\t'));
-  return [title, RECRUITMENT_REPORT_HEADERS.join('\t'), ...body].filter(Boolean).join('\n');
+  return body.join('\n');
 }
 
 /** 导入草稿：可直接喂给 addCandidate（已含必填默认值） */

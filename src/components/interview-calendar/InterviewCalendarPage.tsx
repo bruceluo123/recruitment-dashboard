@@ -278,7 +278,7 @@ export function InterviewCalendarPage() {
   const handleCopyScheduleSelection = async () => {
     const selectedRows = reportRows.filter((row) => selectedExcelIds.includes(row.key));
     if (selectedRows.length === 0) { setCopyMsg('请先勾选要复制的面试'); return; }
-    const text = buildRecruitmentReportText(selectedRows, reportTitle);
+    const text = buildRecruitmentReportText(selectedRows);
     try {
       await navigator.clipboard.writeText(text);
       setShowExcelPicker(false);
@@ -341,14 +341,6 @@ export function InterviewCalendarPage() {
     }
     return Array.from(groups.entries());
   }, [reportRows]);
-  const reportTitle = useMemo(() => {
-    const label = reportPreset === 'month'
-      ? `${Number(reportMonth.slice(5))}月招聘情况`
-      : '本周招聘情况';
-    const onboardCount = reportRows.filter((row) => row.onboardDate).length;
-    return `${label}（${onboardCount}位入职）`;
-  }, [reportMonth, reportPreset, reportRows]);
-
   useEffect(() => {
     if (showExcelPicker) setSelectedExcelIds(reportRows.map((row) => row.key));
   }, [reportRange.start, reportRange.end, showExcelPicker, reportRows]);
