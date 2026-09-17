@@ -189,7 +189,7 @@ export function buildBoboHotHiringCopy(jds: JD[]): AdSegment {
     '远程岗急招：',
     ...currentJds.map((jd) => jd.title),
     '',
-    '更多前后端/测试/AI等技术岗位/远程岗位欢迎投递：@heye66888',
+    '更多前后端/测试/AI等技术岗位/远程岗位欢迎投递：@forforle',
   ].join('\n');
 
   return { title: '啵啵热招文案', text, count: currentJds.length };
