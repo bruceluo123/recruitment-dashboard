@@ -288,6 +288,15 @@ export async function retrySync() {
           announce('已忽略无权修改的本机记录，正在恢复云端数据');
           continue;
         }
+        if (response.status === 409 && result.code === 'BULK_DELETE_BLOCKED' && mutation.type === 'candidates') {
+          localStorage.setItem(`recruit:rejected-candidates:${mutation.id}`, JSON.stringify(mutation));
+          localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
+          pending.splice(mutationIndex, 1);
+          editGeneration.candidates = (editGeneration.candidates || 0) + 1;
+          requestedTypes.add('candidates');
+          announce('已拦截异常批量删除，并恢复云端面试数据');
+          continue;
+        }
         if (response.status === 409 && Array.isArray(result.conflicts) && result.conflicts.length) {
           const conflictIds = new Set(result.conflicts);
           const blockedChanges = mutation.changes.filter((change) => conflictIds.has(change.id));
@@ -418,6 +427,15 @@ export function syncPush(type: DataType, data: unknown[], before?: unknown[]) {
   const baseline = (before || observed[type]) as SyncRecord[] | undefined;
   if (!baseline) { announce('云端尚未读取完成，请稍后再保存'); return; }
   const changes = diffRecords(baseline, data as SyncRecord[]);
+  const candidateDeletions = type === 'candidates' ? changes.filter((change) => !change.after) : [];
+  if (candidateDeletions.length >= 10) {
+    const rejected = { id: crypto.randomUUID(), type, changes, createdAt: Date.now() };
+    localStorage.setItem(`recruit:rejected-candidates:${rejected.id}`, JSON.stringify(rejected));
+    observed[type] = baseline;
+    announce('已拦截异常批量删除，并恢复云端面试数据');
+    void refresh(true);
+    return;
+  }
   observed[type] = data as SyncRecord[];
   if (!changes.length) return;
   editGeneration[type] = (editGeneration[type] || 0) + 1;

@@ -82,11 +82,28 @@ export async function POST(request: NextRequest) {
           }, { status: 409 });
         }
       }
+      const candidateDeletions = type === 'candidates'
+        ? changes.filter((change) => !change.after && currentById.has(change.id))
+        : [];
+      if (candidateDeletions.length >= 10) {
+        return NextResponse.json({
+          code: 'BULK_DELETE_BLOCKED',
+          error: '已拦截异常批量删除，并保留云端面试数据',
+        }, { status: 409 });
+      }
       const tombstones = tombRaw ? JSON.parse(tombRaw) : {};
       const resurrected = resolution === 'local' && type !== 'jds'
         ? []
         : changes.filter((change) => change.after && tombstones[type]?.[change.id]).map((change) => change.id);
       const result = applyRecordChanges(current, changes);
+      if (type === 'candidates') {
+        // 候选人删除只隐藏业务卡片；原始记录继续留在云端，供 Excel 历史流水使用。
+        const retainedIds = new Set(result.records.map((record) => record.id));
+        for (const change of candidateDeletions) {
+          const stored = currentById.get(change.id);
+          if (stored && !retainedIds.has(change.id)) result.records.push(stored);
+        }
+      }
       if (type === 'jds' && resurrected.length) {
         return NextResponse.json({ code: 'JD_SNAPSHOT_EXPIRED', error: '已拦截被移除岗位的恢复，请通过新的完整面板导入恢复在招岗位' }, { status: 409 });
       }

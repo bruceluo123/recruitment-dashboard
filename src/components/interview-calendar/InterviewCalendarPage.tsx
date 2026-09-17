@@ -6,7 +6,7 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
-import type { CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
+import type { Candidate, CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES } from '@/types/interview';
 import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet, LogOut } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
@@ -70,6 +70,8 @@ export function InterviewCalendarPage() {
   const setOwnerTab = usePrefStore((s) => s.setActiveOwner);
   const [showImport, setShowImport] = useState(false);
   const [showExcelPicker, setShowExcelPicker] = useState(false);
+  const [reportCandidates, setReportCandidates] = useState<Candidate[] | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
   const [selectedExcelIds, setSelectedExcelIds] = useState<string[]>([]);
   const [reportPreset, setReportPreset] = useState<'month' | 'week'>('month');
   const [reportMonth, setReportMonth] = useState(currentRecruitmentMonth);
@@ -270,9 +272,23 @@ export function InterviewCalendarPage() {
   };
 
   // Excel看板：按面试流程点击日期回溯；无约面流程的直接 Offer 按确认日期纳入。
-  const openExcelPicker = () => {
-    setSelectedExcelIds(reportRows.map((row) => row.key));
+  const openExcelPicker = async () => {
+    setReportLoading(true);
     setShowExcelPicker(true);
+    try {
+      const response = await fetch('/api/interview-report/history', {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
+      });
+      const result = await response.json() as { candidates?: Candidate[]; error?: string };
+      if (!response.ok || !Array.isArray(result.candidates)) throw new Error(result.error || '历史面试读取失败');
+      setReportCandidates(result.candidates);
+    } catch (error) {
+      setReportCandidates(null);
+      setCopyMsg(error instanceof Error ? error.message : '历史面试读取失败，请重试');
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   const handleCopyScheduleSelection = async () => {
@@ -329,9 +345,13 @@ export function InterviewCalendarPage() {
     const today = new Date();
     return { start: inputDate(startOfWeek(today)), end: inputDate(today) };
   }, [reportMonth, reportPreset]);
+  const reportOwnerCandidates = useMemo(
+    () => (reportCandidates || candidates).filter((candidate) => (candidate.owner || 'a') === ownerTab),
+    [candidates, ownerTab, reportCandidates],
+  );
   const reportRows = useMemo(
-    () => buildRecruitmentReportRows(ownerCandidates, reportRange),
-    [ownerCandidates, reportRange],
+    () => buildRecruitmentReportRows(reportOwnerCandidates, reportRange),
+    [reportOwnerCandidates, reportRange],
   );
   const reportDays = useMemo(() => {
     const groups = new Map<string, typeof reportRows>();
@@ -501,10 +521,13 @@ export function InterviewCalendarPage() {
             </div>
 
             <div className="max-h-[56vh] overflow-y-auto pr-1 space-y-4">
-              {reportRows.length === 0 && (
+              {reportLoading && (
+                <div className="rounded-xl border border-dashed border-indigo-100 bg-indigo-50/40 py-10 text-center text-sm text-indigo-400">正在读取完整面试历史…</div>
+              )}
+              {!reportLoading && reportRows.length === 0 && (
                 <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">该统计范围内暂无面试或 Offer 记录</div>
               )}
-              {reportDays.map(([day, rows]) => {
+              {!reportLoading && reportDays.map(([day, rows]) => {
                 const dayIds = rows.map((row) => row.key);
                 const allChecked = dayIds.every((id) => selectedExcelIds.includes(id));
                 return (
@@ -560,8 +583,8 @@ export function InterviewCalendarPage() {
                 <button onClick={() => setShowExcelPicker(false)} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
                 <button
                   onClick={handleCopyScheduleSelection}
-                  className={cn('h-10 px-5 rounded-xl text-sm font-medium text-white transition-colors', selectedExcelIds.length ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed')}
-                  disabled={selectedExcelIds.length === 0}
+                  className={cn('h-10 px-5 rounded-xl text-sm font-medium text-white transition-colors', !reportLoading && selectedExcelIds.length ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed')}
+                  disabled={reportLoading || selectedExcelIds.length === 0}
                 >
                   复制 {selectedExcelIds.length} 条
                 </button>
