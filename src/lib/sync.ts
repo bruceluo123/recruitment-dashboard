@@ -108,9 +108,17 @@ function quarantineJDMutations(stale: Mutation[]) {
   }
   if (stale.length) editGeneration.jds = (editGeneration.jds || 0) + 1;
 }
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+  // AbortSignal.timeout/any is unavailable on some iOS Safari versions. A plain
+  // controller keeps cloud sync working there instead of failing before fetch starts.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try { return await fetch(input, { ...init, signal: controller.signal }); }
+  finally { clearTimeout(timer); }
+}
 async function readKeys(keys: string[]): Promise<Record<string, string | null>> {
   const params = new URLSearchParams(); keys.forEach((key) => params.append('key', key));
-  const response = await fetch(`/api/sync/read?${params}`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+  const response = await fetchWithTimeout(`/api/sync/read?${params}`, { cache: 'no-store' }, 30_000);
   if (!response.ok) throw new Error('数据读取失败');
   return (await response.json()).values;
 }
@@ -179,34 +187,49 @@ async function refresh(force = false) {
       && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return;
     const types = Array.from(requestedTypes);
     if (!types.length) return;
-    const values = await readKeys([...types, 'tombstones', ...(types.includes('jds') ? ['jds-epoch'] : [])]);
+    // The recommendation snapshot is several MB. Load all lighter business data
+    // first so a slow mobile connection cannot block JD/candidate synchronization.
+    const lightTypes = types.filter((type) => type !== 'repush');
+    const values = await readKeys([...lightTypes, 'tombstones', ...(types.includes('jds') ? ['jds-epoch'] : [])]);
     if (session !== syncSession || !onChange) return;
-    const changedTypes = new Set(types.filter((type) => (generation[type] || 0) !== (editGeneration[type] || 0)));
     tombstones = parse(values.tombstones) as typeof tombstones || {};
     const staleJDs = types.includes('jds') && !jdReplacing && !busy
       ? pending.filter((item) => item.type === 'jds' && item.jdEpoch !== (values['jds-epoch'] || '0'))
       : [];
     quarantineJDMutations(staleJDs);
-    for (const type of types) {
-      if (changedTypes.has(type) && type !== 'repush') { delete loadedVersions[type]; continue; }
-      if (type === 'jds' && jdReplacing) continue;
-      if (!['repush', 'candidates', 'todos', 'performance'].includes(type)
-        && pending.some((mutation) => mutation.type === type)) continue;
-      const rows = values[type] === null ? [] : parse(values[type]);
-      if (!Array.isArray(rows)) throw new Error('数据格式异常');
-      const visible = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
-      const data = type === 'repush'
-        ? overlayPendingRecommendations(overlayDeliveryReceipts(visible))
-        : type === 'candidates' || type === 'todos' || type === 'performance'
-          ? overlayPendingRecords(type, visible)
-          : visible;
-      if (type === 'jds') jdEpoch = values['jds-epoch'] || '0';
-      observed[type] = data;
-      loadedVersions[type] = version;
-      onChange?.(type, data, version, true);
+    const applyValues = (selectedTypes: DataType[], selectedValues: Record<string, string | null>) => {
+      for (const type of selectedTypes) {
+        if ((generation[type] || 0) !== (editGeneration[type] || 0) && type !== 'repush') { delete loadedVersions[type]; continue; }
+        if (type === 'jds' && jdReplacing) continue;
+        if (!['repush', 'candidates', 'todos', 'performance'].includes(type)
+          && pending.some((mutation) => mutation.type === type)) continue;
+        const rows = selectedValues[type] === null ? [] : parse(selectedValues[type]);
+        if (!Array.isArray(rows)) throw new Error('数据格式异常');
+        const visible = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
+        const data = type === 'repush'
+          ? overlayPendingRecommendations(overlayDeliveryReceipts(visible))
+          : type === 'candidates' || type === 'todos' || type === 'performance'
+            ? overlayPendingRecords(type, visible)
+            : visible;
+        if (type === 'jds') jdEpoch = values['jds-epoch'] || '0';
+        observed[type] = data;
+        loadedVersions[type] = version;
+        onChange?.(type, data, version, true);
+      }
+    };
+    applyValues(lightTypes, values);
+
+    let repushFailed = false;
+    if (types.includes('repush')) {
+      try {
+        const repushValues = await readKeys(['repush']);
+        if (session !== syncSession || !onChange) return;
+        applyValues(['repush'], repushValues);
+      } catch { repushFailed = true; }
     }
     remoteVersion = version;
     if (staleJDs.length) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
+    else if (repushFailed) announce('JD等基础数据已同步，推荐记录网络较慢，正在自动重试');
     else if (!pending.length) announce('');
   } catch { announce('云端读取失败，已保留当前数据；连接恢复后重试'); }
   finally {
@@ -228,12 +251,11 @@ export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown
     const rows = data[type];
     if (!Array.isArray(rows) || !rows.length) continue;
     try {
-      const response = await fetch('/api/sync/bootstrap', {
+      const response = await fetchWithTimeout('/api/sync/bootstrap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: { [type]: rows } }),
-        signal: AbortSignal.timeout(30_000),
-      });
+      }, 30_000);
       if (!response.ok) failed.push(type);
     } catch { failed.push(type); }
   }
@@ -249,7 +271,7 @@ export async function retrySync() {
       const mutationIndex = pending.findIndex((mutation) => !mutation.conflicts?.length);
       const mutation = pending[mutationIndex];
       announce(`正在保存 ${pending.filter((item) => !item.conflicts?.length).length} 项修改`);
-      const response = await fetch('/api/sync/records', {
+      const response = await fetchWithTimeout('/api/sync/records', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: mutation.type,
@@ -258,8 +280,7 @@ export async function retrySync() {
           resolution: mutation.resolution,
           ...(mutation.type === 'jds' ? { jdEpoch: mutation.jdEpoch } : {}),
         }),
-        signal: AbortSignal.timeout(30_000),
-      });
+      }, 30_000);
       if (!response.ok) {
         const result = await response.json().catch(() => ({})) as { error?: string; code?: string; conflicts?: string[]; forbidden?: string[] };
         if (mutation.type === 'jds' && result.code === 'JD_SNAPSHOT_EXPIRED') {
@@ -489,7 +510,7 @@ export async function readJDImportSnapshot(): Promise<JDImportSnapshot> {
   if (busy || jdReplacing || pending.some((item) => item.type === 'jds')) {
     throw new Error('还有岗位修改正在保存或等待处理，请完成同步后再导入');
   }
-  const response = await fetch('/api/sync/jds', { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+  const response = await fetchWithTimeout('/api/sync/jds', { cache: 'no-store' }, 30_000);
   const result = await response.json();
   if (!response.ok || !Array.isArray(result.jds) || typeof result.revision !== 'string' || typeof result.epoch !== 'string') {
     throw new Error(result.error || '读取云端岗位失败，已停止覆盖');
@@ -517,7 +538,7 @@ export async function replaceSyncedJDs(snapshot: JDImportSnapshot, jds: JD[], ap
     for (let attempt = 0; attempt < 2; attempt++) {
       let response: Response, result;
       try {
-        response = await fetch('/api/sync/jds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, signal: AbortSignal.timeout(30_000) });
+        response = await fetchWithTimeout('/api/sync/jds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }, 30_000);
         result = await response.json();
       } catch {
         continue;
@@ -532,7 +553,7 @@ export async function replaceSyncedJDs(snapshot: JDImportSnapshot, jds: JD[], ap
     for (let attempt = 0; attempt < 2; attempt++) {
       let response: Response, result;
       try {
-        response = await fetch(`/api/sync/jds?mutationId=${mutationId}`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
+        response = await fetchWithTimeout(`/api/sync/jds?mutationId=${mutationId}`, { cache: 'no-store' }, 15_000);
         result = await response.json();
       } catch { continue; }
       if (response.ok) return acceptResult(result);

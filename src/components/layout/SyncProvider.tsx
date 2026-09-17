@@ -19,9 +19,9 @@ import type { TodoItem } from '@/types/todo';
 import type { Company } from '@/types/company';
 
 function routeTypes(path: string): DataType[] {
-  const common: DataType[] = ['candidates', 'repush', 'todos', 'performance'];
-  if (path === '/' || path.startsWith('/resume-matching') || path.startsWith('/repush-pool')
-    || path.startsWith('/interview-calendar') || path.startsWith('/hot-hiring')) return [...common, 'jds'];
+  const common: DataType[] = ['candidates', 'todos', 'performance'];
+  if (path === '/' || path.startsWith('/resume-matching') || path.startsWith('/repush-pool')) return [...common, 'repush', 'jds'];
+  if (path.startsWith('/interview-calendar') || path.startsWith('/hot-hiring')) return [...common, 'jds'];
   if (path.startsWith('/jd-library')) return [...common, 'jds', 'companies'];
   if (path.startsWith('/talent-pool')) return [...common, 'talents', 'jds'];
   if (path.startsWith('/companies')) return [...common, 'companies'];
