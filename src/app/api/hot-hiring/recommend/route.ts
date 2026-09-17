@@ -14,6 +14,7 @@ const BOBO_TARGET_COUNT = 25;
 interface SmartJob {
   id: string;
   title: string;
+  xunyingResponsible?: boolean;
   categories: string[];
   priority?: string;
   gap?: string;
@@ -74,6 +75,7 @@ function jobScore(job: SmartJob): number {
   const createdDays = ageDays(job.createdAt);
   const updatedDays = ageDays(job.updatedAt);
   let score = 0;
+  if (job.xunyingResponsible) score += 90;
   if (groupPriorityLabel(job)) score += 80;
   if (createdDays <= 2) score += 42;
   else if (createdDays <= 7) score += 30;
@@ -275,6 +277,7 @@ export async function POST(request: NextRequest) {
   const compactJobs = ranked.map((job) => ({
     id: job.id,
     title: job.title,
+    xunyingResponsible: Boolean(job.xunyingResponsible),
     category: job.categories?.join(','),
     priority: job.priority || '',
     gap: parseGap(job.gap),
@@ -295,7 +298,7 @@ export async function POST(request: NextRequest) {
   const prompt = `你是猎头团队的每日广告选岗助手。请从候选岗位中分别为“麦满分”和“啵啵”选择今天最值得发布的岗位。
 规则：
 0. 使用3天轮转机制。今天是“${ROTATION_THEMES[phase].label}”，提高对应类别的覆盖；标记 recentlyPublished=true 的岗位是最近两天用过的，除后端、Flutter或极高价值岗位外尽量不再选择，目标是每版至少65%为未重复岗位。
-1. 集团指标部门优先但不是限定范围：Happy、运营中心-体验中心、法务部、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
+1. xunyingResponsible=true 的寻英负责岗位优先；集团指标部门也优先但不是限定范围：Happy、运营中心-体验中心、法务部、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。数量不足时从其他在招部门补齐。
 2. 麦满分版选择 ${MAIMANFEN_TARGET_COUNT} 个，啵啵版选择 ${BOBO_TARGET_COUNT} 个；每版必须包含后端岗位，后端允许两版重复。
 3. Flutter 当前缺口较高，有活跃 Flutter 岗位时两版都应优先包含。
 4. 每版至少加入一个非集团优先部门的技术岗位，避免文案只覆盖集团指标部门。

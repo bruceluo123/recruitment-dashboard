@@ -56,6 +56,14 @@ interface DepartmentGroup {
   priorityRank: number;
 }
 
+function isXunyingResponsibleJD(jd: JD): boolean {
+  return Boolean(matchXunyingResponsibleJob({
+    title: jd.title,
+    department: jd.department,
+    organizations: [jd.organization, jd.serviceUnit],
+  }));
+}
+
 const SMART_ROTATION_STORAGE_KEY = 'recruit:hot-hiring-smart-rotation-v2';
 const BOBO_SMART_JOB_COUNT = 25;
 
@@ -95,6 +103,8 @@ function fillBoboSelection(selected: JD[], pool: JD[]): JD[] {
   const rankedPool = [...pool]
     .filter((jd) => jd.status !== 'paused')
     .sort((a, b) => {
+      const xunyingDifference = Number(isXunyingResponsibleJD(b)) - Number(isXunyingResponsibleJD(a));
+      if (xunyingDifference) return xunyingDifference;
       const priorityDifference = groupPriorityRank(a) - groupPriorityRank(b);
       if (priorityDifference) return priorityDifference;
       const rank = (jd: JD) => jd.priority === 'P0' ? 3 : jd.priority === 'P1' ? 2 : jd.priority === 'P2' ? 1 : 0;
@@ -205,24 +215,20 @@ export function HotHiringPage() {
   const router = useRouter();
   const jds = useJDStore((s) => s.jds);
   const selectJD = useJDStore((s) => s.selectJD);
-  const xunyingJDs = useMemo(
-    () => jds.filter((jd) => Boolean(matchXunyingResponsibleJob({
-      title: jd.title,
-      department: jd.department,
-      organizations: [jd.organization, jd.serviceUnit],
-    }))),
+  const availableJDs = useMemo(
+    () => jds.filter((jd) => jd.status !== 'paused'),
     [jds],
   );
+  const xunyingJobCount = useMemo(() => availableJDs.filter(isXunyingResponsibleJD).length, [availableJDs]);
   // 本周新增 = 最近 5 个工作日内新增（按 createdAt 滚动窗口，跨周末，与 JD 库角标一致）
   const weeklyJds = useMemo<JD[]>(
-    () => recentlyAddedJds(xunyingJDs).sort((a, b) => timestampOf(b.createdAt) - timestampOf(a.createdAt)),
-    [xunyingJDs],
+    () => recentlyAddedJds(availableJDs).sort((a, b) => timestampOf(b.createdAt) - timestampOf(a.createdAt)),
+    [availableJDs],
   );
 
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
-  const availableJDs = xunyingJDs.filter((jd) => jd.status !== 'paused');
   const departmentGroups = buildDepartmentGroups(availableJDs);
   const categoryGroups = departmentGroups.flatMap((department) => department.groups);
   const selectedCategoryGroups = categoryGroups.filter((group) => selectedGroups.has(group.key));
@@ -261,12 +267,12 @@ export function HotHiringPage() {
     try {
       const rotationDate = shanghaiDateKey();
       const history = readSmartRotationHistory();
-      const byId = new Map(xunyingJDs.map((jd) => [jd.id, jd]));
+      const byId = new Map(availableJDs.map((jd) => [jd.id, jd]));
       const today = history.find((item) => item.date === rotationDate);
       if (today && !forceNew) {
         const maimanfen = today.maimanfen.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
         const cachedBobo = today.bobo.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
-        const bobo = fillBoboSelection(cachedBobo, xunyingJDs);
+        const bobo = fillBoboSelection(cachedBobo, availableJDs);
         if (maimanfen.length >= 8 && bobo.length >= BOBO_SMART_JOB_COUNT) {
           if (bobo.some((jd, index) => jd.id !== today.bobo[index])) {
             saveSmartRotationRecord({ ...today, bobo: bobo.map((jd) => jd.id) });
@@ -287,9 +293,10 @@ export function HotHiringPage() {
           rotationVariant,
           regenerate: forceNew,
           recentIds,
-          jobs: xunyingJDs.map((jd) => ({
+          jobs: availableJDs.map((jd) => ({
             id: jd.id,
             title: jd.title,
+            xunyingResponsible: isXunyingResponsibleJD(jd),
             categories: jd.categories,
             priority: jd.priority,
             gap: jd.gap,
@@ -312,7 +319,7 @@ export function HotHiringPage() {
       const boboSelected = (Array.isArray(data.bobo) ? data.bobo : [])
         .map((id: string) => byId.get(id))
         .filter((jd: JD | undefined): jd is JD => !!jd);
-      const bobo = fillBoboSelection(boboSelected, xunyingJDs);
+      const bobo = fillBoboSelection(boboSelected, availableJDs);
       if (!maimanfen.length || !bobo.length) throw new Error('没有生成可用的岗位组合');
       const reasons = Array.isArray(data.reasons) ? data.reasons.map(String) : [];
       saveSmartRotationRecord({
@@ -339,7 +346,7 @@ export function HotHiringPage() {
       <div>
         <h2 className="page-title">热招看板</h2>
         <p className="page-subtitle">
-          寻英负责 · {departmentGroups.length} 个服务单位 · {categoryGroups.length} 个岗位类别 · {availableJDs.length} 个在招岗位
+          全部在招 · {departmentGroups.length} 个服务单位 · {categoryGroups.length} 个岗位类别 · {availableJDs.length} 个在招岗位 · 智能文案优先寻英负责 {xunyingJobCount} 个
         </p>
       </div>
 
@@ -360,7 +367,7 @@ export function HotHiringPage() {
           <div className="flex-1" />
           <button
             onClick={() => handleSmartGenerate()}
-            disabled={smartLoading || xunyingJDs.length === 0}
+            disabled={smartLoading || availableJDs.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-sm font-semibold shadow-sm transition-colors"
           >
             <Sparkles className={cn('w-4 h-4', smartLoading && 'animate-spin')} />
@@ -413,7 +420,7 @@ export function HotHiringPage() {
             ))}
           </div>
         ) : (
-          <div className="py-12 text-center text-sm text-gray-400">暂无寻英负责的在招岗位</div>
+          <div className="py-12 text-center text-sm text-gray-400">暂无在招岗位</div>
         )}
       </GlassPanel>
 
