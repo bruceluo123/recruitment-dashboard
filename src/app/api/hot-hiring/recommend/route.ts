@@ -92,11 +92,23 @@ function jobScore(job: SmartJob): number {
   return score;
 }
 
-function rotationJobScore(job: SmartJob, phase: number, recentIds: Set<string>): number {
+function easyHireScore(job: SmartJob): number {
+  const title = job.title || '';
+  let score = 0;
+  if (/专员|助理|编辑|运营|训练师|标注|质检|审核|客服|剪辑|设计师|测试工程师/i.test(title)) score += 34;
+  if (/低门槛|初级|应届|校招/i.test(title)) score += 18;
+  if (/负责人|组长|主管|经理|总监|专家|架构师|高级|资深/i.test(title)) score -= 22;
+  return score;
+}
+
+function rotationJobScore(job: SmartJob, phase: number, recentIds: Set<string>, preferEasyHire = false): number {
   const theme = ROTATION_THEMES[phase];
   const themeHit = job.categories?.some((category) => theme.categories.some((themeCategory) => themeCategory === category));
   const noveltyPenalty = recentIds.has(job.id) && !isBackendJob(job) && !isFlutterJob(job) ? 110 : 0;
-  return jobScore(job) + (themeHit ? 32 : 0) + (stableHash(`${phase}:${job.id}`) % 13) - noveltyPenalty;
+  const replaceBonus = preferEasyHire
+    ? easyHireScore(job) + (groupPriorityLabel(job) ? 36 : 0) + (/^P[01]$/.test(job.priority || '') ? 20 : 0)
+    : 0;
+  return jobScore(job) + replaceBonus + (themeHit ? 32 : 0) + (stableHash(`${phase}:${job.id}`) % 13) - noveltyPenalty;
 }
 
 function uniqueValid(ids: unknown, valid: Set<string>): string[] {
@@ -151,8 +163,8 @@ function ensureRequiredCoverage(ids: string[], ranked: SmartJob[], limit: number
   return next;
 }
 
-function fallbackSelection(jobs: SmartJob[], phase: number, recentIds: Set<string>): SmartSelection {
-  const ranked = [...jobs].sort((a, b) => rotationJobScore(b, phase, recentIds) - rotationJobScore(a, phase, recentIds));
+function fallbackSelection(jobs: SmartJob[], phase: number, recentIds: Set<string>, preferEasyHire: boolean): SmartSelection {
+  const ranked = [...jobs].sort((a, b) => rotationJobScore(b, phase, recentIds, preferEasyHire) - rotationJobScore(a, phase, recentIds, preferEasyHire));
   const common = ranked.slice(0, Math.min(3, ranked.length));
   const rest = ranked.slice(common.length);
   const maimanfen = [...common];
@@ -168,7 +180,9 @@ function fallbackSelection(jobs: SmartJob[], phase: number, recentIds: Set<strin
   return {
     maimanfen: ensureRequiredCoverage(maimanfen.map((job) => job.id), ranked, MAIMANFEN_TARGET_COUNT),
     bobo: ensureRequiredCoverage(bobo.map((job) => job.id), ranked, BOBO_TARGET_COUNT),
-    reasons: [`3天轮转 · 今日${ROTATION_THEMES[phase].label}`, '优先避开最近两天已发岗位', '每版必含后端并优先 Flutter', '集团指标部门优先但不限定部门'],
+    reasons: preferEasyHire
+      ? ['换版优先好招聘、好推进岗位', '集团指标、P0/P1及大缺口岗位优先', '优先避开最近两天已发岗位', '每版必含后端并优先 Flutter']
+      : [`3天轮转 · 今日${ROTATION_THEMES[phase].label}`, '优先避开最近两天已发岗位', '每版必含后端并优先 Flutter', '集团指标部门优先但不限定部门'],
   };
 }
 
@@ -179,6 +193,7 @@ function diversifySelection(
   owner: 'maimanfen' | 'bobo',
   phase: number,
   targetCount: number,
+  preferEasyHire: boolean,
 ): string[] {
   const byId = new Map(ranked.map((job) => [job.id, job]));
   const next = Array.from(new Set(ids)).slice(0, targetCount);
@@ -187,7 +202,7 @@ function diversifySelection(
     .filter((job) => !selected.has(job.id))
     .sort((a, b) => {
       const ownerDifference = (stableHash(`${owner}:${a.id}`) % 9) - (stableHash(`${owner}:${b.id}`) % 9);
-      return ownerDifference || rotationJobScore(b, phase, recentIds) - rotationJobScore(a, phase, recentIds);
+      return ownerDifference || rotationJobScore(b, phase, recentIds, preferEasyHire) - rotationJobScore(a, phase, recentIds, preferEasyHire);
     });
   const fillCandidates = [
     ...rankedCandidates.filter((job) => !recentIds.has(job.id)),
@@ -231,7 +246,7 @@ export async function POST(request: NextRequest) {
   const blocked = guardApi(request, 'hot-hiring-recommend', 8, 60_000);
   if (blocked) return blocked;
 
-  let body: { jobs?: SmartJob[]; rotationDate?: string; rotationVariant?: number; recentIds?: string[] };
+  let body: { jobs?: SmartJob[]; rotationDate?: string; rotationVariant?: number; regenerate?: boolean; recentIds?: string[] };
   try {
     body = await request.json();
   } catch {
@@ -245,13 +260,14 @@ export async function POST(request: NextRequest) {
 
   const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(body.rotationDate || '') ? body.rotationDate! : shanghaiDateKey();
   const variant = Number.isInteger(body.rotationVariant) ? Math.max(0, body.rotationVariant || 0) : 0;
+  const preferEasyHire = body.regenerate === true;
   const phase = (rotationIndex(dateKey) + variant) % ROTATION_THEMES.length;
   const validJobIds = new Set(jobs.map((job) => job.id));
   const recentIds = new Set((Array.isArray(body.recentIds) ? body.recentIds : []).map(String).filter((id) => validJobIds.has(id)));
   const ranked = [...jobs]
-    .sort((a, b) => rotationJobScore(b, phase, recentIds) - rotationJobScore(a, phase, recentIds))
+    .sort((a, b) => rotationJobScore(b, phase, recentIds, preferEasyHire) - rotationJobScore(a, phase, recentIds, preferEasyHire))
     .slice(0, 90);
-  const fallback = fallbackSelection(ranked, phase, recentIds);
+  const fallback = fallbackSelection(ranked, phase, recentIds, preferEasyHire);
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) return NextResponse.json({ ok: true, source: 'rules', ...fallback });
 
@@ -278,14 +294,15 @@ export async function POST(request: NextRequest) {
   const prompt = `你是猎头团队的每日广告选岗助手。请从候选岗位中分别为“麦满分”和“啵啵”选择今天最值得发布的岗位。
 规则：
 0. 使用3天轮转机制。今天是“${ROTATION_THEMES[phase].label}”，提高对应类别的覆盖；标记 recentlyPublished=true 的岗位是最近两天用过的，除后端、Flutter或极高价值岗位外尽量不再选择，目标是每版至少65%为未重复岗位。
-1. 集团指标部门优先但不是限定范围：Happy、运营中心-体验中心、法务部、瑞升、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
+1. 集团指标部门优先但不是限定范围：Happy、运营中心-体验中心、法务部、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
 2. 麦满分版选择 ${MAIMANFEN_TARGET_COUNT} 个，啵啵版选择 ${BOBO_TARGET_COUNT} 个；每版必须包含后端岗位，后端允许两版重复。
 3. Flutter 当前缺口较高，有活跃 Flutter 岗位时两版都应优先包含。
 4. 每版至少加入一个非集团优先部门的技术岗位，避免文案只覆盖集团指标部门。
 5. 其余岗位再优先本周新增、P0/P1、缺口大、最近更新的岗位；重点覆盖运营、后端、前端。
 6. 两版允许 2-5 个高复推价值岗位重合，后端和 Flutter 可计入共同岗位，其余岗位尽量不同。
 7. 同标题或高度相似岗位不要在同一版重复；兼顾岗位吸引力和可投递人群广度。
-8. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
+8. ${preferEasyHire ? '这是用户点击“换一版”：不要随机换岗，优先替换为门槛更清晰、候选人覆盖广、面试推进快、较容易入职的岗位，同时提高集团指标、P0/P1和大缺口岗位占比。' : '首次生成按当天轮转主题兼顾岗位覆盖。'}
+9. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
 
 候选岗位：${JSON.stringify(compactJobs)}`;
 
@@ -305,8 +322,8 @@ export async function POST(request: NextRequest) {
     const data = await upstream.json();
     const parsed = parseModelJson(data?.choices?.[0]?.message?.content || '') as Partial<SmartSelection>;
     const valid = new Set(ranked.map((job) => job.id));
-    const maimanfen = diversifySelection(uniqueValid(parsed.maimanfen, valid), ranked, recentIds, 'maimanfen', phase, MAIMANFEN_TARGET_COUNT);
-    const bobo = diversifySelection(uniqueValid(parsed.bobo, valid), ranked, recentIds, 'bobo', phase, BOBO_TARGET_COUNT);
+    const maimanfen = diversifySelection(uniqueValid(parsed.maimanfen, valid), ranked, recentIds, 'maimanfen', phase, MAIMANFEN_TARGET_COUNT, preferEasyHire);
+    const bobo = diversifySelection(uniqueValid(parsed.bobo, valid), ranked, recentIds, 'bobo', phase, BOBO_TARGET_COUNT, preferEasyHire);
     if (maimanfen.length < Math.min(MAIMANFEN_TARGET_COUNT, ranked.length)
       || bobo.length < Math.min(BOBO_TARGET_COUNT, ranked.length)) throw new Error('AI 选岗数量不足');
     return NextResponse.json({
@@ -314,7 +331,7 @@ export async function POST(request: NextRequest) {
       source: 'ai',
       maimanfen,
       bobo,
-      reasons: [`3天轮转 · 今日${ROTATION_THEMES[phase].label}`, ...(Array.isArray(parsed.reasons) ? parsed.reasons.map(String).slice(0, 3) : fallback.reasons?.slice(1) || [])],
+      reasons: [preferEasyHire ? '换版优先好招聘、好推进与高优先岗位' : `3天轮转 · 今日${ROTATION_THEMES[phase].label}`, ...(Array.isArray(parsed.reasons) ? parsed.reasons.map(String).slice(0, 3) : fallback.reasons?.slice(1) || [])],
     });
   } catch {
     return NextResponse.json({ ok: true, source: 'rules', ...fallback });

@@ -257,6 +257,7 @@ export function HotHiringPage() {
         body: JSON.stringify({
           rotationDate,
           rotationVariant,
+          regenerate: forceNew,
           recentIds,
           jobs: xunyingJDs.map((jd) => ({
             id: jd.id,

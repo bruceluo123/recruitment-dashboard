@@ -10,7 +10,6 @@ const GROUP_PRIORITY_RULES = [
   { label: 'Happy', terms: ['happy'] },
   { label: '运营中心-体验中心', terms: ['运营中心', '体验中心'] },
   { label: '法务部', terms: ['法务部'] },
-  { label: '瑞升', terms: ['瑞升'] },
   { label: '经纬', terms: ['经纬'] },
   { label: '伊甸维度', terms: ['伊甸维度'] },
   { label: '合规部', terms: ['合规部'] },
