@@ -143,11 +143,11 @@ function overlayPendingRecommendations(rows: SyncRecord[]): SyncRecord[] {
   return Array.from(result.values());
 }
 
-function overlayPendingCandidates(rows: SyncRecord[]): SyncRecord[] {
+function overlayPendingRecords(type: 'candidates' | 'todos' | 'performance', rows: SyncRecord[]): SyncRecord[] {
   const result = new Map(rows.map(row => [row.id, row]));
-  for (const mutation of pending.filter(item => item.type === 'candidates')) {
+  for (const mutation of pending.filter(item => item.type === type)) {
     for (const change of mutation.changes) {
-      if (isTombstoned('candidates', change.id)) continue;
+      if (isTombstoned(type, change.id)) continue;
       if (!change.after) { result.delete(change.id); continue; }
       const current = result.get(change.id);
       if (!current || !change.before) {
@@ -190,13 +190,16 @@ async function refresh(force = false) {
     for (const type of types) {
       if (changedTypes.has(type) && type !== 'repush') { delete loadedVersions[type]; continue; }
       if (type === 'jds' && jdReplacing) continue;
-      if (type !== 'repush' && type !== 'candidates' && pending.some((mutation) => mutation.type === type)) continue;
+      if (!['repush', 'candidates', 'todos', 'performance'].includes(type)
+        && pending.some((mutation) => mutation.type === type)) continue;
       const rows = values[type] === null ? [] : parse(values[type]);
       if (!Array.isArray(rows)) throw new Error('数据格式异常');
       const visible = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
       const data = type === 'repush'
         ? overlayPendingRecommendations(overlayDeliveryReceipts(visible))
-        : type === 'candidates' ? overlayPendingCandidates(visible) : visible;
+        : type === 'candidates' || type === 'todos' || type === 'performance'
+          ? overlayPendingRecords(type, visible)
+          : visible;
       if (type === 'jds') jdEpoch = values['jds-epoch'] || '0';
       observed[type] = data;
       loadedVersions[type] = version;
@@ -432,7 +435,7 @@ export function startSync(handler: ChangeHandler, initialTypes: DataType[] = TYP
   catch { announce('本机待同步记录无法读取，请勿清除浏览器数据'); }
   if (pending.some((item) => item.type === 'jds')) requestedTypes.add('jds');
   void refresh(true).then(() => { if (pending.length) void retrySync(); });
-  timer = setInterval(() => { void refresh(); }, 10_000);
+  timer = setInterval(() => { void refresh(); }, 5_000);
   window.addEventListener('online', onOnline);
   window.addEventListener('focus', onVisible);
   document.addEventListener('visibilitychange', onVisible);

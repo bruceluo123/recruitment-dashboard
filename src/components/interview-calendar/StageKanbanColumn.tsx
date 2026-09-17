@@ -122,6 +122,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
           <label className="flex items-center gap-1.5 text-gray-500">
             岗位工资
             <input
+              key={`salary-${owner}-${performanceMonth}-${performanceRecord?.positionSalary ?? ''}`}
               type="number"
               min="0"
               step="100"
@@ -131,7 +132,6 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
                 const value = event.target.value.trim();
                 updatePerformanceRecord(owner, performanceMonth, {
                   positionSalary: value ? Math.max(0, Number(value) || 0) : undefined,
-                  kpiScore: performanceRecord?.kpiScore,
                 });
               }}
               className="h-7 w-24 rounded-md border border-gray-200 px-2 text-gray-700 outline-none focus:border-emerald-400"
@@ -140,6 +140,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
           <label className="flex items-center gap-1.5 text-gray-500">
             KPI总分
             <input
+              key={`score-${owner}-${performanceMonth}-${performanceRecord?.kpiScore ?? ''}`}
               type="number"
               min="0"
               max="100"
@@ -149,7 +150,6 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
               onBlur={(event) => {
                 const value = event.target.value.trim();
                 updatePerformanceRecord(owner, performanceMonth, {
-                  positionSalary: performanceRecord?.positionSalary,
                   kpiScore: value ? Math.min(100, Math.max(0, Number(value) || 0)) : undefined,
                 });
               }}

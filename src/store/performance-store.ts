@@ -16,7 +16,7 @@ interface PerformanceStore {
   updateRecord: (
     owner: CandidateOwner,
     month: string,
-    partial: Pick<PerformanceKpiRecord, 'positionSalary' | 'kpiScore'>,
+    partial: Partial<Pick<PerformanceKpiRecord, 'positionSalary' | 'kpiScore'>>,
   ) => void;
 }
 
@@ -27,9 +27,11 @@ export const usePerformanceStore = create<PerformanceStore>()(
       updateRecord: (owner, month, partial) => set((state) => {
         const id = `${owner}:${month}`;
         const existing = state.records.find((record) => record.id === id);
-        if (existing
-          && existing.positionSalary === partial.positionSalary
-          && existing.kpiScore === partial.kpiScore) return state;
+        const salaryUnchanged = !Object.hasOwn(partial, 'positionSalary')
+          || existing?.positionSalary === partial.positionSalary;
+        const scoreUnchanged = !Object.hasOwn(partial, 'kpiScore')
+          || existing?.kpiScore === partial.kpiScore;
+        if (existing && salaryUnchanged && scoreUnchanged) return state;
         const updated: PerformanceKpiRecord = {
           id,
           owner,
