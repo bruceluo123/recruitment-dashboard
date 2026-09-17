@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { StageKanbanCard } from './StageKanbanCard';
 import { STAGE_COLORS } from '@/types/interview';
 import type { InterviewStage, Candidate, CandidateOwner, CandidateStatus } from '@/types/interview';
-import { calculateKpiPerformancePay, formatCommissionAmount, getCommissionPayout, getMonthlyCommissionRate, getOfferCommissionForCandidate, isEffectiveOnboard } from '@/lib/offer-compensation';
+import { calculateKpiPerformancePay, formatCommissionAmount, getCommissionPayout, getKpiPerformanceMultiplier, getMonthlyCommissionRate, getOfferCommissionForCandidate, isEffectiveOnboard } from '@/lib/offer-compensation';
 import { usePerformanceStore } from '@/store/performance-store';
 
 interface StageKanbanColumnProps {
@@ -34,17 +34,21 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
+  const performanceRecord = usePerformanceStore((state) => state.records.find((record) => record.owner === owner && record.month === performanceMonth));
+  const updatePerformanceRecord = usePerformanceStore((state) => state.updateRecord);
+  const hasKpiScore = typeof performanceRecord?.kpiScore === 'number';
+  const commissionKpiMultiplier = hasKpiScore ? getKpiPerformanceMultiplier(performanceRecord.kpiScore!) : 1;
   const commissions = isOffer
     ? new Map(candidates.map((candidate) => [candidate.id, getOfferCommissionForCandidate(candidate, candidates)]))
     : new Map();
-  const commissionSum = Array.from(commissions.values()).reduce((sum, item) => sum + (item?.commissionAmount || 0), 0);
-  const payableSum = isOffer
+  const baseCommissionSum = Array.from(commissions.values()).reduce((sum, item) => sum + (item?.commissionAmount || 0), 0);
+  const basePayableSum = isOffer
     ? candidates.reduce((sum, candidate) => sum + getCommissionPayout(commissions.get(candidate.id), candidate.commissionTenureMonths || 0).amount, 0)
     : 0;
+  const commissionSum = Math.round(baseCommissionSum * commissionKpiMultiplier * 100) / 100;
+  const payableSum = Math.round(basePayableSum * commissionKpiMultiplier * 100) / 100;
   const effectiveOnboards = isOffer ? candidates.filter(isEffectiveOnboard) : [];
   const commissionRate = getMonthlyCommissionRate(effectiveOnboards.length);
-  const performanceRecord = usePerformanceStore((state) => state.records.find((record) => record.owner === owner && record.month === performanceMonth));
-  const updatePerformanceRecord = usePerformanceStore((state) => state.updateRecord);
   const kpiPay = calculateKpiPerformancePay(performanceRecord?.positionSalary || 0, performanceRecord?.kpiScore || 0);
   const hasKpiInput = Boolean(performanceRecord?.positionSalary) && typeof performanceRecord?.kpiScore === 'number';
   const advancedOnboardCount = effectiveOnboards.filter((candidate) => {
@@ -91,8 +95,8 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
         <div className="grid grid-cols-2 gap-px border-b border-emerald-100 bg-emerald-100 sm:grid-cols-4">
           <CommissionStat label="有效入职" value={`${effectiveOnboards.length} 人`} hint={`高级岗位 ${advancedOnboardCount} 人`} />
           <CommissionStat label="人数档比例" value={`${commissionRate * 100}%`} hint={effectiveOnboards.length < 3 ? '不足3人，暂不计提' : '同月所有Offer联动'} />
-          <CommissionStat label="预计总提成" value={`¥${formatCommissionAmount(commissionSum)}`} hint="转正薪资 × 比例 × 难度系数" />
-          <CommissionStat label="当前累计可发" value={`¥${formatCommissionAmount(payableSum)}`} hint="按入职满月进度计算" />
+          <CommissionStat label="预计总提成" value={`¥${formatCommissionAmount(commissionSum)}`} hint={hasKpiScore ? `基础 ¥${formatCommissionAmount(baseCommissionSum)} × KPI ${commissionKpiMultiplier}` : '转正薪资 × 比例 × 难度系数'} />
+          <CommissionStat label="当前累计可发" value={`¥${formatCommissionAmount(payableSum)}`} hint={hasKpiScore ? `基础 ¥${formatCommissionAmount(basePayableSum)} × KPI ${commissionKpiMultiplier}` : '按入职满月进度计算'} />
         </div>
       )}
       <div ref={trackRef} onWheel={handleWheel} className="flex h-[182px] min-w-0 gap-3 overflow-x-auto overflow-y-hidden bg-[#fbfcfe] px-4 py-3 scroll-smooth">
