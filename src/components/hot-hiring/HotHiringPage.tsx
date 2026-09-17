@@ -242,7 +242,7 @@ export function HotHiringPage() {
       if (today && !forceNew) {
         const maimanfen = today.maimanfen.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
         const bobo = today.bobo.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
-        if (maimanfen.length >= 8 && bobo.length >= 8) {
+        if (maimanfen.length >= 8 && bobo.length >= 25) {
           setSmartDialog({ maimanfen, bobo, reasons: today.reasons });
           return;
         }

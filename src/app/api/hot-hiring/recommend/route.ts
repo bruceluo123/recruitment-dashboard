@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
-const TARGET_COUNT = 16;
+const MAIMANFEN_TARGET_COUNT = 16;
+const BOBO_TARGET_COUNT = 25;
 
 interface SmartJob {
   id: string;
@@ -121,13 +122,14 @@ function addRequiredJob(
   ids: string[],
   ranked: SmartJob[],
   predicate: (job?: SmartJob) => boolean,
+  limit: number,
 ): string[] {
   const byId = new Map(ranked.map((job) => [job.id, job]));
   if (ids.some((id) => predicate(byId.get(id)))) return ids;
   const candidate = ranked.find((job) => predicate(job));
   if (!candidate) return ids;
   const next = [...ids];
-  if (next.length < 18) next.push(candidate.id);
+  if (next.length < limit) next.push(candidate.id);
   else {
     let replaceIndex = next.length - 1;
     for (let index = next.length - 1; index >= 0; index -= 1) {
@@ -142,10 +144,10 @@ function addRequiredJob(
   return Array.from(new Set(next));
 }
 
-function ensureRequiredCoverage(ids: string[], ranked: SmartJob[]): string[] {
-  let next = addRequiredJob(ids, ranked, isBackendJob);
-  next = addRequiredJob(next, ranked, isFlutterJob);
-  next = addRequiredJob(next, ranked, isOutsidePriorityTechnicalJob);
+function ensureRequiredCoverage(ids: string[], ranked: SmartJob[], limit: number): string[] {
+  let next = addRequiredJob(ids, ranked, isBackendJob, limit);
+  next = addRequiredJob(next, ranked, isFlutterJob, limit);
+  next = addRequiredJob(next, ranked, isOutsidePriorityTechnicalJob, limit);
   return next;
 }
 
@@ -155,15 +157,17 @@ function fallbackSelection(jobs: SmartJob[], phase: number, recentIds: Set<strin
   const rest = ranked.slice(common.length);
   const maimanfen = [...common];
   const bobo = [...common];
-  for (let index = 0; index < rest.length && (maimanfen.length < TARGET_COUNT || bobo.length < TARGET_COUNT); index += 1) {
+  for (let index = 0; index < rest.length && (maimanfen.length < MAIMANFEN_TARGET_COUNT || bobo.length < BOBO_TARGET_COUNT); index += 1) {
     const target = index % 2 === 0 ? maimanfen : bobo;
     const other = index % 2 === 0 ? bobo : maimanfen;
-    if (target.length < TARGET_COUNT) target.push(rest[index]);
-    else if (other.length < TARGET_COUNT) other.push(rest[index]);
+    const targetLimit = index % 2 === 0 ? MAIMANFEN_TARGET_COUNT : BOBO_TARGET_COUNT;
+    const otherLimit = index % 2 === 0 ? BOBO_TARGET_COUNT : MAIMANFEN_TARGET_COUNT;
+    if (target.length < targetLimit) target.push(rest[index]);
+    else if (other.length < otherLimit) other.push(rest[index]);
   }
   return {
-    maimanfen: ensureRequiredCoverage(maimanfen.map((job) => job.id), ranked),
-    bobo: ensureRequiredCoverage(bobo.map((job) => job.id), ranked),
+    maimanfen: ensureRequiredCoverage(maimanfen.map((job) => job.id), ranked, MAIMANFEN_TARGET_COUNT),
+    bobo: ensureRequiredCoverage(bobo.map((job) => job.id), ranked, BOBO_TARGET_COUNT),
     reasons: [`3天轮转 · 今日${ROTATION_THEMES[phase].label}`, '优先避开最近两天已发岗位', '每版必含后端并优先 Flutter', '集团指标部门优先但不限定部门'],
   };
 }
@@ -174,16 +178,28 @@ function diversifySelection(
   recentIds: Set<string>,
   owner: 'maimanfen' | 'bobo',
   phase: number,
+  targetCount: number,
 ): string[] {
   const byId = new Map(ranked.map((job) => [job.id, job]));
-  const next = Array.from(new Set(ids)).slice(0, 18);
+  const next = Array.from(new Set(ids)).slice(0, targetCount);
   const selected = new Set(next);
-  const candidates = ranked
-    .filter((job) => !recentIds.has(job.id) && !selected.has(job.id))
+  const rankedCandidates = ranked
+    .filter((job) => !selected.has(job.id))
     .sort((a, b) => {
       const ownerDifference = (stableHash(`${owner}:${a.id}`) % 9) - (stableHash(`${owner}:${b.id}`) % 9);
       return ownerDifference || rotationJobScore(b, phase, recentIds) - rotationJobScore(a, phase, recentIds);
     });
+  const fillCandidates = [
+    ...rankedCandidates.filter((job) => !recentIds.has(job.id)),
+    ...rankedCandidates.filter((job) => recentIds.has(job.id)),
+  ];
+  for (const candidate of fillCandidates) {
+    if (next.length >= targetCount) break;
+    if (selected.has(candidate.id)) continue;
+    next.push(candidate.id);
+    selected.add(candidate.id);
+  }
+  const candidates = rankedCandidates.filter((job) => !recentIds.has(job.id) && !selected.has(job.id));
   const desiredNovel = Math.ceil(next.length * 0.65);
   let novelCount = next.filter((id) => !recentIds.has(id)).length;
 
@@ -200,7 +216,7 @@ function diversifySelection(
     selected.add(replacement.id);
     novelCount += 1;
   }
-  return ensureRequiredCoverage(next, ranked);
+  return ensureRequiredCoverage(next, ranked, targetCount);
 }
 
 function parseModelJson(content: string): unknown {
@@ -263,7 +279,7 @@ export async function POST(request: NextRequest) {
 规则：
 0. 使用3天轮转机制。今天是“${ROTATION_THEMES[phase].label}”，提高对应类别的覆盖；标记 recentlyPublished=true 的岗位是最近两天用过的，除后端、Flutter或极高价值岗位外尽量不再选择，目标是每版至少65%为未重复岗位。
 1. 集团指标部门优先但不是限定范围：Happy、运营中心-体验中心、法务部、瑞升、经纬、伊甸维度、合规部、内务部英国岗位、Ann总。
-2. 每版选择 12-18 个；每版必须包含后端岗位，后端允许两版重复。
+2. 麦满分版选择 ${MAIMANFEN_TARGET_COUNT} 个，啵啵版选择 ${BOBO_TARGET_COUNT} 个；每版必须包含后端岗位，后端允许两版重复。
 3. Flutter 当前缺口较高，有活跃 Flutter 岗位时两版都应优先包含。
 4. 每版至少加入一个非集团优先部门的技术岗位，避免文案只覆盖集团指标部门。
 5. 其余岗位再优先本周新增、P0/P1、缺口大、最近更新的岗位；重点覆盖运营、后端、前端。
@@ -289,9 +305,10 @@ export async function POST(request: NextRequest) {
     const data = await upstream.json();
     const parsed = parseModelJson(data?.choices?.[0]?.message?.content || '') as Partial<SmartSelection>;
     const valid = new Set(ranked.map((job) => job.id));
-    const maimanfen = diversifySelection(uniqueValid(parsed.maimanfen, valid), ranked, recentIds, 'maimanfen', phase);
-    const bobo = diversifySelection(uniqueValid(parsed.bobo, valid), ranked, recentIds, 'bobo', phase);
-    if (maimanfen.length < 8 || bobo.length < 8) throw new Error('AI 选岗数量不足');
+    const maimanfen = diversifySelection(uniqueValid(parsed.maimanfen, valid), ranked, recentIds, 'maimanfen', phase, MAIMANFEN_TARGET_COUNT);
+    const bobo = diversifySelection(uniqueValid(parsed.bobo, valid), ranked, recentIds, 'bobo', phase, BOBO_TARGET_COUNT);
+    if (maimanfen.length < Math.min(MAIMANFEN_TARGET_COUNT, ranked.length)
+      || bobo.length < Math.min(BOBO_TARGET_COUNT, ranked.length)) throw new Error('AI 选岗数量不足');
     return NextResponse.json({
       ok: true,
       source: 'ai',
