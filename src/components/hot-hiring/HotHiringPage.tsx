@@ -56,7 +56,8 @@ interface DepartmentGroup {
   priorityRank: number;
 }
 
-const SMART_ROTATION_STORAGE_KEY = 'recruit:hot-hiring-smart-rotation-v1';
+const SMART_ROTATION_STORAGE_KEY = 'recruit:hot-hiring-smart-rotation-v2';
+const BOBO_SMART_JOB_COUNT = 25;
 
 interface SmartRotationRecord {
   date: string;
@@ -88,6 +89,19 @@ function saveSmartRotationRecord(record: SmartRotationRecord): void {
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-3);
   localStorage.setItem(SMART_ROTATION_STORAGE_KEY, JSON.stringify(next));
+}
+
+function fillBoboSelection(selected: JD[], pool: JD[]): JD[] {
+  const seen = new Set(selected.map((jd) => jd.id));
+  const fallback = pool
+    .filter((jd) => jd.status !== 'paused' && !seen.has(jd.id))
+    .sort((a, b) => {
+      const priorityDifference = groupPriorityRank(a) - groupPriorityRank(b);
+      if (priorityDifference) return priorityDifference;
+      const rank = (jd: JD) => jd.priority === 'P0' ? 3 : jd.priority === 'P1' ? 2 : jd.priority === 'P2' ? 1 : 0;
+      return rank(b) - rank(a) || parseGap(b.gap) - parseGap(a.gap) || timestampOf(b.updatedAt) - timestampOf(a.updatedAt);
+    });
+  return [...selected, ...fallback].slice(0, BOBO_SMART_JOB_COUNT);
 }
 
 function normalizeServiceUnit(value: string): string {
@@ -242,7 +256,7 @@ export function HotHiringPage() {
       if (today && !forceNew) {
         const maimanfen = today.maimanfen.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
         const bobo = today.bobo.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
-        if (maimanfen.length >= 8 && bobo.length >= 25) {
+        if (maimanfen.length >= 8 && bobo.length >= BOBO_SMART_JOB_COUNT) {
           setSmartDialog({ maimanfen, bobo, reasons: today.reasons });
           return;
         }
@@ -281,9 +295,10 @@ export function HotHiringPage() {
       const maimanfen = (Array.isArray(data.maimanfen) ? data.maimanfen : [])
         .map((id: string) => byId.get(id))
         .filter((jd: JD | undefined): jd is JD => !!jd);
-      const bobo = (Array.isArray(data.bobo) ? data.bobo : [])
+      const boboSelected = (Array.isArray(data.bobo) ? data.bobo : [])
         .map((id: string) => byId.get(id))
         .filter((jd: JD | undefined): jd is JD => !!jd);
+      const bobo = fillBoboSelection(boboSelected, xunyingJDs);
       if (!maimanfen.length || !bobo.length) throw new Error('没有生成可用的岗位组合');
       const reasons = Array.isArray(data.reasons) ? data.reasons.map(String) : [];
       saveSmartRotationRecord({
