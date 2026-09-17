@@ -20,7 +20,7 @@ import {
 import type { JD } from '@/types/jd';
 import {
   buildAdCopy, buildBoboHotHiringCopy, buildDesensitizedCopy, renumberDesensitizedText, adVariantLabel, getCategoryEmoji,
-  type AdSegment, type AdVariant,
+  adJobTitleKey, type AdSegment, type AdVariant,
 } from '@/lib/ad-copy';
 import { cn } from '@/lib/utils';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
@@ -92,16 +92,26 @@ function saveSmartRotationRecord(record: SmartRotationRecord): void {
 }
 
 function fillBoboSelection(selected: JD[], pool: JD[]): JD[] {
-  const seen = new Set(selected.map((jd) => jd.id));
-  const fallback = pool
-    .filter((jd) => jd.status !== 'paused' && !seen.has(jd.id))
+  const rankedPool = [...pool]
+    .filter((jd) => jd.status !== 'paused')
     .sort((a, b) => {
       const priorityDifference = groupPriorityRank(a) - groupPriorityRank(b);
       if (priorityDifference) return priorityDifference;
       const rank = (jd: JD) => jd.priority === 'P0' ? 3 : jd.priority === 'P1' ? 2 : jd.priority === 'P2' ? 1 : 0;
       return rank(b) - rank(a) || parseGap(b.gap) - parseGap(a.gap) || timestampOf(b.updatedAt) - timestampOf(a.updatedAt);
     });
-  return [...selected, ...fallback].slice(0, BOBO_SMART_JOB_COUNT);
+  const result: JD[] = [];
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+  for (const jd of [...selected, ...rankedPool]) {
+    const titleKey = adJobTitleKey(jd.title);
+    if (jd.status === 'paused' || seenIds.has(jd.id) || !titleKey || seenTitles.has(titleKey)) continue;
+    result.push(jd);
+    seenIds.add(jd.id);
+    seenTitles.add(titleKey);
+    if (result.length >= BOBO_SMART_JOB_COUNT) break;
+  }
+  return result;
 }
 
 function normalizeServiceUnit(value: string): string {
@@ -255,8 +265,12 @@ export function HotHiringPage() {
       const today = history.find((item) => item.date === rotationDate);
       if (today && !forceNew) {
         const maimanfen = today.maimanfen.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
-        const bobo = today.bobo.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
+        const cachedBobo = today.bobo.map((id) => byId.get(id)).filter((jd): jd is JD => !!jd && jd.status !== 'paused');
+        const bobo = fillBoboSelection(cachedBobo, xunyingJDs);
         if (maimanfen.length >= 8 && bobo.length >= BOBO_SMART_JOB_COUNT) {
+          if (bobo.some((jd, index) => jd.id !== today.bobo[index])) {
+            saveSmartRotationRecord({ ...today, bobo: bobo.map((jd) => jd.id) });
+          }
           setSmartDialog({ maimanfen, bobo, reasons: today.reasons });
           return;
         }

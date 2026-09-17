@@ -4,6 +4,26 @@
 import type { JD, JDCategory } from '@/types/jd';
 import { JD_CATEGORY_LABELS, getPrimaryCategory } from '@/types/jd';
 
+/** 广告展示岗位的去重键：忽略空白和仅表示招聘强度/人数的尾注。 */
+export function adJobTitleKey(title: string): string {
+  return String(title || '')
+    .trim()
+    .replace(/[（(]\s*(?:加急|急招|热招|大量招聘|招聘中|[0-9一二三两\-–—~至]+\s*名)\s*[)）]/gi, '')
+    .replace(/(?:加急|急招|热招)$/gi, '')
+    .replace(/[\s·•_\-—–/／|｜]+/g, '')
+    .toLowerCase();
+}
+
+export function uniqueAdJobTitles<T extends { title: string }>(jobs: T[]): T[] {
+  const seen = new Set<string>();
+  return jobs.filter((job) => {
+    const key = adJobTitleKey(job.title);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** 各职能分类对应的 emoji，用于文案小标题。缺省 💼。 */
 const CATEGORY_EMOJI: Record<JDCategory, string> = {
   frontend: '💻', backend: '🛠️', devops: '⚙️', administration: '🗂️',
@@ -65,11 +85,11 @@ export function getCategoryEmoji(cat: JDCategory): string {
 /** 文案只能使用调用时仍存在、仍在招聘的岗位；按岗位 ID 去重。 */
 function currentHiringJds(jds: JD[]): JD[] {
   const seen = new Set<string>();
-  return jds.filter((jd) => {
+  return uniqueAdJobTitles(jds.filter((jd) => {
     if (!jd?.id || !jd.title?.trim() || jd.status === 'paused' || seen.has(jd.id)) return false;
     seen.add(jd.id);
     return true;
-  });
+  }));
 }
 
 /** 远程/居家类地点不在文案中展示。 */

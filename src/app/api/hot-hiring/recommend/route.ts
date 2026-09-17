@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guardApi } from '@/lib/api-guard';
 import { groupPriorityLabel } from '@/lib/group-priority';
+import { uniqueAdJobTitles } from '@/lib/ad-copy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -264,8 +265,8 @@ export async function POST(request: NextRequest) {
   const phase = (rotationIndex(dateKey) + variant) % ROTATION_THEMES.length;
   const validJobIds = new Set(jobs.map((job) => job.id));
   const recentIds = new Set((Array.isArray(body.recentIds) ? body.recentIds : []).map(String).filter((id) => validJobIds.has(id)));
-  const ranked = [...jobs]
-    .sort((a, b) => rotationJobScore(b, phase, recentIds, preferEasyHire) - rotationJobScore(a, phase, recentIds, preferEasyHire))
+  const ranked = uniqueAdJobTitles([...jobs]
+    .sort((a, b) => rotationJobScore(b, phase, recentIds, preferEasyHire) - rotationJobScore(a, phase, recentIds, preferEasyHire)))
     .slice(0, 90);
   const fallback = fallbackSelection(ranked, phase, recentIds, preferEasyHire);
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -300,7 +301,7 @@ export async function POST(request: NextRequest) {
 4. 每版至少加入一个非集团优先部门的技术岗位，避免文案只覆盖集团指标部门。
 5. 其余岗位再优先本周新增、P0/P1、缺口大、最近更新的岗位；重点覆盖运营、后端、前端。
 6. 两版允许 2-5 个高复推价值岗位重合，后端和 Flutter 可计入共同岗位，其余岗位尽量不同。
-7. 同标题或高度相似岗位不要在同一版重复；兼顾岗位吸引力和可投递人群广度。
+7. 每版的展示岗位名称必须完全不重复；“加急”“急招”“招聘人数”等尾注不算不同岗位。兼顾岗位吸引力和可投递人群广度。
 8. ${preferEasyHire ? '这是用户点击“换一版”：不要随机换岗，优先替换为门槛更清晰、候选人覆盖广、面试推进快、较容易入职的岗位，同时提高集团指标、P0/P1和大缺口岗位占比。' : '首次生成按当天轮转主题兼顾岗位覆盖。'}
 9. 只返回 JSON，不要 markdown：{"maimanfen":["岗位id"],"bobo":["岗位id"],"reasons":["理由1","理由2","理由3"]}
 
