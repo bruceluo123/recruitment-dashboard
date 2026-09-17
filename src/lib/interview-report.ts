@@ -178,10 +178,12 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
   for (const candidate of candidates) {
     const allEvents = candidateEvents(candidate);
     const events = allEvents.filter((event) => {
-      const key = localDateKey(event.scheduledAt);
-      return key >= range.start && key <= range.end;
+      const scheduledKey = localDateKey(event.scheduledAt);
+      const interviewKey = localDateKey(event.interviewDate);
+      return (scheduledKey >= range.start && scheduledKey <= range.end)
+        || (interviewKey >= range.start && interviewKey <= range.end);
     });
-    const directOfferAt = allEvents.length === 0 && candidate.stage === 'offer'
+    const directOfferAt = events.length === 0 && candidate.stage === 'offer'
       ? candidate.offerAppliedAt || candidate.updatedAt
       : undefined;
     const directOfferKey = directOfferAt ? localDateKey(directOfferAt) : '';

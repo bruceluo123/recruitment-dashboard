@@ -473,7 +473,7 @@ export function InterviewCalendarPage() {
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <FileSpreadsheet className="w-5 h-5 text-indigo-500" />Excel看板
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">按点击面试流程的日期统计；无约面直接 Offer 按确认日期纳入，未通过的人选也会保留。</p>
+                <p className="text-xs text-gray-500 mt-1">按约面操作日或实际面试日统计；本期无面试记录的 Offer 按确认日期纳入，未通过的人选也会保留。</p>
               </div>
               <button onClick={() => setShowExcelPicker(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
