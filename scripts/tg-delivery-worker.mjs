@@ -51,6 +51,7 @@ const FETCH_RETRY_DELAYS_MS = [500, 1_500, 3_000];
 const FETCH_TIMEOUT_MS = 60_000;
 const TG_OPERATION_TIMEOUT_MS = 8 * 60 * 1_000;
 const TG_SETUP_TIMEOUT_MS = 2 * 60 * 1_000;
+const TG_MIN_DELIVERY_TIMEOUT_MS = 2 * 60 * 1_000;
 const UPLOAD_WORKERS = 4;
 const APPLICATION_MAPPING_LUA = `
 local function hasValidApplicationRows(record, repush)
@@ -1010,6 +1011,11 @@ function deliveryMimeType(fileName) {
   return 'application/octet-stream';
 }
 
+function deliveryTimeoutMs(buffer) {
+  const megabytes = Math.max(1, Math.ceil((buffer?.length || 0) / (1024 * 1024)));
+  return Math.min(TG_OPERATION_TIMEOUT_MS, TG_MIN_DELIVERY_TIMEOUT_MS + megabytes * 10_000);
+}
+
 function splitDeliveryText(value) {
   let remaining = String(value || '');
   const take = limit => {
@@ -1297,7 +1303,7 @@ async function processRecord(client, dialogs, claim) {
         await withLeaseRenewal(record, async (assertLease) => {
           const result = await withTimeout(
             sendDelivery(client, entity, record, deliveryIndex, delivery, buffer, assertLease),
-            TG_OPERATION_TIMEOUT_MS,
+            deliveryTimeoutMs(buffer),
             'Telegram delivery',
           );
           delivery.status = 'sent';
@@ -1343,6 +1349,12 @@ async function processRecord(client, dialogs, claim) {
 
     await finishClaim(record);
   } catch (error) {
+    if (error instanceof FatalOperationTimeoutError) {
+      await releaseClaim(claim).catch((releaseError) => {
+        console.error(`[tg-delivery] release timed-out task ${id}: ${releaseError?.message || releaseError}`);
+      });
+      throw error;
+    }
     if (error instanceof LeaseLostError || error instanceof DeliveryMappingError || error instanceof DeliveryStorageError) {
       if (error instanceof DeliveryStorageError) {
         // Keep this task's checkpoint locally; recovery of a short outage need not
@@ -1369,6 +1381,24 @@ function createClient() {
     tgEnv('API_HASH'),
     { connectionRetries: 3, ...(proxy ? { proxy } : {}) },
   );
+}
+
+async function hasOutboundWork() {
+  const [queued, processing] = await Promise.all([
+    kvLRange(QUEUE_KEY, 0, 0).catch(() => []),
+    kvLRange(PROCESSING_KEY, 0, 0).catch(() => []),
+  ]);
+  return queued.length > 0 || processing.length > 0;
+}
+
+async function withBackgroundClient(operation) {
+  const backgroundClient = createClient();
+  await withTimeout(backgroundClient.connect(), TG_SETUP_TIMEOUT_MS, 'Telegram background connection');
+  try {
+    return await operation(backgroundClient);
+  } finally {
+    await withTimeout(backgroundClient.disconnect(), 5_000, 'Telegram background disconnect').catch(() => {});
+  }
 }
 
 async function refreshDialogs(client) {
@@ -1420,7 +1450,7 @@ async function runOnce() {
     }
     await processBatch(client, dialogs, firstClaim);
   } finally {
-    await client.disconnect();
+    await withTimeout(client.disconnect(), 5_000, 'Telegram disconnect').catch(() => {});
   }
 }
 
@@ -1452,21 +1482,25 @@ async function runWatch() {
     if (intakeRunning || stopping) return;
     intakeRunning = true;
     try {
-      const { syncResumes } = await import('./tg-sync-resumes.mjs');
-      let remaining = 0;
-      do {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const result = await syncResumes({ client, dialog: 'ojisamer', write: true });
-            remaining = result?.imported ? result.remaining : 0;
-            break;
-          } catch (error) {
-            if (attempt === 2) throw error;
-            await wait(5_000);
+      if (await hasOutboundWork()) return;
+      await withBackgroundClient(async (backgroundClient) => {
+        const { syncResumes } = await import('./tg-sync-resumes.mjs');
+        let remaining = 0;
+        do {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const result = await syncResumes({ client: backgroundClient, dialog: 'ojisamer', write: true });
+              remaining = result?.imported ? result.remaining : 0;
+              break;
+            } catch (error) {
+              if (attempt === 2) throw error;
+              await wait(5_000);
+            }
           }
-        }
-        if (remaining) await wait(1_000);
-      } while (remaining && !stopping);
+          if (remaining && !await hasOutboundWork()) await wait(1_000);
+          else if (remaining) break;
+        } while (remaining && !stopping);
+      });
     } catch (error) {
       console.error(`[tg-intake] ${error?.stack || error}`);
     } finally {
@@ -1474,14 +1508,17 @@ async function runWatch() {
     }
   };
   const intakeTimer = setInterval(() => { void runIntake(); }, 5 * 60_000);
-  void runIntake();
+  const intakeInitialTimer = setTimeout(() => { void runIntake(); }, 60_000);
   let feedbackRunning = false;
   const runFeedback = async () => {
     if (feedbackRunning || stopping) return;
     feedbackRunning = true;
     try {
-      const { syncFeedback } = await import('./tg-feedback-audit.mjs');
-      await syncFeedback({ client, owner: ACCOUNT, sync: true, reuseOcr: true });
+      if (await hasOutboundWork()) return;
+      await withBackgroundClient(async (backgroundClient) => {
+        const { syncFeedback } = await import('./tg-feedback-audit.mjs');
+        await syncFeedback({ client: backgroundClient, owner: ACCOUNT, sync: true, reuseOcr: true });
+      });
     } catch (error) {
       console.error(`[tg-feedback] ${error?.stack || error}`);
     } finally {
@@ -1517,10 +1554,11 @@ async function runWatch() {
     }
   } finally {
     clearInterval(intakeTimer);
+    clearTimeout(intakeInitialTimer);
     clearInterval(feedbackTimer);
     clearTimeout(feedbackInitialTimer);
     clearInterval(heartbeatTimer);
-    await client.disconnect().catch(() => {});
+    await withTimeout(client.disconnect(), 5_000, 'Telegram disconnect').catch(() => {});
   }
 }
 
