@@ -4,6 +4,7 @@
 
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import type { InterviewEvent, InterviewRound } from '@/types/interview';
+import { isHeadhunterInterview } from '@/types/interview';
 import { getCommissionPayout, getOfferCommissionForCandidate } from '@/lib/offer-compensation';
 
 // 列顺序固定，导出与导入共用同一套表头
@@ -28,7 +29,7 @@ function pad(n: number): string {
 /** 把候选人导出为制表符分隔的汇报表格（含表头）。仅含有面试时间的候选人。 */
 export function buildInterviewReport(candidates: Candidate[]): string {
   const rows = candidates
-    .filter((c) => c.interviewDate)
+    .filter((c) => !isHeadhunterInterview(c) && c.interviewDate)
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime())
     .map((c) => {
       const d = new Date(c.interviewDate!);
@@ -59,12 +60,12 @@ function isSameDay(iso: string, ref: Date): boolean {
  * 入职地区、招聘渠道暂无字段来源，留空由用户在 Excel 中补充。
  */
 export function buildTodayScheduleTable(candidates: Candidate[], ref: Date = new Date()): string {
-  return buildScheduleTable(candidates.filter((c) => c.interviewDate && isSameDay(c.interviewDate!, ref)));
+  return buildScheduleTable(candidates.filter((c) => !isHeadhunterInterview(c) && c.interviewDate && isSameDay(c.interviewDate!, ref)));
 }
 
 export function buildScheduleTable(candidates: Candidate[]): string {
   return candidates
-    .filter((c) => c.interviewDate)
+    .filter((c) => !isHeadhunterInterview(c) && c.interviewDate)
     .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime())
     .map((c) => {
       const d = new Date(c.interviewDate!);
@@ -176,6 +177,7 @@ function hasPassed(candidates: Candidate[]): boolean {
 export function buildRecruitmentReportRows(candidates: Candidate[], range: RecruitmentReportRange): RecruitmentReportRow[] {
   const grouped = new Map<string, { candidates: Candidate[]; events: InterviewEvent[]; offerAppliedAt?: string }>();
   for (const candidate of candidates) {
+    if (isHeadhunterInterview(candidate)) continue;
     const allEvents = candidateEvents(candidate);
     const events = allEvents.filter((event) => {
       const scheduledKey = localDateKey(event.scheduledAt);

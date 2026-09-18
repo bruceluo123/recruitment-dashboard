@@ -3,6 +3,7 @@
 
 import type { JD } from '@/types/jd';
 import type { Candidate, InterviewEvent } from '@/types/interview';
+import { isHeadhunterInterview } from '@/types/interview';
 import type { RepushItem, InterviewRound } from '@/store/repush-store';
 import { matchJDByTitle } from './recommendation';
 import { generateId } from './utils';
@@ -31,7 +32,8 @@ interface ScheduleDeps {
 export function findRecommendationCandidate(item: RepushItem, candidates: Candidate[]): Candidate | undefined {
   const norm = (value?: string) => String(value || '').trim().toLowerCase();
   const name = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
-  const matches = candidates.filter((candidate) => (candidate.owner || 'a') === item.column
+  const matches = candidates.filter((candidate) => !isHeadhunterInterview(candidate)
+    && (candidate.owner || 'a') === item.column
     && (item.candidateCode ? norm(candidate.candidateCode) === norm(item.candidateCode) : norm(candidate.name) === norm(name))
     && norm(candidate.jdTitle) === norm(item.jdTitle)
     && norm(candidate.organization) === norm(item.organization)

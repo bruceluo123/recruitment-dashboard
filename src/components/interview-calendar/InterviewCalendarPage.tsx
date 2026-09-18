@@ -7,7 +7,7 @@ import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
 import type { Candidate, CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
-import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES } from '@/types/interview';
+import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES, isHeadhunterInterview } from '@/types/interview';
 import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet, LogOut } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
@@ -61,7 +61,6 @@ export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addStage] = useState<string>('');
   const [form, setForm] = useState({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
@@ -226,11 +225,12 @@ export function InterviewCalendarPage() {
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
     };
     const todays = activeOwnerCandidates
-      .filter((c) => c.interviewDate && isToday(c.interviewDate))
+      .filter((c) => !isHeadhunterInterview(c) && c.interviewDate && isToday(c.interviewDate))
       .sort((a, b) => new Date(a.interviewDate!).getTime() - new Date(b.interviewDate!).getTime());
     const onboards = candidates
       .filter((c) => (
         (c.owner || 'a') === ownerTab
+        && !isHeadhunterInterview(c)
         && c.onboardDate
         && isToday(c.onboardDate)
         && (!c.outcome || c.outcome === 'onboarded')
@@ -315,14 +315,15 @@ export function InterviewCalendarPage() {
   };
 
   const handleAdd = () => {
-    if (!form.name || !form.jdTitle) return;
+    if (!form.name || !form.jdTitle || !form.interviewDate) return;
     addCandidate({
       name: form.name, jdTitle: form.jdTitle, score: 0,
       organization: form.organization || undefined,
       department: form.department || undefined,
       contactEmail: '', notes: '', resumeId: '', jdId: '',
       owner: ownerTab,
-      stage: addStage as CandidateStatus,
+      stage: 'interview-1' as CandidateStatus,
+      interviewKind: 'headhunter',
       interviewDate: form.interviewDate ? new Date(form.interviewDate).toISOString() : undefined,
       interviewer: undefined,
       salary: form.salary || undefined,
@@ -339,6 +340,10 @@ export function InterviewCalendarPage() {
   const activeOwnerCandidates = useMemo(
     () => ownerCandidates.filter((c) => c.outcome !== 'failed'),
     [ownerCandidates],
+  );
+  const recruitmentOwnerCandidates = useMemo(
+    () => activeOwnerCandidates.filter((candidate) => !isHeadhunterInterview(candidate)),
+    [activeOwnerCandidates],
   );
   const reportRange = useMemo(() => {
     if (reportPreset === 'month') return recruitmentMonthRange(reportMonth);
@@ -384,9 +389,10 @@ export function InterviewCalendarPage() {
     : null;
   const selectedPayout = getCommissionPayout(selectedCommission, selected?.commissionTenureMonths || 0);
   const selectedTenureLabel = COMMISSION_TENURE_OPTIONS.find((item) => item.value === (selected?.commissionTenureMonths || 0))?.label || '未满1个月';
-  const firstInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-1').length;
-  const secondInterviewCount = activeOwnerCandidates.filter((c) => c.stage === 'interview-2').length;
-  const offerCount = activeOwnerCandidates.filter((c) => {
+  const firstInterviewCount = recruitmentOwnerCandidates.filter((c) => c.stage === 'interview-1').length;
+  const secondInterviewCount = recruitmentOwnerCandidates.filter((c) => c.stage === 'interview-2').length;
+  const headhunterInterviewCount = activeOwnerCandidates.filter(isHeadhunterInterview).length;
+  const offerCount = recruitmentOwnerCandidates.filter((c) => {
     if (c.stage !== 'offer') return false;
     return getOfferPerformanceMonth(c.onboardDate || c.offerAppliedAt || c.appliedAt) >= '2026-09';
   }).length;
@@ -417,7 +423,7 @@ export function InterviewCalendarPage() {
         <div className="shrink-0">
           <h2 className="page-title">面试 / Offer</h2>
           <p className="page-subtitle">
-            {columnNames[ownerTab]} 共 {activeOwnerCandidates.length} 个候选人，一面 {firstInterviewCount} 个，二/三面 {secondInterviewCount} 个，Offer {offerCount} 个
+            {columnNames[ownerTab]}：正式面试 {firstInterviewCount + secondInterviewCount} 个（其中二/三面 {secondInterviewCount} 个），猎头面试 {headhunterInterviewCount} 个，Offer {offerCount} 个
           </p>
         </div>
         <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1 2xl:justify-end 2xl:pb-0">
@@ -456,9 +462,9 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} />
+        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} onAddHeadhunterInterview={() => setShowAddForm(true)} />
       ) : (
-        <WeekGridView candidates={activeOwnerCandidates} onCandidateClick={setSelectedId} />
+        <WeekGridView candidates={recruitmentOwnerCandidates} onCandidateClick={setSelectedId} />
       )}
 
       {showImport && (
@@ -642,12 +648,15 @@ export function InterviewCalendarPage() {
           <div className="fixed inset-0 bg-black/20" />
           <div className="relative w-full max-w-sm bg-white border border-gray-200 rounded-2xl shadow-xl p-6 animate-fade-in">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">添加候选人</h3>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">添加猎头面试</h3>
+                <p className="mt-1 text-xs text-gray-400">仅记录在猎头面试行，不进入招聘报表和今日面试</p>
+              </div>
               <button onClick={() => setShowAddForm(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <div className="space-y-3">
-              <div><label className="block text-xs text-gray-500 mb-1">姓名 *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="候选人姓名" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">岗位 *</label><input value={form.jdTitle} onChange={(e) => setForm({ ...form, jdTitle: e.target.value })} placeholder="应聘岗位" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">姓名 *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="面试人姓名" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-violet-300" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">岗位 *</label><input value={form.jdTitle} onChange={(e) => setForm({ ...form, jdTitle: e.target.value })} placeholder="猎头岗位" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-violet-300" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">编制</label>
@@ -658,9 +667,9 @@ export function InterviewCalendarPage() {
                   <input list="dept-options" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="选择或输入部门" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
                 </div>
               </div>
-              <div><label className="block text-xs text-gray-500 mb-1">面试时间</label><input type="datetime-local" value={form.interviewDate} onChange={(e) => setForm({ ...form, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">面试时间 *</label><input type="datetime-local" value={form.interviewDate} onChange={(e) => setForm({ ...form, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-violet-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
-              <button onClick={handleAdd} className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-all">确认添加</button>
+              <button onClick={handleAdd} disabled={!form.name || !form.jdTitle || !form.interviewDate} className={cn('w-full h-10 rounded-xl text-white text-sm font-medium transition-all', form.name && form.jdTitle && form.interviewDate ? 'bg-violet-500 hover:bg-violet-600' : 'cursor-not-allowed bg-gray-200')}>确认添加</button>
             </div>
           </div>
         </div>

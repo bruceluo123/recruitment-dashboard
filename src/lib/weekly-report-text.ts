@@ -1,5 +1,6 @@
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
 import type { Candidate } from '@/types/interview';
+import { isHeadhunterInterview } from '@/types/interview';
 import type { JD } from '@/types/jd';
 import { priorityRank } from '@/types/jd';
 import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
@@ -212,7 +213,9 @@ function monthDay(value: Date): string {
 
 export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReportResult {
   const { start, end } = weeklyReportRange(input.referenceDate);
-  const ownerCandidates = input.candidates.filter((candidate) => (candidate.owner || 'a') === input.column);
+  const ownerCandidates = input.candidates.filter((candidate) => (
+    (candidate.owner || 'a') === input.column && !isHeadhunterInterview(candidate)
+  ));
   const recommendations = input.items.filter((item) => (
     item.column === input.column
     && isFirstRecommendation(item)

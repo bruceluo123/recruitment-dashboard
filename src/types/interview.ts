@@ -27,6 +27,7 @@ export const ALL_OUTCOMES: CandidateOutcome[] = ['onboarded', 'offer-rejected', 
 export type CandidateOwner = 'a' | 'b';
 
 export type InterviewRound = '一面' | '二面' | '三面';
+export type InterviewKind = 'recruitment' | 'headhunter';
 
 /** 每次从推荐中心点击「面试」产生一条，避免二面覆盖一面的历史。 */
 export interface InterviewEvent {
@@ -56,6 +57,8 @@ export interface Candidate {
   organization?: string;   // 编制组织（取自 JD 库）
   department?: string;     // 部门（取自 JD 库）
   stage: CandidateStatus;
+  /** 招聘面试为默认值；猎头面试仅用于面试看板独立排期，不进入招聘报表。 */
+  interviewKind?: InterviewKind;
   interviewRound?: InterviewRound;
   interviewHistory?: InterviewEvent[]; // 所有约面操作历史；二面/改期不覆盖已有记录
   score: number;
@@ -84,6 +87,10 @@ export interface Candidate {
   talentId?: string;            // 关联人才库 id（跨模块主键）
   appliedAt: string;
   updatedAt: string;
+}
+
+export function isHeadhunterInterview(candidate: Pick<Candidate, 'interviewKind'>): boolean {
+  return candidate.interviewKind === 'headhunter';
 }
 
 export const DEFAULT_STAGES: InterviewStage[] = [

@@ -4,7 +4,7 @@ import { CalendarClock, CircleX, LogOut, Mail, Pencil, Trash2, UserRound } from 
 import { cn, formatInterviewDate } from '@/lib/utils';
 import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, type OfferCommission } from '@/lib/offer-compensation';
 import type { Candidate, CandidateStatus } from '@/types/interview';
-import { OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
+import { isHeadhunterInterview, OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
 
 interface StageKanbanCardProps {
   candidate: Candidate;
@@ -23,6 +23,8 @@ const STAGE_ACCENTS: Record<CandidateStatus, { border: string; badge: string; ic
   offer: { border: 'border-l-emerald-400', badge: 'bg-emerald-50 text-emerald-700', icon: 'text-emerald-500' },
 };
 
+const HEADHUNTER_ACCENT = { border: 'border-l-violet-400', badge: 'bg-violet-50 text-violet-700', icon: 'text-violet-500' };
+
 /** 入职时间为日期字段，按「X月X号(周X)」展示，不显示时间。 */
 function formatOnboardDate(isoStr: string): string {
   const date = new Date(isoStr);
@@ -33,9 +35,12 @@ function formatOnboardDate(isoStr: string): string {
 
 export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
-  const accent = STAGE_ACCENTS[candidate.stage];
+  const isHeadhunter = isHeadhunterInterview(candidate);
+  const accent = isHeadhunter ? HEADHUNTER_ACCENT : STAGE_ACCENTS[candidate.stage];
   const payout = getCommissionPayout(offerCommission, candidate.commissionTenureMonths || 0);
-  const roundLabel = candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
+  const roundLabel = isHeadhunter
+    ? '猎头面试'
+    : candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
 
   return (
     <div

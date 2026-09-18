@@ -11,6 +11,7 @@
 
 import type { RepushItem } from '@/store/repush-store';
 import type { Candidate } from '@/types/interview';
+import { isHeadhunterInterview } from '@/types/interview';
 import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
 
 const SUPABASE_URL = 'https://scjlplyuucysdhrfatrp.supabase.co';
@@ -241,6 +242,7 @@ export function todaysReportRecommendations(items: RepushItem[], ref: Date, colu
 
 /** 日报只录一面；二面、三面不进入邀约、面试或待面试统计。 */
 export function isDailyReportFirstRound(candidate: Candidate): boolean {
+  if (isHeadhunterInterview(candidate)) return false;
   if (candidate.interviewRound) return candidate.interviewRound === '一面';
   return candidate.stage !== 'interview-2';
 }

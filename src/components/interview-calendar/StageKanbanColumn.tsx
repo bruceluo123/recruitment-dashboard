@@ -1,7 +1,7 @@
 'use client';
 import { useRef } from 'react';
 import type { WheelEvent } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StageKanbanCard } from './StageKanbanCard';
 import { STAGE_COLORS } from '@/types/interview';
@@ -22,6 +22,8 @@ interface StageKanbanColumnProps {
   onEarlyDeparture: (id: string) => void;
   onDeleteOffer?: (id: string) => void;
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
+  onAddCandidate?: () => void;
+  headerTone?: 'default' | 'headhunter';
 }
 
 const LANE_TONES: Record<CandidateStatus, string> = {
@@ -30,7 +32,7 @@ const LANE_TONES: Record<CandidateStatus, string> = {
   offer: 'bg-emerald-50/70',
 };
 
-export function StageKanbanColumn({ stage, candidates, title, subtitle, performanceMonth, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanColumnProps) {
+export function StageKanbanColumn({ stage, candidates, title, subtitle, performanceMonth, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAddCandidate, headerTone = 'default' }: StageKanbanColumnProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
@@ -73,9 +75,9 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
 
   return (
     <section className="border-b border-gray-200 last:border-b-0">
-      <header className={cn('flex h-12 items-center justify-between border-b border-gray-100 px-4', LANE_TONES[stage.id])}>
+      <header className={cn('flex h-12 items-center justify-between border-b border-gray-100 px-4', headerTone === 'headhunter' ? 'bg-violet-50/70' : LANE_TONES[stage.id])}>
         <div className="flex min-w-0 items-center gap-3">
-          <div className={cn('h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white/80', dotColor)} />
+          <div className={cn('h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white/80', headerTone === 'headhunter' ? 'bg-violet-500' : dotColor)} />
           <h3 className="text-sm font-semibold text-gray-800">{title || stage.name}</h3>
           {headerSubtitle && <span className="text-xs text-gray-400">{headerSubtitle}</span>}
           <span className="rounded-md border border-white bg-white/90 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-600 shadow-sm">
@@ -83,6 +85,11 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {onAddCandidate && (
+            <button type="button" onClick={onAddCandidate} className="mr-2 flex h-7 items-center gap-1 rounded-md border border-violet-200 bg-white px-2.5 text-xs font-medium text-violet-600 transition-colors hover:bg-violet-50">
+              <Plus className="h-3.5 w-3.5" />添加猎头面试
+            </button>
+          )}
           <button type="button" title="向左浏览" onClick={() => scrollTrack(-1)} className="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white hover:text-gray-700">
             <ChevronLeft className="h-4 w-4" />
           </button>
