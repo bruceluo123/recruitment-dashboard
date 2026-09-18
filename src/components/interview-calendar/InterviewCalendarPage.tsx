@@ -6,7 +6,7 @@ import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
-import type { Candidate, CandidateStatus, CandidateOwner, CandidateOutcome } from '@/types/interview';
+import type { Candidate, CandidateOwner, CandidateOutcome } from '@/types/interview';
 import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES, isHeadhunterInterview } from '@/types/interview';
 import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet, LogOut } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
@@ -61,7 +61,9 @@ export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [form, setForm] = useState({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
+  const [form, setForm] = useState({ name: '', jdTitle: '', interviewDate: '' });
+  const [headhunterOfferId, setHeadhunterOfferId] = useState<string | null>(null);
+  const [headhunterOfferForm, setHeadhunterOfferForm] = useState({ monthlySalary: '', salaryMonths: '12', onboardDate: '' });
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
   const [todayOnly, setTodayOnly] = useState(false);
@@ -318,18 +320,48 @@ export function InterviewCalendarPage() {
     if (!form.name || !form.jdTitle || !form.interviewDate) return;
     addCandidate({
       name: form.name, jdTitle: form.jdTitle, score: 0,
-      organization: form.organization || undefined,
-      department: form.department || undefined,
       contactEmail: '', notes: '', resumeId: '', jdId: '',
       owner: ownerTab,
-      stage: 'interview-1' as CandidateStatus,
+      stage: 'interview-1',
       interviewKind: 'headhunter',
       interviewDate: form.interviewDate ? new Date(form.interviewDate).toISOString() : undefined,
       interviewer: undefined,
-      salary: form.salary || undefined,
     });
-    setForm({ name: '', jdTitle: '', organization: '', department: '', interviewDate: '', salary: '' });
+    setForm({ name: '', jdTitle: '', interviewDate: '' });
     setShowAddForm(false);
+  };
+
+  const handleAdvanceHeadhunterInterview = (id: string, round: '二面' | '三面') => {
+    updateCandidate(id, { interviewRound: round });
+  };
+
+  const openHeadhunterOffer = (id: string) => {
+    const candidate = candidates.find((item) => item.id === id);
+    if (!candidate || !isHeadhunterInterview(candidate)) return;
+    setHeadhunterOfferId(id);
+    setHeadhunterOfferForm({
+      monthlySalary: candidate.headhunterOffer?.monthlySalary ? String(candidate.headhunterOffer.monthlySalary) : '',
+      salaryMonths: candidate.headhunterOffer?.salaryMonths ? String(candidate.headhunterOffer.salaryMonths) : '12',
+      onboardDate: candidate.headhunterOffer?.onboardDate ? toLocalDatetime(candidate.headhunterOffer.onboardDate).slice(0, 10) : '',
+    });
+  };
+
+  const saveHeadhunterOffer = () => {
+    if (!headhunterOfferId) return;
+    const candidate = candidates.find((item) => item.id === headhunterOfferId);
+    const monthlySalary = Math.max(0, Number(headhunterOfferForm.monthlySalary) || 0);
+    const salaryMonths = Math.max(1, Math.round(Number(headhunterOfferForm.salaryMonths) || 0));
+    if (!monthlySalary || !headhunterOfferForm.onboardDate) return;
+    updateCandidate(headhunterOfferId, {
+      headhunterOffer: {
+        monthlySalary,
+        salaryMonths,
+        totalCompensation: monthlySalary * salaryMonths,
+        onboardDate: new Date(`${headhunterOfferForm.onboardDate}T00:00:00`).toISOString(),
+        offeredAt: candidate?.headhunterOffer?.offeredAt || new Date().toISOString(),
+      },
+    });
+    setHeadhunterOfferId(null);
   };
 
   // 按推荐人列过滤（未设置 owner 的候选人归入麦满分/a 列）
@@ -384,6 +416,8 @@ export function InterviewCalendarPage() {
 
   const selected = candidates.find((c) => c.id === selectedId);
   const earlyDepartureCandidate = candidates.find((c) => c.id === earlyDepartureId);
+  const headhunterOfferCandidate = candidates.find((c) => c.id === headhunterOfferId);
+  const headhunterOfferTotal = (Number(headhunterOfferForm.monthlySalary) || 0) * (Number(headhunterOfferForm.salaryMonths) || 0);
   const selectedCommission = selected?.stage === 'offer'
     ? getOfferCommissionForCandidate(selected, ownerCandidates)
     : null;
@@ -400,6 +434,7 @@ export function InterviewCalendarPage() {
   useEscapeClose(() => setShowImport(false), showImport);
   useEscapeClose(() => setShowExcelPicker(false), showExcelPicker);
   useEscapeClose(() => setShowAddForm(false), showAddForm);
+  useEscapeClose(() => setHeadhunterOfferId(null), !!headhunterOfferId);
   useEscapeClose(() => setEarlyDepartureId(null), !!earlyDepartureCandidate);
   useEscapeClose(() => { setSelectedId(null); setEditingId(null); }, !!selected);
 
@@ -462,7 +497,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} onAddHeadhunterInterview={() => setShowAddForm(true)} />
+        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} onAddHeadhunterInterview={() => setShowAddForm(true)} onAdvanceHeadhunterInterview={handleAdvanceHeadhunterInterview} onHeadhunterOffer={openHeadhunterOffer} />
       ) : (
         <WeekGridView candidates={recruitmentOwnerCandidates} onCandidateClick={setSelectedId} />
       )}
@@ -657,19 +692,46 @@ export function InterviewCalendarPage() {
             <div className="space-y-3">
               <div><label className="block text-xs text-gray-500 mb-1">姓名 *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="面试人姓名" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-violet-300" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">岗位 *</label><input value={form.jdTitle} onChange={(e) => setForm({ ...form, jdTitle: e.target.value })} placeholder="猎头岗位" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-violet-300" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">编制</label>
-                  <input list="org-options" value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} placeholder="选择或输入编制" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">部门</label>
-                  <input list="dept-options" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="选择或输入部门" className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" />
-                </div>
-              </div>
               <div><label className="block text-xs text-gray-500 mb-1">面试时间 *</label><input type="datetime-local" value={form.interviewDate} onChange={(e) => setForm({ ...form, interviewDate: e.target.value })} className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-violet-300" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">薪资</label><input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} placeholder="如 20K-35K" className="w-full h-10 px-4 rounded-xl bg-white border border-gray-200 text-sm focus:outline-none focus:border-indigo-300" /></div>
               <button onClick={handleAdd} disabled={!form.name || !form.jdTitle || !form.interviewDate} className={cn('w-full h-10 rounded-xl text-white text-sm font-medium transition-all', form.name && form.jdTitle && form.interviewDate ? 'bg-violet-500 hover:bg-violet-600' : 'cursor-not-allowed bg-gray-200')}>确认添加</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {headhunterOfferCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/25" />
+          <div className="relative w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl animate-fade-in">
+            <div className="mb-5 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">猎头 Offer</h3>
+                <p className="mt-1 text-xs text-gray-400">{headhunterOfferCandidate.name} · {headhunterOfferCandidate.jdTitle}</p>
+              </div>
+              <button onClick={() => setHeadhunterOfferId(null)} className="rounded-lg p-1.5 hover:bg-gray-100"><X className="h-5 w-5 text-gray-400" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-gray-500">月薪（元）*</label>
+                <input type="number" min="0" step="100" value={headhunterOfferForm.monthlySalary} onChange={(event) => setHeadhunterOfferForm({ ...headhunterOfferForm, monthlySalary: event.target.value })} placeholder="如 25000" className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-emerald-300" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-gray-500">月数 *</label>
+                <input type="number" min="1" step="1" value={headhunterOfferForm.salaryMonths} onChange={(event) => setHeadhunterOfferForm({ ...headhunterOfferForm, salaryMonths: event.target.value })} placeholder="如 13" className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-emerald-300" />
+              </div>
+              <div className="col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+                <p className="text-xs text-emerald-700/70">总包（自动计算）</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-emerald-700">¥{formatCommissionAmount(headhunterOfferTotal)}</p>
+                <p className="mt-0.5 text-[11px] text-gray-400">月薪 × {Number(headhunterOfferForm.salaryMonths) || 0} 个月</p>
+              </div>
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs text-gray-500">入职日期 *</label>
+                <input type="date" value={headhunterOfferForm.onboardDate} onChange={(event) => setHeadhunterOfferForm({ ...headhunterOfferForm, onboardDate: event.target.value })} className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-emerald-300" />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setHeadhunterOfferId(null)} className="h-9 rounded-lg px-4 text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
+              <button onClick={saveHeadhunterOffer} disabled={!headhunterOfferTotal || !headhunterOfferForm.onboardDate} className={cn('h-9 rounded-lg px-5 text-sm font-medium text-white transition-colors', headhunterOfferTotal && headhunterOfferForm.onboardDate ? 'bg-emerald-500 hover:bg-emerald-600' : 'cursor-not-allowed bg-gray-200')}>确认 Offer</button>
             </div>
           </div>
         </div>
@@ -718,11 +780,19 @@ export function InterviewCalendarPage() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Stat label="岗位" value={selected.jdTitle} />
-              <Stat label="编制" value={selected.organization || '-'} />
-              <Stat label="部门" value={selected.department || '-'} />
-              <Stat label="薪资" value={selected.salary || '-'} />
-              {selected.stage === 'offer' ? (
+              {isHeadhunterInterview(selected) ? (
                 <>
+                  <Stat label="阶段" value={selected.headhunterOffer ? 'Offer' : selected.interviewRound || '一面'} />
+                  <Stat label="月薪" value={selected.headhunterOffer ? `¥${formatCommissionAmount(selected.headhunterOffer.monthlySalary)}` : '-'} />
+                  <Stat label="月数" value={selected.headhunterOffer ? `${selected.headhunterOffer.salaryMonths} 个月` : '-'} />
+                  <Stat label="总包" value={selected.headhunterOffer ? `¥${formatCommissionAmount(selected.headhunterOffer.totalCompensation)}` : '-'} />
+                  <Stat label="入职日期" value={selected.headhunterOffer ? new Date(selected.headhunterOffer.onboardDate).toLocaleDateString('zh-CN') : '-'} />
+                </>
+              ) : selected.stage === 'offer' ? (
+                <>
+                  <Stat label="编制" value={selected.organization || '-'} />
+                  <Stat label="部门" value={selected.department || '-'} />
+                  <Stat label="薪资" value={selected.salary || '-'} />
                   <Stat label="岗位类别" value={selectedCommission?.jobCategory || '待补转正薪资'} />
                   <Stat label="薪资档位" value={selectedCommission?.salaryTier || '-'} />
                   <Stat label="难度系数" value={selectedCommission ? String(selectedCommission.difficultyCoefficient) : '-'} />
@@ -731,11 +801,18 @@ export function InterviewCalendarPage() {
                   <Stat label="入职进度" value={selectedTenureLabel} />
                   <Stat label="累计可发" value={`${selectedPayout.ratio * 100}% · ¥${formatCommissionAmount(selectedPayout.amount)}`} />
                 </>
-              ) : <Stat label="分数" value={`${selected.score} 分`} />}
+              ) : (
+                <>
+                  <Stat label="编制" value={selected.organization || '-'} />
+                  <Stat label="部门" value={selected.department || '-'} />
+                  <Stat label="薪资" value={selected.salary || '-'} />
+                  <Stat label="分数" value={`${selected.score} 分`} />
+                </>
+              )}
               <div className="p-3 rounded-lg bg-gray-50"><p className="text-xs text-gray-400 mb-0.5">面试时间</p><p className="text-base font-bold text-gray-800">{selected.interviewDate ? formatInterviewDate(selected.interviewDate) : '未安排'}</p></div>
               <Stat label="面试官" value={selected.interviewer || '待定'} />
               <Stat label="投递时间" value={new Date(selected.appliedAt).toLocaleDateString('zh-CN')} />
-              <Stat label="入职时间" value={selected.onboardDate ? new Date(selected.onboardDate).toLocaleDateString('zh-CN') : '-'} />
+              {!isHeadhunterInterview(selected) && <Stat label="入职时间" value={selected.onboardDate ? new Date(selected.onboardDate).toLocaleDateString('zh-CN') : '-'} />}
               <Stat label="备注" value={selected.notes || '-'} />
               {selected.resumeUrl && (
                 <div className="p-3 rounded-lg bg-indigo-50/60">

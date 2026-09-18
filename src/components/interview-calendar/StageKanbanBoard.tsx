@@ -15,9 +15,11 @@ interface StageKanbanBoardProps {
   onDeleteOffer: (id: string) => void;
   onCommissionTenureChange: (id: string, months: 0 | 1 | 2 | 3) => void;
   onAddHeadhunterInterview: () => void;
+  onAdvanceHeadhunterInterview: (id: string, round: '二面' | '三面') => void;
+  onHeadhunterOffer: (id: string) => void;
 }
 
-export function StageKanbanBoard({ candidates, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAddHeadhunterInterview }: StageKanbanBoardProps) {
+export function StageKanbanBoard({ candidates, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAddHeadhunterInterview, onAdvanceHeadhunterInterview, onHeadhunterOffer }: StageKanbanBoardProps) {
   const interviewStage = DEFAULT_STAGES.find((stage) => stage.id === 'interview-1')!;
   const offerStage = DEFAULT_STAGES.find((stage) => stage.id === 'offer');
   const offerGroups = groupRecentOffers(candidates);
@@ -53,6 +55,8 @@ export function StageKanbanBoard({ candidates, owner, onCandidateClick, onFailCa
         onFailCandidate={onFailCandidate}
         onDeleteCandidate={onDeleteCandidate}
         onEarlyDeparture={onEarlyDeparture}
+        onAdvanceHeadhunterInterview={onAdvanceHeadhunterInterview}
+        onHeadhunterOffer={onHeadhunterOffer}
       />
       {offerStage && offerGroups.map(({ month, candidates: monthCandidates }) => (
         <StageKanbanColumn

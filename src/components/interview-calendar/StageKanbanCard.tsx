@@ -15,6 +15,8 @@ interface StageKanbanCardProps {
   onEarlyDeparture: (id: string) => void;
   onDeleteOffer?: (id: string) => void;
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
+  onAdvanceHeadhunterInterview?: (id: string, round: '二面' | '三面') => void;
+  onHeadhunterOffer?: (id: string) => void;
 }
 
 const STAGE_ACCENTS: Record<CandidateStatus, { border: string; badge: string; icon: string }> = {
@@ -33,13 +35,13 @@ function formatOnboardDate(isoStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}号(周${week})`;
 }
 
-export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAdvanceHeadhunterInterview, onHeadhunterOffer }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const isHeadhunter = isHeadhunterInterview(candidate);
-  const accent = isHeadhunter ? HEADHUNTER_ACCENT : STAGE_ACCENTS[candidate.stage];
+  const accent = isHeadhunter && !candidate.headhunterOffer ? HEADHUNTER_ACCENT : candidate.headhunterOffer ? STAGE_ACCENTS.offer : STAGE_ACCENTS[candidate.stage];
   const payout = getCommissionPayout(offerCommission, candidate.commissionTenureMonths || 0);
   const roundLabel = isHeadhunter
-    ? '猎头面试'
+    ? candidate.headhunterOffer ? 'Offer' : candidate.interviewRound || '一面'
     : candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
 
   return (
@@ -70,7 +72,13 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
       <p className="mb-2 truncate text-xs text-gray-500">{candidate.jdTitle}</p>
 
       <div className="space-y-1.5">
-        {candidate.onboardDate ? (
+        {candidate.headhunterOffer ? (
+          <div className="flex items-center gap-1.5 text-xs">
+            <CalendarClock className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+            <span className="shrink-0 text-gray-400">入职</span>
+            <span className="truncate font-semibold text-gray-800">{formatOnboardDate(candidate.headhunterOffer.onboardDate)}</span>
+          </div>
+        ) : candidate.onboardDate ? (
           <div className="flex items-center gap-1.5 text-xs">
             <CalendarClock className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
             <span className="shrink-0 text-gray-400">入职</span>
@@ -84,6 +92,11 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
         ) : null}
 
         <div className="flex min-w-0 items-center gap-3">
+          {candidate.headhunterOffer && (
+            <span className="truncate text-xs font-semibold text-emerald-600">
+              月薪 ¥{formatCommissionAmount(candidate.headhunterOffer.monthlySalary)} × {candidate.headhunterOffer.salaryMonths} · 总包 ¥{formatCommissionAmount(candidate.headhunterOffer.totalCompensation)}
+            </span>
+          )}
           {candidate.salary && <span className="shrink-0 text-xs font-semibold text-emerald-600">{candidate.salary}</span>}
           {candidate.interviewer && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-gray-500">
@@ -109,7 +122,33 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
         <span className="flex items-center gap-1 text-[11px] text-gray-400 transition-colors group-hover:text-indigo-500">
           <Pencil className="h-3 w-3" />查看详情
         </span>
-        {candidate.stage === 'offer' ? (
+        {isHeadhunter ? (
+          <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+            <button
+              title="删除猎头面试记录"
+              onClick={() => {
+                if (window.confirm(`确认删除 ${candidate.name} 的猎头面试记录吗？`)) onDeleteCandidate?.(candidate.id);
+              }}
+              className="flex h-6 items-center rounded px-1 text-gray-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+            {!candidate.headhunterOffer && (['二面', '三面'] as const).map((round) => (
+              <button
+                key={round}
+                onClick={() => onAdvanceHeadhunterInterview?.(candidate.id, round)}
+                className={cn(
+                  'h-6 rounded px-1.5 text-[10px] font-medium transition-colors',
+                  candidate.interviewRound === round ? 'bg-violet-500 text-white' : 'bg-violet-50 text-violet-600 hover:bg-violet-100',
+                )}
+              >{round}</button>
+            ))}
+            <button
+              onClick={() => onHeadhunterOffer?.(candidate.id)}
+              className={cn('h-6 rounded px-1.5 text-[10px] font-medium transition-colors', candidate.headhunterOffer ? 'bg-emerald-500 text-white' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100')}
+            >Offer</button>
+          </div>
+        ) : candidate.stage === 'offer' ? (
           <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
             <button
               title="删除未接 Offer 人选"

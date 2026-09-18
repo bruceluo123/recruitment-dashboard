@@ -24,6 +24,8 @@ interface StageKanbanColumnProps {
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
   onAddCandidate?: () => void;
   headerTone?: 'default' | 'headhunter';
+  onAdvanceHeadhunterInterview?: (id: string, round: '二面' | '三面') => void;
+  onHeadhunterOffer?: (id: string) => void;
 }
 
 const LANE_TONES: Record<CandidateStatus, string> = {
@@ -32,7 +34,7 @@ const LANE_TONES: Record<CandidateStatus, string> = {
   offer: 'bg-emerald-50/70',
 };
 
-export function StageKanbanColumn({ stage, candidates, title, subtitle, performanceMonth, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAddCandidate, headerTone = 'default' }: StageKanbanColumnProps) {
+export function StageKanbanColumn({ stage, candidates, title, subtitle, performanceMonth, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAddCandidate, headerTone = 'default', onAdvanceHeadhunterInterview, onHeadhunterOffer }: StageKanbanColumnProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dotColor = STAGE_COLORS[stage.id] || 'bg-gray-400';
   const isOffer = stage.id === 'offer';
@@ -118,6 +120,8 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
             onEarlyDeparture={onEarlyDeparture}
             onDeleteOffer={onDeleteOffer}
             onCommissionTenureChange={onCommissionTenureChange}
+            onAdvanceHeadhunterInterview={onAdvanceHeadhunterInterview}
+            onHeadhunterOffer={onHeadhunterOffer}
           />
         )) : (
           <div className="flex w-full items-center justify-center text-xs text-gray-400">暂无候选人</div>

@@ -29,6 +29,14 @@ export type CandidateOwner = 'a' | 'b';
 export type InterviewRound = '一面' | '二面' | '三面';
 export type InterviewKind = 'recruitment' | 'headhunter';
 
+export interface HeadhunterOffer {
+  monthlySalary: number;
+  salaryMonths: number;
+  totalCompensation: number;
+  onboardDate: string;
+  offeredAt: string;
+}
+
 /** 每次从推荐中心点击「面试」产生一条，避免二面覆盖一面的历史。 */
 export interface InterviewEvent {
   id: string;
@@ -59,6 +67,8 @@ export interface Candidate {
   stage: CandidateStatus;
   /** 招聘面试为默认值；猎头面试仅用于面试看板独立排期，不进入招聘报表。 */
   interviewKind?: InterviewKind;
+  /** 猎头岗位的内部 Offer，不参与招聘 Offer、提成和报表。 */
+  headhunterOffer?: HeadhunterOffer;
   interviewRound?: InterviewRound;
   interviewHistory?: InterviewEvent[]; // 所有约面操作历史；二面/改期不覆盖已有记录
   score: number;
