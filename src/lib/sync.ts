@@ -116,9 +116,9 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, tim
   try { return await fetch(input, { ...init, signal: controller.signal }); }
   finally { clearTimeout(timer); }
 }
-async function readKeys(keys: string[]): Promise<Record<string, string | null>> {
+async function readKeys(keys: string[], timeoutMs = 30_000): Promise<Record<string, string | null>> {
   const params = new URLSearchParams(); keys.forEach((key) => params.append('key', key));
-  const response = await fetchWithTimeout(`/api/sync/read?${params}`, { cache: 'no-store' }, 30_000);
+  const response = await fetchWithTimeout(`/api/sync/read?${params}`, { cache: 'no-store' }, timeoutMs);
   if (!response.ok) throw new Error('数据读取失败');
   return (await response.json()).values;
 }
@@ -185,16 +185,17 @@ async function refresh(force = false) {
     const version = Number(head.version || 0);
     if (!force && version === remoteVersion
       && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return;
-    const types = Array.from(requestedTypes);
+    const types = Array.from(requestedTypes).filter((type) => force || loadedVersions[type] !== version);
     if (!types.length) return;
-    // The recommendation snapshot is several MB. Load all lighter business data
-    // first so a slow mobile connection cannot block JD/candidate synchronization.
+    // Tombstones must be current before applying any records. Read the large
+    // recommendation snapshot independently so a failed JD/candidate request
+    // cannot leave a mobile device stuck on its old recommendation cache.
     const lightTypes = types.filter((type) => type !== 'repush');
-    const values = await readKeys([...lightTypes, 'tombstones', ...(types.includes('jds') ? ['jds-epoch'] : [])]);
+    const metadata = await readKeys(['tombstones', ...(types.includes('jds') ? ['jds-epoch'] : [])]);
     if (session !== syncSession || !onChange) return;
-    tombstones = parse(values.tombstones) as typeof tombstones || {};
+    tombstones = parse(metadata.tombstones) as typeof tombstones || {};
     const staleJDs = types.includes('jds') && !jdReplacing && !busy
-      ? pending.filter((item) => item.type === 'jds' && item.jdEpoch !== (values['jds-epoch'] || '0'))
+      ? pending.filter((item) => item.type === 'jds' && item.jdEpoch !== (metadata['jds-epoch'] || '0'))
       : [];
     quarantineJDMutations(staleJDs);
     const applyValues = (selectedTypes: DataType[], selectedValues: Record<string, string | null>) => {
@@ -211,25 +212,33 @@ async function refresh(force = false) {
           : type === 'candidates' || type === 'todos' || type === 'performance'
             ? overlayPendingRecords(type, visible)
             : visible;
-        if (type === 'jds') jdEpoch = values['jds-epoch'] || '0';
+        if (type === 'jds') jdEpoch = metadata['jds-epoch'] || '0';
         observed[type] = data;
         loadedVersions[type] = version;
         onChange?.(type, data, version, true);
       }
     };
-    applyValues(lightTypes, values);
+    let lightFailed = false;
+    if (lightTypes.length) {
+      try {
+        const lightValues = await readKeys(lightTypes);
+        if (session !== syncSession || !onChange) return;
+        applyValues(lightTypes, lightValues);
+      } catch { lightFailed = true; }
+    }
 
     let repushFailed = false;
     if (types.includes('repush')) {
       try {
-        const repushValues = await readKeys(['repush']);
+        const repushValues = await readKeys(['repush'], 45_000);
         if (session !== syncSession || !onChange) return;
         applyValues(['repush'], repushValues);
       } catch { repushFailed = true; }
     }
     remoteVersion = version;
     if (staleJDs.length) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
-    else if (repushFailed) announce('JD等基础数据已同步，推荐记录网络较慢，正在自动重试');
+    else if (repushFailed) announce('推荐记录尚未同步，正在自动重试；当前列表可能是本机旧数据');
+    else if (lightFailed) announce('推荐记录已同步，其他数据网络较慢，正在自动重试');
     else if (!pending.length) announce('');
   } catch { announce('云端读取失败，已保留当前数据；连接恢复后重试'); }
   finally {
@@ -486,8 +495,8 @@ export function requestSyncTypes(types: DataType[]) {
   }
   if (changed && onChange) void refresh(true);
 }
-function onOnline() { void retrySync(); }
-function onVisible() { if (!document.hidden) void refresh(true); }
+function onOnline() { void refresh(true); void retrySync(); }
+function onVisible() { if (!document.hidden) void refresh(); }
 export function stopSync() {
   syncSession++;
   deliveryReceipts.clear();
