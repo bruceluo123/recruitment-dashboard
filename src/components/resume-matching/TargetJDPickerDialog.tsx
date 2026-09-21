@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BriefcaseBusiness, Check, Search, X } from 'lucide-react';
 import type { JD, JDCategory } from '@/types/jd';
 import { hasCategory, JD_CATEGORY_LABELS } from '@/types/jd';
-import { cn } from '@/lib/utils';
+import { cn, formatSalary } from '@/lib/utils';
 
 const MAX_TARGET_JDS = 10;
 
@@ -119,6 +119,7 @@ export function TargetJDPickerDialog({
             <div className="divide-y divide-gray-100">
               {visibleJds.map((jd) => {
                 const selected = draftIds.has(jd.id);
+                const salary = formatSalary(jd.salaryRange, jd.salaryText);
                 return (
                   <button
                     type="button"
@@ -141,7 +142,7 @@ export function TargetJDPickerDialog({
                         {[jd.organization, jd.serviceUnit, jd.department].filter(Boolean).join(' / ') || '未填写部门信息'}
                       </span>
                     </span>
-                    {jd.salaryText && <span className="shrink-0 text-xs font-medium text-emerald-600">{jd.salaryText}</span>}
+                    {salary !== '-' && <span className="shrink-0 text-xs font-medium text-emerald-600">{salary}</span>}
                   </button>
                 );
               })}
