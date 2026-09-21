@@ -62,6 +62,53 @@ async function seedState(owner: OwnerId, prefix: string): Promise<CodeState> {
   return { sequence, entries: Object.fromEntries(identities) };
 }
 
+async function allocateFromAtomicSequence(
+  owner: OwnerId,
+  prefix: string,
+  candidateName: string,
+  candidateIdentityId: string,
+): Promise<{ code: string; identity: string }> {
+  const stateKey = codeStateKey(owner);
+  const sequenceKey = legacySequenceKey(owner);
+  if (candidateIdentityId) {
+    try {
+      const raw = await kvCommandStrict<string | null>('GET', stateKey);
+      const state = raw ? JSON.parse(raw) as CodeState : null;
+      const existing = state?.entries
+        ? Object.entries(state.entries).find(([, entry]) => entry.identity === candidateIdentityId && entry.name !== '!conflict')
+        : undefined;
+      if (existing) return { code: existing[0], identity: candidateIdentityId };
+    } catch {
+      // 读取不到复用记录时继续走原子序列，不能让短暂读取失败卡住生成。
+    }
+  }
+  const sequence = await kvCommandStrict<number>('INCR', sequenceKey);
+  if (!Number.isFinite(sequence) || sequence < 1 || sequence > MAX_SEQUENCE) {
+    throw new Error('candidate code sequence exhausted');
+  }
+  const code = `${prefix}${String(sequence).padStart(3, '0')}`;
+  const identity = candidateIdentityId || randomUUID();
+
+  // 原子计数已保证编号唯一；再尽力把身份写回账本，便于同一候选人重试时复用编号。
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const raw = await kvCommandStrict<string | null>('GET', stateKey);
+      const state: CodeState = raw ? JSON.parse(raw) as CodeState : { sequence: 0, entries: {} };
+      state.sequence = Math.max(Number(state.sequence) || 0, sequence);
+      state.entries ||= {};
+      state.entries[code] = { identity, name: candidateName };
+      const committed = await kvTransaction({
+        expected: [{ key: stateKey, exists: Boolean(raw), ...(raw ? { value: raw } : {}) }],
+        writes: [{ key: stateKey, value: JSON.stringify(state) }],
+      });
+      if (committed.ok) break;
+    } catch {
+      // 编号已经由原子序列安全保留；账本回填失败不应阻断文案生成。
+    }
+  }
+  return { code, identity };
+}
+
 export async function POST(request: NextRequest) {
   let body: { owner?: OwnerId; preferredCode?: string; candidateName?: string; candidateIdentityId?: string };
   try { body = await request.json(); }
@@ -141,8 +188,38 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, code, candidateIdentityId: identity, reused }, { headers: { 'Cache-Control': 'no-store' } });
       }
     }
+    if (!preferredMatch) {
+      const fallback = await allocateFromAtomicSequence(owner, prefix, candidateName, candidateIdentityId);
+      return NextResponse.json({
+        ok: true,
+        code: fallback.code,
+        candidateIdentityId: fallback.identity,
+        reused: false,
+      }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     return NextResponse.json({ error: '候选人编号分配遇到并发，请重试' }, { status: 409 });
-  } catch {
+  } catch (error) {
+    const prefix = PREFIXES[owner];
+    const preferredCode = String(body.preferredCode || '').trim().toUpperCase();
+    if (!preferredCode) {
+      try {
+        const fallback = await allocateFromAtomicSequence(
+          owner,
+          prefix,
+          candidateName,
+          String(body.candidateIdentityId || '').trim(),
+        );
+        return NextResponse.json({
+          ok: true,
+          code: fallback.code,
+          candidateIdentityId: fallback.identity,
+          reused: false,
+        }, { headers: { 'Cache-Control': 'no-store' } });
+      } catch {
+        // 继续返回统一错误，避免泄露存储细节。
+      }
+    }
+    console.error('candidate code allocation failed', error);
     return NextResponse.json({ error: '候选人编号分配失败，请重试' }, { status: 503 });
   }
 }
