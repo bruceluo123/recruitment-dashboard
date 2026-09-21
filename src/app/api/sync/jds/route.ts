@@ -50,9 +50,11 @@ export async function POST(request: NextRequest) {
         || !row.title.trim() || !Array.isArray(row.categories) || !Array.isArray(row.responsibilities) || !Array.isArray(row.requirements))) {
       return NextResponse.json({ error: '完整岗位数据无效，原岗位库未修改' }, { status: 400 });
     }
-    if (new Set(body.jds.map((row) => row.id)).size !== body.jds.length
-      || new Set(body.jds.map(getJDKey)).size !== body.jds.length) {
-      return NextResponse.json({ error: '导入岗位存在重复身份，原岗位库未修改' }, { status: 400 });
+    if (new Set(body.jds.map((row) => row.id)).size !== body.jds.length) {
+      return NextResponse.json({ error: '导入岗位存在重复 ID，原岗位库未修改，请刷新后重试' }, { status: 400 });
+    }
+    if (new Set(body.jds.map(getJDKey)).size !== body.jds.length) {
+      return NextResponse.json({ error: '导入岗位存在重复岗位键，原岗位库未修改，请检查需求Key' }, { status: 400 });
     }
     const receipt = `recruit:jd-import:${body.mutationId}`;
     const payloadHash = revision(JSON.stringify(body.jds));

@@ -336,8 +336,15 @@ export const useJDStore = create<JDStore>()(
               t.toLowerCase().replace(/[（(]\s*\d+\s*人\s*[）)]/g, '').replace(/\s+/g, '');
             const targetIdentity = (j: JD) => [normReclassTitle(j.title), j.organization || '', j.department || '', j.serviceUnit || ''].join('|');
             const oldByTitle = new Map(prevJds.map((j) => [targetIdentity(j), j] as const));
-            const enriched = deduped.jds.map((jd) => {
-              const old = oldByKey.get(getJDKey(jd)) || oldByTitle.get(targetIdentity(jd));
+            // 同名岗位可能有不同 REQ-Key。标题兜底只能一对一复用旧 ID，
+            // 否则多个新行会拿到同一个旧 ID，云端会判定为“重复身份”并拒绝整批覆盖。
+            const claimedOldIds = new Set<string>();
+            const enrichedWithMatches = deduped.jds.map((jd) => {
+              const exactOld = oldByKey.get(getJDKey(jd));
+              const titleOld = oldByTitle.get(targetIdentity(jd));
+              const matchedOld = exactOld || titleOld;
+              const old = matchedOld && !claimedOldIds.has(matchedOld.id) ? matchedOld : undefined;
+              if (old) claimedOldIds.add(old.id);
               const hasResp = jd.responsibilities && jd.responsibilities.length > 0;
               const hasReq = jd.requirements && jd.requirements.length > 0;
               // 补全正文：日报面板常只有摘要列，缺职责/要求时沿用库中同岗位旧内容
@@ -364,6 +371,19 @@ export const useJDStore = create<JDStore>()(
                 syncClosedAt: undefined,
                 statusBeforeSyncClose: undefined,
               };
+            });
+            // 提交前做最后一道身份归一化：岗位键重复时合并，ID 重复时为后续岗位重新分配。
+            // 这样即使历史库已有脏数据，也不会让整批覆盖在云端被拒绝。
+            const finalDeduped = mergeUniqueJDs([], enrichedWithMatches);
+            const finalIds = new Set<string>();
+            const enriched = finalDeduped.jds.map((jd) => {
+              if (!finalIds.has(jd.id)) {
+                finalIds.add(jd.id);
+                return jd;
+              }
+              const id = generateId();
+              finalIds.add(id);
+              return { ...jd, id };
             });
             // 覆盖模式以本次完整面板为唯一当前岗位库；面板里不存在的历史岗位直接移出。
             // 仍会复用本次面板中同一岗位的原 ID，保留当前岗位已有的推荐关联。
@@ -400,7 +420,8 @@ export const useJDStore = create<JDStore>()(
             result.failed = 0;
             result.errors = [];
             result.replaced = savedJds.length;
-            if (deduped.skipped > 0) result.errors.push(`本次粘贴内有 ${deduped.skipped} 条重复 REQ-Key，已合并`);
+            const duplicateCount = deduped.skipped + finalDeduped.skipped;
+            if (duplicateCount > 0) result.errors.push(`本次粘贴内有 ${duplicateCount} 条重复岗位，已合并`);
             // 持久化今日增改，供工具栏"今日增改"按钮调取；同时推送到 KV 供其他用户查看
             const importDiff = { ...result, date: new Date().toISOString() };
             // 累计本周新增：新 diff.added 追加到本周列表（按周一日期重置）
