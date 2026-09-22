@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Loader2, Check, UserPlus, Upload, FileText, X } from 'lucide-react';
+import { Sparkles, Loader2, Check, UserPlus, Upload, FileText, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JD } from '@/types/jd';
 import type { RepushColumnId, NewRecommendation } from '@/store/repush-store';
@@ -19,6 +19,7 @@ interface ResumeIntakeProps {
 type FileStatus = 'idle' | 'uploading' | 'parsing' | 'done' | 'error';
 
 export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaultOwner = 'a', onAdd, onOwnerChange }: ResumeIntakeProps) {
+  const [expanded, setExpanded] = useState(false);
   const [rawText, setRawText] = useState('');
   const [owner, setOwner] = useState<RepushColumnId>(defaultOwner);
   const [parsing, setParsing] = useState(false);
@@ -217,7 +218,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   return (
     <div className="workspace-surface overflow-hidden p-4 sm:p-6">
       {/* 顶栏 */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className={cn('flex flex-wrap items-center justify-between gap-3', expanded && 'mb-5')}>
         <div className="flex items-center gap-3">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#edf3ff] text-[#3159d8]"><Sparkles className="h-[18px] w-[18px]" /></span>
           <div>
@@ -235,9 +236,20 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            aria-expanded={expanded}
+            aria-controls="recommendation-resume-intake-content"
+            className="ml-1 flex h-9 items-center gap-1.5 rounded-xl border border-[#dce5f1] bg-white px-3 text-xs font-semibold text-[#3159d8] transition-colors hover:bg-[#f2f6ff]"
+          >
+            {expanded ? '收起入口' : '展开入口'}
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
         </div>
       </div>
 
+      <div id="recommendation-resume-intake-content" hidden={!expanded}>
       {/* 一体化简历入口：左侧文字框 + 右侧上传（上传后自动填入左侧） */}
       <div className="flex flex-col gap-3 lg:flex-row">
         {/* ── 左：文字输入区（主区域） ── */}
@@ -375,6 +387,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       {justAdded && !parsed && (
         <p className="mt-3 text-xs text-green-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" />已录入到 {columnNames[owner]}</p>
       )}
+      </div>
 
       <style jsx>{`
         :global(.intake-input) {
