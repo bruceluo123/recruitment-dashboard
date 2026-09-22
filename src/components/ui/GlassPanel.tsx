@@ -12,9 +12,9 @@ export function GlassPanel({ children, className, hover = false, padding = 'md',
   return (
     <div
       className={cn(
-        'bg-white rounded-lg border border-slate-200/90 shadow-[0_1px_2px_rgba(15,23,42,0.035)]',
+        'rounded-2xl border border-[#e5ebf3] bg-white shadow-[0_12px_36px_rgba(28,49,93,0.045),0_1px_2px_rgba(28,49,93,0.025)]',
         pad,
-        hover && 'hover:shadow-[0_8px_24px_rgba(15,23,42,0.07)] hover:border-blue-200 transition-all duration-200',
+        hover && 'transition-[border-color,box-shadow] duration-200 hover:border-[#b8caf3] hover:shadow-[0_14px_32px_rgba(35,65,130,0.09)]',
         className,
       )}
       {...props}

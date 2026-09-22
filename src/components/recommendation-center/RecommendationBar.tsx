@@ -181,7 +181,7 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
   };
 
   return (
-    <div className="group rounded-lg border border-slate-200/80 bg-white hover:border-blue-200 hover:shadow-[0_5px_16px_rgba(15,23,42,0.06)] transition-all">
+    <div className="group rounded-2xl border border-[#e5ebf3] bg-white transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:border-[#b8caf3] hover:shadow-[0_8px_22px_rgba(35,65,130,0.075)]">
       <div className="flex flex-col gap-2 px-4 py-2.5 lg:flex-row lg:items-center lg:gap-3">
       {/* 主信息 */}
       <div className="flex-1 min-w-0">

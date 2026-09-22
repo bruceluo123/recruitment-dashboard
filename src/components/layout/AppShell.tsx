@@ -11,9 +11,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Sidebar />
-      <div className={cn('min-h-screen bg-[#f4f7fb] transition-all duration-300', navCollapsed ? 'lg:pl-[64px]' : 'lg:pl-[240px]')}>
+      <div className={cn('workspace-canvas min-h-screen transition-all duration-300', navCollapsed ? 'lg:pl-[72px]' : 'lg:pl-[248px]')}>
         <TopNav />
-        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-7">{children}</main>
+        <main className="min-h-[calc(100vh-4.5rem)] p-4 sm:p-6 lg:px-8 lg:py-7">{children}</main>
       </div>
       <QuickTodoDrawer />
     </>

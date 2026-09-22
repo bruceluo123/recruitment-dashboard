@@ -42,13 +42,13 @@ export function RecommendationSearchBar({ filters, onChange }: RecommendationSea
   ];
 
   return (
-    <div className="mb-4 rounded-xl border border-gray-100 bg-gray-50 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
-          <Search className="h-3.5 w-3.5 text-gray-400" />查找推荐
+    <div className="mb-5 rounded-2xl border border-[#e8edf5] bg-[#f8faff] p-3.5 sm:p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+          <Search className="h-3.5 w-3.5 text-[#5f80d7]" />精准筛选
         </span>
         {hasAny && (
-          <button type="button" onClick={() => onChange(EMPTY_FILTERS)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
+          <button type="button" onClick={() => onChange(EMPTY_FILTERS)} className="flex items-center gap-1 text-xs text-slate-500 transition-colors hover:text-[#3159d8]">
             <X className="h-3 w-3" />清空
           </button>
         )}
@@ -61,7 +61,8 @@ export function RecommendationSearchBar({ filters, onChange }: RecommendationSea
               onChange={(event) => set(field.key, event.target.value)}
               placeholder={field.label}
               autoComplete="off"
-              className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-indigo-300"
+              aria-label={`按${field.label}筛选推荐`}
+              className="h-9 w-full rounded-xl border border-[#dfe7f2] bg-white px-3 text-sm text-slate-700 outline-none transition-[border-color,box-shadow] placeholder:text-slate-400 focus:border-[#88a4ec] focus:ring-2 focus:ring-[#eaf0ff]"
             />
           </div>
         ))}

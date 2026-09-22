@@ -2,15 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --workspace-bg: #f1f4f9;
+  --workspace-ink: #17243b;
+  --workspace-muted: #697b96;
+  --workspace-line: #e5ebf3;
+  --workspace-accent: #3159d8;
+}
+
 body {
-  color: #172033;
-  background: #f4f7fb;
+  color: var(--workspace-ink);
+  background: var(--workspace-bg);
   letter-spacing: 0;
 }
 
 ::selection {
-  color: #172033;
-  background: #dbeafe;
+  color: #152f82;
+  background: #dce7ff;
 }
 
 button,
@@ -26,14 +34,14 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #60a5fa;
+  outline: 2px solid #4a74ec;
   outline-offset: 2px;
 }
 
 @layer components {
   .workspace-page {
-    @apply space-y-5 mx-auto w-full;
-    animation: fade-in 0.35s ease-out;
+    @apply space-y-6 mx-auto w-full;
+    animation: fade-in 0.28s ease-out;
   }
 
   .page-heading {
@@ -41,29 +49,83 @@ textarea:focus-visible {
   }
 
   .page-title {
-    @apply text-[26px] font-bold leading-tight text-slate-900;
+    @apply text-[28px] font-bold leading-tight tracking-[-0.035em] text-slate-900 sm:text-[32px];
   }
 
   .page-subtitle {
-    @apply mt-1.5 text-sm leading-6 text-slate-500;
+    @apply mt-2 text-sm leading-6 text-slate-500;
   }
 
   .surface-toolbar {
-    @apply rounded-lg border border-slate-200/90 bg-white px-4 py-3;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    @apply rounded-2xl border border-slate-200/90 bg-white px-4 py-3;
+    box-shadow: 0 8px 28px rgba(33, 57, 105, 0.035);
   }
 
   .segmented-control {
-    @apply flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm;
+    @apply flex overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-sm;
   }
 
   .data-table-shell {
-    @apply overflow-x-auto rounded-lg;
+    @apply overflow-x-auto rounded-2xl;
   }
 
   .data-table-head {
-    @apply border-b border-slate-200 bg-slate-50/90;
+    @apply border-b border-slate-200 bg-[#f8faff];
   }
+}
+
+.workspace-canvas {
+  background:
+    radial-gradient(900px 440px at 74% -130px, rgba(111, 148, 243, 0.1), transparent 72%),
+    var(--workspace-bg);
+}
+
+.recommendation-hero {
+  background:
+    radial-gradient(380px 300px at 95% -30%, rgba(104, 146, 255, 0.46), transparent 72%),
+    radial-gradient(460px 340px at 34% 130%, rgba(36, 91, 195, 0.38), transparent 75%),
+    linear-gradient(118deg, #10213d 0%, #15315b 56%, #1e4380 100%);
+  box-shadow: 0 20px 36px rgba(21, 48, 95, 0.16);
+}
+
+.recommendation-hero::after {
+  content: '';
+  position: absolute;
+  right: -30px;
+  bottom: -125px;
+  width: 340px;
+  height: 340px;
+  border: 1px solid rgba(206, 224, 255, 0.14);
+  border-radius: 50%;
+  box-shadow: 0 0 0 72px rgba(206, 224, 255, 0.035), 0 0 0 144px rgba(206, 224, 255, 0.025);
+  pointer-events: none;
+}
+
+.workspace-surface {
+  border: 1px solid var(--workspace-line);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 12px 36px rgba(28, 49, 93, 0.045), 0 1px 2px rgba(28, 49, 93, 0.025);
+}
+
+.workspace-action {
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.workspace-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.workspace-action:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.recommendation-actions > button {
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.recommendation-actions > button:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 /* Custom scrollbar */
@@ -71,9 +133,9 @@ textarea:focus-visible {
   width: 6px;
   height: 6px;
 }
-::-webkit-scrollbar-track { background: #f1f5f9; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-track { background: #f1f4f9; }
+::-webkit-scrollbar-thumb { background: #c5cfdf; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #95a6c0; }
 
 @keyframes float {
   0%, 100% { transform: translateY(0) scale(1); }

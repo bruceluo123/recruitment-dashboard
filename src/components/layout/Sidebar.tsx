@@ -3,22 +3,22 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui-store';
-import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings, Users, Flame, Send, ListTodo, Building2 } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileSearch, CalendarDays, ChevronLeft, ChevronRight, Settings, Users, Flame, Send, ListTodo, Building2, Sparkles } from 'lucide-react';
 
 const menuSections = [
-  [
+  { label: '核心工作台', items: [
     { href: '/', label: '推荐中心', icon: LayoutDashboard },
     { href: '/repush-pool', label: '反馈中心', icon: Send },
     { href: '/jd-library', label: 'JD 库', icon: Briefcase },
     { href: '/resume-matching', label: '简历匹配', icon: FileSearch },
     { href: '/interview-calendar', label: '面试/Offer', icon: CalendarDays },
-  ],
-  [
+  ] },
+  { label: '资源与管理', items: [
     { href: '/hot-hiring', label: '热招看板', icon: Flame },
     { href: '/talent-pool', label: '人才库', icon: Users },
     { href: '/companies', label: '公司库', icon: Building2 },
     { href: '/todos', label: '待办事项', icon: ListTodo },
-  ],
+  ] },
 ];
 
 export function Sidebar() {
@@ -37,38 +37,42 @@ export function Sidebar() {
       <div
         onClick={closeNav}
         className={cn(
-          'fixed inset-0 z-30 bg-slate-950/30 backdrop-blur-sm transition-opacity lg:hidden',
+          'fixed inset-0 z-30 bg-slate-950/35 backdrop-blur-sm transition-opacity lg:hidden',
           mobileNavOpen ? 'opacity-100' : 'opacity-0 pointer-events-none',
         )}
       />
       <aside className={cn(
-        'fixed left-0 top-0 h-full z-40 flex flex-col border-r border-slate-200/80 bg-white transition-all duration-300',
-        'w-[240px]',
-        navCollapsed ? 'lg:w-[64px]' : 'lg:w-[240px]',
+        'fixed left-0 top-0 h-full z-40 flex flex-col border-r border-[#1d3153] bg-[#10213d] text-white transition-all duration-300',
+        'w-[248px]',
+        navCollapsed ? 'lg:w-[72px]' : 'lg:w-[248px]',
         mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
         'lg:translate-x-0',
       )}>
-        <div className="h-16 flex items-center gap-3 px-4 border-b border-slate-100 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0 shadow-sm shadow-blue-200">
-            <span className="text-white text-sm">🐧</span>
+        <div className="flex h-[72px] shrink-0 items-center gap-3 border-b border-white/10 px-5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#4e7af3] shadow-[0_8px_20px_rgba(0,0,0,0.22)]">
+            <span className="text-base text-white">🐧</span>
           </div>
-          <span className={cn('font-semibold text-sm text-gray-800', labelHidden)}>企鹅岛</span>
+          <div className={labelHidden}>
+            <span className="block text-[15px] font-bold tracking-[-0.02em] text-white">企鹅岛</span>
+            <span className="block text-[10px] font-medium tracking-[0.12em] text-[#8fa9d3]">RECRUITING OS</span>
+          </div>
         </div>
 
-        <nav className="flex-1 px-2 py-4 overflow-y-auto">
+        <nav className="flex-1 overflow-y-auto px-3 py-5">
           {menuSections.map((section, sectionIndex) => (
-            <div key={sectionIndex} className={cn('space-y-1', sectionIndex > 0 && 'mt-4 border-t border-slate-100 pt-4')}>
-              {section.map((item) => {
+            <div key={section.label} className={cn('space-y-1', sectionIndex > 0 && 'mt-6')}>
+              <p className={cn('mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7e98bf]', labelHidden)}>{section.label}</p>
+              {section.items.map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link key={item.href} href={item.href} onClick={closeNav} className={cn(
-                    'group/nav relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-semibold transition-all duration-200',
+                    'group/nav relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium transition-[background-color,color,box-shadow,transform] duration-200',
                     isActive
-                      ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 active:scale-[0.98]',
+                      ? 'bg-[#3569e8] font-semibold text-white shadow-[0_8px_22px_rgba(12,32,82,0.35)]'
+                      : 'text-[#b7c7e2] hover:bg-white/10 hover:text-white active:scale-[0.99]',
                   )}>
-                    {isActive && <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-blue-500" />}
-                    <item.icon className={cn('w-5 h-5 shrink-0 transition-colors', isActive ? 'text-blue-600' : 'text-slate-400 group-hover/nav:text-slate-600')} />
+                    {isActive && <span className="absolute -left-3 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-[#78a3ff]" />}
+                    <item.icon className={cn('h-[18px] w-[18px] shrink-0 transition-colors', isActive ? 'text-white' : 'text-[#8da6cc] group-hover/nav:text-white')} />
                     <span className={labelHidden}>{item.label}</span>
                   </Link>
                 );
@@ -77,13 +81,16 @@ export function Sidebar() {
           ))}
         </nav>
 
-        <div className="p-2 border-t border-slate-100">
-          <Link href="/settings" onClick={closeNav} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-all">
-            <Settings className="w-5 h-5 shrink-0" />
+        <div className="border-t border-white/10 p-3">
+          <div className={cn('mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-xs text-[#a9bbd8]', labelHidden)}>
+            <Sparkles className="h-3.5 w-3.5 text-[#79a3ff]" />把合适的人，送到合适的岗位
+          </div>
+          <Link href="/settings" onClick={closeNav} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[#a9bbd8] transition-colors hover:bg-white/10 hover:text-white">
+            <Settings className="h-[18px] w-[18px] shrink-0" />
             <span className={labelHidden}>设置</span>
           </Link>
           {/* 折叠开关仅桌面端显示 */}
-          <button onClick={toggleCollapsed} className="hidden lg:flex w-full items-center justify-center py-2 mt-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all">
+          <button onClick={toggleCollapsed} className="mt-1 hidden w-full items-center justify-center rounded-xl py-2 text-[#8da6cc] transition-colors hover:bg-white/10 hover:text-white lg:flex" aria-label={navCollapsed ? '展开侧栏' : '收起侧栏'}>
             {navCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         </div>

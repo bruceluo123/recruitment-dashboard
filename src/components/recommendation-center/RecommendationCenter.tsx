@@ -604,10 +604,32 @@ export function RecommendationCenter() {
   };
 
   return (
-    <div className="workspace-page max-w-6xl">
-      <div>
-        <h2 className="page-title">推荐中心</h2>
-        <p className="page-subtitle">粘贴简历一键解析录入推荐人，自动回填编制/部门，可直接约面同步面试日历。</p>
+    <div className="workspace-page max-w-[1480px]">
+      <div className="recommendation-hero relative overflow-hidden rounded-[26px] px-6 py-7 text-white sm:px-8 sm:py-8">
+        <div className="relative z-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div>
+            <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-[#a9c4ff]">PENGUIN ISLAND / RECOMMENDATIONS</p>
+            <h2 className="text-[32px] font-bold leading-none tracking-[-0.055em] sm:text-[40px]">推荐中心</h2>
+            <p className="mt-4 max-w-xl text-sm leading-6 text-[#c4d3ed]">从简历录入到推荐、复推与约面，在这里完成一整条工作流。</p>
+            <div className="mt-6 flex flex-wrap items-center gap-2 text-[11px] font-medium text-[#b5c9ec]">
+              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5">01 收集简历</span>
+              <span className="text-[#6e8dbd]">/</span>
+              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5">02 匹配岗位</span>
+              <span className="text-[#6e8dbd]">/</span>
+              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5">03 推荐复推</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <div className="min-w-[118px] rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
+              <span className="block text-[11px] text-[#b5c9ec]">当前视图</span>
+              <span className="mt-2 block truncate text-lg font-semibold">{columnNames[view]}</span>
+            </div>
+            <div className="min-w-[118px] rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
+              <span className="block text-[11px] text-[#b5c9ec]">累计推荐</span>
+              <span className="mt-1 block text-[27px] font-semibold tabular-nums tracking-[-0.05em]">{viewItems.length}<small className="ml-1 text-xs font-medium text-[#b5c9ec]">人</small></span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* 简历入口 */}
@@ -622,22 +644,23 @@ export function RecommendationCenter() {
       />
 
       {/* 推荐数据列表 */}
-      <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
-        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-            <Users className="w-4 h-4 text-indigo-500" />推荐数据
-            <span className="text-sm font-normal text-gray-400">
+      <div className="workspace-surface p-4 sm:p-6">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-[#edf1f6] pb-5">
+          <h3 className="flex items-center gap-3 text-[17px] font-semibold tracking-[-0.02em] text-slate-900">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#edf3ff] text-[#3159d8]"><Users className="h-[18px] w-[18px]" /></span>
+            推荐数据
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
               {hasFilter ? `${filteredItems.length} / ${viewItems.length} 人` : `${viewItems.length} 人`}
               {scheduledCount > 0 ? ` · ${scheduledCount} 已约面` : ''}
             </span>
           </h3>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="recommendation-actions flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <button
               type="button"
               onClick={() => setSameJobRepushOpen(true)}
               disabled={sameJobCandidates.length === 0}
               title={sameJobCandidates.length > 0 ? '选择多位人选复推到同一个岗位' : '暂无带原简历的可复推人选'}
-              className="flex h-9 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-9 items-center gap-1.5 rounded-xl bg-[#3159d8] px-3 text-sm font-semibold text-white shadow-[0_5px_12px_rgba(49,89,216,0.18)] hover:bg-[#254bc2] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Repeat2 className="h-4 w-4" />同岗复推
             </button>
@@ -646,7 +669,7 @@ export function RecommendationCenter() {
               onClick={() => setShowingUnfeedback(true)}
               disabled={!feedbackReady}
               title={!feedbackReady ? '正在读取反馈，请稍候' : feedbackError ? '使用上次成功读取的反馈结果' : '复制未反馈岗位'}
-              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60 transition-colors"
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60"
             >
               <MessageSquareText className="w-4 h-4" />未反馈
             </button>
@@ -654,7 +677,7 @@ export function RecommendationCenter() {
             <button
               onClick={handleOpenDailyReport}
               disabled={preparingBoard}
-              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 text-sm font-medium hover:bg-indigo-100 transition-colors"
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-[#e2e8f2] bg-white px-3 text-sm font-medium text-slate-600 hover:border-[#b7c9ef] hover:bg-[#f7faff]"
             >
               {preparingBoard ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}一键看板
             </button>
@@ -663,7 +686,7 @@ export function RecommendationCenter() {
               data-report-action="export-today"
               onClick={handleExportTodayReport}
               disabled={exportingToday}
-              className="flex items-center gap-1.5 px-3 h-9 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-sm font-medium hover:bg-emerald-100 transition-colors"
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
             >
               {exportingToday ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}今日日报
             </button>
@@ -671,17 +694,17 @@ export function RecommendationCenter() {
               type="button"
               onClick={handleOpenWeeklyReport}
               disabled={preparingWeekly}
-              className="flex h-9 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-[#e2e8f2] bg-white px-3 text-sm font-medium text-slate-600 hover:border-[#b7c9ef] hover:bg-[#f7faff] disabled:cursor-wait disabled:opacity-60"
             >
               {preparingWeekly ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarRange className="h-4 w-4" />}周报
             </button>
             {/* 两个推荐人切换（非并排） */}
-            <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
+            <div className="flex overflow-hidden rounded-xl border border-[#e2e8f2] bg-[#f5f7fb] p-0.5 text-sm">
               {(['a', 'b'] as RepushColumnId[]).map((c) => (
                 <button
                   key={c}
                   onClick={() => setView(c)}
-                  className={cn('px-4 h-9 font-medium transition-colors', view === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}
+                  className={cn('h-8 rounded-[9px] px-3.5 font-medium transition-all', view === c ? 'bg-white text-[#3159d8] shadow-[0_2px_7px_rgba(30,54,99,0.1)]' : 'text-slate-500 hover:text-slate-700')}
                 >
                   {columnNames[c]}
                 </button>
@@ -703,12 +726,12 @@ export function RecommendationCenter() {
             {groups.map((g) => (
               <div key={g.key}>
                 {/* 日期分隔 */}
-                <div className="flex items-center gap-3 mb-2.5">
-                  <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
-                    <CalendarCheck className="w-3.5 h-3.5 text-gray-300" />{g.label}
+                <div className="mb-2.5 flex items-center gap-3">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                    <CalendarCheck className="h-3.5 w-3.5 text-[#8ea6dc]" />{g.label}
                   </span>
-                  <span className="text-xs text-gray-300">{g.candidateGroups.length} 人</span>
-                  <div className="flex-1 h-px bg-gray-100" />
+                  <span className="text-xs text-slate-400">{g.candidateGroups.length} 人</span>
+                  <div className="h-px flex-1 bg-[#e9eef5]" />
                 </div>
                 <div className="space-y-1.5">
                   {g.candidateGroups.map((candidateGroup) => {

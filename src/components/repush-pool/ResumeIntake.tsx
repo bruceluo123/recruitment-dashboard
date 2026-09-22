@@ -215,19 +215,22 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
   const fileLabel = fileStatus === 'uploading' ? '上传中…' : fileStatus === 'parsing' ? '解析中…' : '';
 
   return (
-    <div className="rounded-lg border border-blue-100 bg-blue-50/35 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
+    <div className="workspace-surface overflow-hidden p-4 sm:p-6">
       {/* 顶栏 */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-          <span className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center"><Sparkles className="w-4 h-4 text-white" /></span>
-          简历入口
-        </h2>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#edf3ff] text-[#3159d8]"><Sparkles className="h-[18px] w-[18px]" /></span>
+          <div>
+            <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-slate-900">简历入口</h2>
+            <p className="mt-0.5 text-xs text-slate-500">粘贴推荐语或上传原始文件，解析后再录入</p>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">推荐人</span>
-          <div className="flex rounded-lg border border-indigo-200 overflow-hidden text-xs">
+          <span className="text-xs font-medium text-slate-500">推荐人</span>
+          <div className="flex overflow-hidden rounded-xl border border-[#e2e8f2] bg-[#f5f7fb] p-0.5 text-xs">
             {(['a', 'b'] as RepushColumnId[]).map((c) => (
               <button key={c} onClick={() => handleOwnerChange(c)}
-                className={cn('px-3 h-7 font-medium transition-colors', owner === c ? 'bg-indigo-500 text-white' : 'bg-white text-gray-500 hover:bg-indigo-50')}>
+                className={cn('h-7 rounded-[9px] px-3 font-medium transition-all', owner === c ? 'bg-white text-[#3159d8] shadow-[0_2px_7px_rgba(30,54,99,0.1)]' : 'text-slate-500 hover:text-slate-700')}>
                 {columnNames[c]}
               </button>
             ))}
@@ -238,19 +241,20 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
       {/* 一体化简历入口：左侧文字框 + 右侧上传（上传后自动填入左侧） */}
       <div className="flex flex-col gap-3 lg:flex-row">
         {/* ── 左：文字输入区（主区域） ── */}
-        <div className="flex-1 min-w-0 flex gap-2" style={{ height: 180 }}>
+        <div className="flex min-w-0 flex-1 gap-2" style={{ height: 180 }}>
           <textarea
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
             placeholder="粘贴整段简历内容，或从右侧上传文件自动提取…"
-            className="flex-1 h-full px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-sm resize-none focus:outline-none focus:border-indigo-300"
+            aria-label="粘贴简历或推荐语"
+            className="h-full flex-1 resize-none rounded-2xl border border-[#dce5f1] bg-[#fafcff] px-4 py-3.5 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:border-[#88a4ec] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#eaf0ff]"
           />
           <button
             onClick={handleParse}
             disabled={!rawText.trim() || parsing}
             className={cn(
-              'shrink-0 w-20 rounded-xl text-xs font-medium flex flex-col items-center justify-center gap-1 transition-all',
-              !rawText.trim() || parsing ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-indigo-500 text-white hover:bg-indigo-600',
+              'workspace-action flex w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl text-xs font-semibold',
+              !rawText.trim() || parsing ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-[#3159d8] text-white shadow-[0_5px_12px_rgba(49,89,216,0.16)] hover:bg-[#254bc2]',
             )}
           >
             {parsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -270,28 +274,28 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               onDragLeave={() => setDragOver(false)}
               onDrop={onDrop}
               className={cn(
-                'w-full h-[180px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs transition-all cursor-pointer',
-                dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40',
+                'workspace-action flex h-[180px] w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed text-xs',
+                dragOver ? 'border-[#6285e9] bg-[#edf3ff]' : 'border-[#cbd8ec] bg-[#f8faff] hover:border-[#8ea6e8] hover:bg-[#f0f5ff]',
                 fileStatus === 'error' && 'border-red-300',
               )}
             >
-              <Upload className={cn('w-4 h-4', fileStatus === 'error' ? 'text-red-400' : 'text-gray-300')} />
+              <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl border border-[#dce6f6] bg-white shadow-[0_3px_8px_rgba(31,56,108,0.05)]"><Upload className={cn('h-4 w-4', fileStatus === 'error' ? 'text-red-400' : 'text-[#3159d8]')} /></span>
               {fileStatus === 'error' ? (
                 <span className="text-red-500 text-center px-2 leading-tight">{fileError}</span>
               ) : (
                 <>
-                  <span className="text-gray-400">上传简历文件</span>
-                  <span className="text-gray-300 text-[11px]">PDF / DOC / DOCX</span>
+                  <span className="font-semibold text-slate-700">上传简历文件</span>
+                  <span className="text-[11px] text-slate-400">PDF / DOC / DOCX</span>
                 </>
               )}
             </button>
           ) : fileIsBusy ? (
-            <div className="w-full h-[180px] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-1.5 text-xs text-gray-400">
+            <div className="flex h-[180px] w-full flex-col items-center justify-center gap-1.5 rounded-2xl border border-[#dce5f1] bg-[#f8faff] text-xs text-slate-500">
               <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
               <span className="text-center px-2 leading-tight">{fileLabel}</span>
             </div>
           ) : (
-            <div className="w-full h-[180px] rounded-xl border border-green-200 bg-green-50 flex flex-col items-center justify-center gap-1 px-3 relative">
+            <div className="relative flex h-[180px] w-full flex-col items-center justify-center gap-1 rounded-2xl border border-green-200 bg-green-50 px-3">
               <FileText className="w-4 h-4 text-green-500 shrink-0" />
               <p className="text-[11px] font-medium text-gray-600 text-center truncate w-full px-1">{uploadedFileName}</p>
               <p className="text-[11px] text-green-600 flex items-center gap-0.5"><Check className="w-3 h-3" />文字已填入左侧</p>
@@ -358,7 +362,7 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
               className={cn(
                 'h-10 px-6 rounded-xl text-sm font-medium flex items-center gap-2 transition-all',
                 !name.trim() ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                  : justAdded ? 'bg-green-500 text-white' : 'bg-indigo-500 text-white hover:bg-indigo-600',
+                  : justAdded ? 'bg-green-500 text-white' : 'bg-[#3159d8] text-white hover:bg-[#254bc2]',
               )}
             >
               {justAdded ? <Check className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
@@ -378,12 +382,12 @@ export function ResumeIntake({ columnNames, orgOptions, deptOptions, jds, defaul
           height: 2.5rem;
           padding: 0 0.75rem;
           border-radius: 0.75rem;
-          background: #fff;
-          border: 1px solid #e5e7eb;
+          background: #fbfcff;
+          border: 1px solid #dce5f1;
           font-size: 0.875rem;
           outline: none;
         }
-        :global(.intake-input:focus) { border-color: #a5b4fc; }
+        :global(.intake-input:focus) { border-color: #88a4ec; box-shadow: 0 0 0 3px #eaf0ff; }
       `}</style>
     </div>
   );
