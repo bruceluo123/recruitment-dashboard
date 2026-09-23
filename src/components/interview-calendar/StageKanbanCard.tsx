@@ -17,6 +17,7 @@ interface StageKanbanCardProps {
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
   onAdvanceHeadhunterInterview?: (id: string, round: '二面' | '三面') => void;
   onHeadhunterOffer?: (id: string) => void;
+  onAdvanceInterview?: (id: string, round: '二面' | '三面') => void;
   onOfferCandidate?: (id: string) => void;
 }
 
@@ -36,7 +37,7 @@ function formatOnboardDate(isoStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}号(周${week})`;
 }
 
-export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAdvanceHeadhunterInterview, onHeadhunterOffer, onOfferCandidate }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAdvanceHeadhunterInterview, onHeadhunterOffer, onAdvanceInterview, onOfferCandidate }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const isHeadhunter = isHeadhunterInterview(candidate);
   const accent = isHeadhunter && !candidate.headhunterOffer ? HEADHUNTER_ACCENT : candidate.headhunterOffer ? STAGE_ACCENTS.offer : STAGE_ACCENTS[candidate.stage];
@@ -187,16 +188,28 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
+            {candidate.outcome !== 'failed' && (
+              <button
+                title="标记为二面，并同步推荐中心"
+                onClick={() => onAdvanceInterview?.(candidate.id, '二面')}
+                className={cn(
+                  'h-7 rounded-md px-1.5 text-[10px] font-medium transition-colors',
+                  candidate.stage === 'interview-2'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-amber-50 text-amber-600 hover:bg-amber-100',
+                )}
+              >复试</button>
+            )}
             <button
               title="记录 Offer，并同步推荐中心"
               onClick={() => onOfferCandidate?.(candidate.id)}
-              className="flex h-7 items-center gap-1 rounded-md bg-emerald-50 px-2 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-100"
+              className="flex h-7 items-center gap-1 rounded-md bg-emerald-50 px-1.5 text-[10px] font-medium text-emerald-600 transition-colors hover:bg-emerald-100"
             >
               <BriefcaseBusiness className="h-3.5 w-3.5" />Offer
             </button>
             {candidate.outcome === 'failed' ? (
-              <span className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-medium text-red-500">
-                <CircleX className="h-3.5 w-3.5" />未通过
+              <span title="面试未通过" className="flex h-7 w-7 items-center justify-center rounded-md bg-red-50 text-red-500">
+                <CircleX className="h-3.5 w-3.5" />
               </span>
             ) : confirming ? (
               <>
@@ -204,8 +217,8 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
                 <button onClick={() => setConfirming(false)} className="h-6 rounded-md px-2 text-[11px] text-gray-500 hover:bg-gray-100">取消</button>
               </>
             ) : (
-              <button title="标记面试未通过" onClick={() => setConfirming(true)} className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-gray-400 transition-all hover:bg-red-50 hover:text-red-500">
-                <CircleX className="h-3.5 w-3.5" />未通过
+              <button aria-label="标记面试未通过" title="标记面试未通过" onClick={() => setConfirming(true)} className="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-all hover:bg-red-50 hover:text-red-500">
+                <CircleX className="h-3.5 w-3.5" />
               </button>
             )}
           </div>

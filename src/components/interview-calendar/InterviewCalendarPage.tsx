@@ -388,6 +388,21 @@ export function InterviewCalendarPage() {
     updateCandidate(id, { interviewRound: round });
   };
 
+  const handleAdvanceInterview = (id: string, round: '二面' | '三面') => {
+    const candidate = candidates.find((item) => item.id === id);
+    if (!candidate || isHeadhunterInterview(candidate)) return;
+    updateCandidate(id, { stage: 'interview-2', interviewRound: round });
+    const recommendation = linkedOfferRecommendation(candidate, recommendationItems);
+    if (recommendation) {
+      updateRecommendation(recommendation.id, {
+        candidateId: candidate.id,
+        interviewStatus: 'scheduled',
+        interviewRound: round,
+        interviewAt: candidate.interviewDate,
+      });
+    }
+  };
+
   const openHeadhunterOffer = (id: string) => {
     const candidate = candidates.find((item) => item.id === id);
     if (!candidate || !isHeadhunterInterview(candidate)) return;
@@ -575,7 +590,7 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} onAddHeadhunterInterview={() => setShowAddForm(true)} onAdvanceHeadhunterInterview={handleAdvanceHeadhunterInterview} onHeadhunterOffer={openHeadhunterOffer} onOfferCandidate={setOfferCandidateId} />
+        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} onAddHeadhunterInterview={() => setShowAddForm(true)} onAdvanceHeadhunterInterview={handleAdvanceHeadhunterInterview} onHeadhunterOffer={openHeadhunterOffer} onAdvanceInterview={handleAdvanceInterview} onOfferCandidate={setOfferCandidateId} />
       ) : (
         <WeekGridView candidates={recruitmentOwnerCandidates} onCandidateClick={setSelectedId} />
       )}
