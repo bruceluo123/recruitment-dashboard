@@ -1,8 +1,9 @@
 import type { RepushColumnId } from '@/store/repush-store';
 import type { JD } from '@/types/jd';
+import { redactCompromisedTelegram } from '@/lib/security-redaction';
 
 const OWNER_RECOMMENDER: Record<RepushColumnId, string> = {
-  a: '麦满分 @bruceluo123',
+  a: '麦满分',
   b: 'BOBO @bobomiepucha',
 };
 
@@ -26,7 +27,7 @@ export function recommendationOrganization(jd: JD): string {
 }
 
 function formatContactPerson(value?: string): string {
-  return String(value || '')
+  return redactCompromisedTelegram(value)
     .trim()
     .replace(/([^\s])\s*(@[A-Za-z0-9_]{2,})/g, '$1 $2');
 }

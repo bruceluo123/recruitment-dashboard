@@ -7,7 +7,7 @@ import { mergeUniqueJDs } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
 import { useInterviewStore } from '@/store/interview-store';
 import { useTalentStore } from '@/store/talent-store';
-import { useRepushStore } from '@/store/repush-store';
+import { sanitizeRepushItem, useRepushStore } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { useCompanyStore } from '@/store/company-store';
 import { usePerformanceStore, type PerformanceKpiRecord } from '@/store/performance-store';
@@ -119,7 +119,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         }
         if (type === 'candidates') useInterviewStore.setState({ candidates: data as Candidate[] });
         if (type === 'talents') useTalentStore.setState({ talents: data as Talent[] });
-        if (type === 'repush') useRepushStore.setState({ items: data as RepushItem[] });
+        if (type === 'repush') useRepushStore.setState({ items: (data as RepushItem[]).map(sanitizeRepushItem) });
         if (type === 'todos') useTodoStore.setState({ todos: data as TodoItem[] });
         if (type === 'companies') useCompanyStore.setState({ companies: data as Company[] });
         if (type === 'performance') usePerformanceStore.setState({ records: data as PerformanceKpiRecord[] });

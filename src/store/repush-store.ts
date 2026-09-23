@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { generateId } from '@/lib/utils';
 import { isTombstoned, rememberDeliveryReceipt } from '@/lib/sync';
 import type { SyncRecord } from '@/lib/record-changes';
+import { redactCompromisedTelegram } from '@/lib/security-redaction';
 
 // 今日复推池：两个人各自一列，每列是当天要复推的简历清单。
 // 只记录文件名与编制/部门/反馈状态（不存文件本体，避免 localStorage 配额溢出导致丢失）。
@@ -108,9 +109,17 @@ interface RepushStore {
 const DEFAULT_NAMES: Record<RepushColumnId, string> = { a: '麦满分', b: '啵啵' };
 /** 云端保留完整推荐记录；浏览器缓存不再重复保存旧版 base64 简历文件。 */
 function compactLocalItem(item: RepushItem): RepushItem {
-  const { dataUrl, ...rest } = item;
+  const { dataUrl, ...rest } = sanitizeRepushItem(item);
   void dataUrl;
   return rest;
+}
+
+export function sanitizeRepushItem(item: RepushItem): RepushItem {
+  return {
+    ...item,
+    contactPerson: redactCompromisedTelegram(item.contactPerson) || undefined,
+    rawText: redactCompromisedTelegram(item.rawText) || undefined,
+  };
 }
 
 export const useRepushStore = create<RepushStore>()(
@@ -205,8 +214,8 @@ export const useRepushStore = create<RepushStore>()(
               jdId: rec.jdId || undefined,
               jdTitle: rec.jdTitle || undefined,
               contact: rec.contact || undefined,
-              contactPerson: rec.contactPerson || undefined,
-              rawText: rec.rawText ? rec.rawText.slice(0, 2000) : undefined,
+              contactPerson: redactCompromisedTelegram(rec.contactPerson) || undefined,
+              rawText: rec.rawText ? redactCompromisedTelegram(rec.rawText).slice(0, 2000) : undefined,
               highlights: rec.highlights ? rec.highlights.slice(0, 1500) : undefined,
               resumeUrl: rec.resumeUrl || undefined,
               resumeFileName: rec.resumeFileName || undefined,
@@ -229,6 +238,7 @@ export const useRepushStore = create<RepushStore>()(
         };
       }),
       upsertDeliveryRecommendation: (record) => set((s) => {
+        record = sanitizeRepushItem(record);
         if (!record?.id || (record.column !== 'a' && record.column !== 'b')) return {};
         if (isTombstoned('repush', record.id) || record.applicationId && isTombstoned('repush', record.applicationId)) return {};
         rememberDeliveryReceipt(record as unknown as SyncRecord);
@@ -262,7 +272,7 @@ export const useRepushStore = create<RepushStore>()(
         return { items };
       }),
       updateItem: (id, partial) => set((s) => ({
-        items: s.items.map((it) => (it.id === id ? { ...it, ...partial, updatedAt: new Date().toISOString() } : it)),
+        items: s.items.map((it) => (it.id === id ? sanitizeRepushItem({ ...it, ...partial, updatedAt: new Date().toISOString() }) : it)),
       })),
       removeItem: (id) => set((s) => {
         const item = s.items.find((it) => it.id === id);
@@ -294,7 +304,7 @@ export const useRepushStore = create<RepushStore>()(
     }),
     {
       name: 'recruitai-repush-store',
-      version: 3,
+      version: 4,
       partialize: (state) => ({
         items: state.items.map(compactLocalItem),
         columnNames: state.columnNames,

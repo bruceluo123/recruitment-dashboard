@@ -5,6 +5,7 @@ import type { RecommendationDeliveryStatus, RepushItem } from '@/store/repush-st
 import { displayName, formatOrgDept } from '@/lib/repush-format';
 import { isFeedbackEligibleDelivery, projectFeedbackStatus } from '@/lib/feedback-status';
 import type { FeedbackCenterItem } from '@/types/feedback-center';
+import { redactCompromisedTelegram } from '@/lib/security-redaction';
 
 export type RecommendationFeedbackLabel = '未反馈' | '未通过' | '通过';
 
@@ -80,7 +81,7 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
     ? `${groupDepartments.slice(0, 2).join('、')}等${groupDepartments.length}个部门`
     : groupDepartments.join('、');
   const groupHandlers = isCollapsedCandidateGroup
-    ? Array.from(new Set((candidateGroupItems || []).map((groupItem) => groupItem.contactPerson?.trim()).filter(Boolean)))
+    ? Array.from(new Set((candidateGroupItems || []).map((groupItem) => redactCompromisedTelegram(groupItem.contactPerson)).filter(Boolean)))
     : [];
   const feedback = feedbackMeta(feedbackItem);
   const delivery = item.deliveryStatus && item.deliveryStatus !== 'sent'
@@ -268,7 +269,7 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
               </span>
             )
           ) : (
-            item.contactPerson && <span className="flex items-center gap-0.5"><UserCog className="h-3 w-3" />对接 {item.contactPerson}</span>
+            redactCompromisedTelegram(item.contactPerson) && <span className="flex items-center gap-0.5"><UserCog className="h-3 w-3" />对接 {redactCompromisedTelegram(item.contactPerson)}</span>
           )}
         </div>
       </div>

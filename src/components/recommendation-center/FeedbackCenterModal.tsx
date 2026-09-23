@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { projectFeedbackStatus } from '@/lib/feedback-status';
+import { redactCompromisedTelegram } from '@/lib/security-redaction';
 import type {
   FeedbackCenterItem,
   FeedbackCenterState,
@@ -280,7 +281,7 @@ export function FeedbackCenterModal({ owner, initialState, onClose, onRepush }: 
                         <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
                           {[item.organization, item.department].filter(Boolean).join(' / ') || '部门信息待确认'}
                         </p>
-                        {item.contactPerson && <p className="mt-1 truncate text-xs text-slate-400">对接 {item.contactPerson}</p>}
+                        {redactCompromisedTelegram(item.contactPerson) && <p className="mt-1 truncate text-xs text-slate-400">对接 {redactCompromisedTelegram(item.contactPerson)}</p>}
                       </button>
                     );
                   })}
