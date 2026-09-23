@@ -366,7 +366,7 @@ function QuickTodoRow({ todo, ownerName, onToggle, onEdit }: {
         aria-label={`完成：${todo.title}`}
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-800">{todo.title}</p>
+        <p className="whitespace-normal break-words text-sm font-medium leading-5 text-slate-800">{todo.title}</p>
         <div className="mt-1 flex items-center gap-2 text-[11px]">
           <span className="font-medium text-slate-400">待处理</span>
           {todo.dueDate && (
