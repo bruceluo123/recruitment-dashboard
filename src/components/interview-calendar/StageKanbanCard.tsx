@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { CalendarClock, CircleX, LogOut, Mail, Pencil, Trash2, UserRound } from 'lucide-react';
+import { BriefcaseBusiness, CalendarClock, CircleX, LogOut, Mail, Pencil, Trash2, UserRound } from 'lucide-react';
 import { cn, formatInterviewDate } from '@/lib/utils';
 import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, type OfferCommission } from '@/lib/offer-compensation';
 import type { Candidate, CandidateStatus } from '@/types/interview';
@@ -17,6 +17,7 @@ interface StageKanbanCardProps {
   onCommissionTenureChange?: (id: string, months: 0 | 1 | 2 | 3) => void;
   onAdvanceHeadhunterInterview?: (id: string, round: '二面' | '三面') => void;
   onHeadhunterOffer?: (id: string) => void;
+  onOfferCandidate?: (id: string) => void;
 }
 
 const STAGE_ACCENTS: Record<CandidateStatus, { border: string; badge: string; icon: string }> = {
@@ -35,7 +36,7 @@ function formatOnboardDate(isoStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}号(周${week})`;
 }
 
-export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAdvanceHeadhunterInterview, onHeadhunterOffer }: StageKanbanCardProps) {
+export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAdvanceHeadhunterInterview, onHeadhunterOffer, onOfferCandidate }: StageKanbanCardProps) {
   const [confirming, setConfirming] = useState(false);
   const isHeadhunter = isHeadhunterInterview(candidate);
   const accent = isHeadhunter && !candidate.headhunterOffer ? HEADHUNTER_ACCENT : candidate.headhunterOffer ? STAGE_ACCENTS.offer : STAGE_ACCENTS[candidate.stage];
@@ -185,6 +186,13 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
               className="flex h-7 items-center rounded-md px-1.5 text-gray-400 transition-all hover:bg-rose-50 hover:text-rose-500"
             >
               <Trash2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              title="记录 Offer，并同步推荐中心"
+              onClick={() => onOfferCandidate?.(candidate.id)}
+              className="flex h-7 items-center gap-1 rounded-md bg-emerald-50 px-2 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-100"
+            >
+              <BriefcaseBusiness className="h-3.5 w-3.5" />Offer
             </button>
             {candidate.outcome === 'failed' ? (
               <span className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-medium text-red-500">

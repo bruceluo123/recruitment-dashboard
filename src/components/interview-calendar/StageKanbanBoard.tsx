@@ -17,9 +17,10 @@ interface StageKanbanBoardProps {
   onAddHeadhunterInterview: () => void;
   onAdvanceHeadhunterInterview: (id: string, round: '二面' | '三面') => void;
   onHeadhunterOffer: (id: string) => void;
+  onOfferCandidate: (id: string) => void;
 }
 
-export function StageKanbanBoard({ candidates, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAddHeadhunterInterview, onAdvanceHeadhunterInterview, onHeadhunterOffer }: StageKanbanBoardProps) {
+export function StageKanbanBoard({ candidates, owner, onCandidateClick, onFailCandidate, onDeleteCandidate, onEarlyDeparture, onDeleteOffer, onCommissionTenureChange, onAddHeadhunterInterview, onAdvanceHeadhunterInterview, onHeadhunterOffer, onOfferCandidate }: StageKanbanBoardProps) {
   const interviewStage = DEFAULT_STAGES.find((stage) => stage.id === 'interview-1')!;
   const offerStage = DEFAULT_STAGES.find((stage) => stage.id === 'offer');
   const offerGroups = groupRecentOffers(candidates);
@@ -43,6 +44,7 @@ export function StageKanbanBoard({ candidates, owner, onCandidateClick, onFailCa
         onFailCandidate={onFailCandidate}
         onDeleteCandidate={onDeleteCandidate}
         onEarlyDeparture={onEarlyDeparture}
+        onOfferCandidate={onOfferCandidate}
       />
       <StageKanbanColumn
         stage={interviewStage}

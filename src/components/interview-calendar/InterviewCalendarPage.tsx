@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { StageKanbanBoard } from './StageKanbanBoard';
 import { WeekGridView } from './WeekGridView';
+import { OfferModal, type OfferFormValues } from '@/components/recommendation-center/OfferModal';
 import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
@@ -14,6 +15,7 @@ import { formatOrgDept } from '@/lib/repush-format';
 import { buildRecruitmentReportRows, buildRecruitmentReportText, parseInterviewReport } from '@/lib/interview-report';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, getOfferCommissionForCandidate, getOfferPerformanceMonth } from '@/lib/offer-compensation';
+import type { RepushItem } from '@/store/repush-store';
 
 function dateKey(iso: string): string {
   const d = new Date(iso);
@@ -57,12 +59,61 @@ function offerSalaryPart(value: string | undefined, label: '试用期' | '转正
   return match?.[1]?.trim() || '';
 }
 
+function normalizedOfferField(value?: string): string {
+  return String(value || '').trim().toLowerCase().replace(/[\s/·・()（）\-_—–]+/g, '');
+}
+
+function linkedOfferRecommendation(candidate: Candidate, items: RepushItem[]): RepushItem | undefined {
+  const newestFirst = (matches: RepushItem[]) => matches.sort((left, right) => (
+    new Date(right.updatedAt || right.uploadedAt).getTime() - new Date(left.updatedAt || left.uploadedAt).getTime()
+  ));
+  const linked = newestFirst(items.filter((item) => item.candidateId === candidate.id));
+  if (linked.length > 0) return linked[0];
+  const owner = candidate.owner || 'a';
+  const candidateIdentity = normalizedOfferField(candidate.candidateCode || candidate.name);
+  return newestFirst(items.filter((item) => (
+    item.column === owner
+    && normalizedOfferField(item.candidateCode || item.candidateName || item.fileName) === candidateIdentity
+    && normalizedOfferField(item.jdTitle) === normalizedOfferField(candidate.jdTitle)
+    && normalizedOfferField(item.organization) === normalizedOfferField(candidate.organization)
+    && normalizedOfferField(item.department) === normalizedOfferField(candidate.department)
+  )))[0];
+}
+
+function candidateOfferItem(candidate: Candidate): RepushItem {
+  return {
+    id: `candidate-offer:${candidate.id}`,
+    column: candidate.owner || 'a',
+    fileName: `${candidate.name}-${candidate.jdTitle}`,
+    candidateCode: candidate.candidateCode,
+    candidateName: candidate.name,
+    jdId: candidate.jdId || undefined,
+    jdTitle: candidate.jdTitle,
+    contact: candidate.contactPhone,
+    feedback: 'pending',
+    interviewStatus: 'scheduled',
+    interviewRound: candidate.interviewRound,
+    candidateId: candidate.id,
+    interviewAt: candidate.interviewDate,
+    source: candidate.recommendationSource,
+    organization: candidate.organization,
+    department: candidate.department,
+    resumeUrl: candidate.resumeUrl,
+    resumeFileName: candidate.resumeFileName,
+    talentId: candidate.talentId,
+    offerAppliedAt: candidate.offerAppliedAt,
+    uploadedAt: candidate.appliedAt,
+    updatedAt: candidate.updatedAt,
+  };
+}
+
 export function InterviewCalendarPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ name: '', jdTitle: '', interviewDate: '' });
   const [headhunterOfferId, setHeadhunterOfferId] = useState<string | null>(null);
+  const [offerCandidateId, setOfferCandidateId] = useState<string | null>(null);
   const [headhunterOfferForm, setHeadhunterOfferForm] = useState({ monthlySalary: '', salaryMonths: '12', onboardDate: '' });
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
@@ -89,6 +140,8 @@ export function InterviewCalendarPage() {
   const updateCandidate = useInterviewStore((s) => s.updateCandidate);
   const removeCandidate = useInterviewStore((s) => s.removeCandidate);
   const columnNames = useRepushStore((s) => s.columnNames);
+  const recommendationItems = useRepushStore((s) => s.items);
+  const updateRecommendation = useRepushStore((s) => s.updateItem);
 
   // 编制组织 / 部门下拉选项：取 JD 库中所有去重、非空的对应字段（与人才复推池一致）
   const jds = useJDStore((s) => s.jds);
@@ -364,6 +417,28 @@ export function InterviewCalendarPage() {
     setHeadhunterOfferId(null);
   };
 
+  const confirmRecruitmentOffer = (values: OfferFormValues) => {
+    const candidate = candidates.find((item) => item.id === offerCandidateId);
+    if (!candidate || isHeadhunterInterview(candidate)) return;
+    const offerAppliedAt = new Date().toISOString();
+    const probationSalary = values.probationSalary.trim();
+    const regularSalary = values.regularSalary.trim();
+    const onboardDate = values.onboardDate ? new Date(values.onboardDate).toISOString() : undefined;
+    const salary = [probationSalary && `试用期 ${probationSalary}`, regularSalary && `转正 ${regularSalary}`].filter(Boolean).join(' / ');
+    updateCandidate(candidate.id, {
+      stage: 'offer',
+      probationSalary: probationSalary || undefined,
+      regularSalary: regularSalary || undefined,
+      probationMonths: '2',
+      salary: salary || undefined,
+      onboardDate,
+      offerAppliedAt,
+    });
+    const recommendation = linkedOfferRecommendation(candidate, recommendationItems);
+    if (recommendation) updateRecommendation(recommendation.id, { candidateId: candidate.id, offerAppliedAt });
+    setOfferCandidateId(null);
+  };
+
   // 按推荐人列过滤（未设置 owner 的候选人归入麦满分/a 列）
   const ownerCandidates = useMemo(
     () => candidates.filter((c) => (c.owner || 'a') === ownerTab),
@@ -417,6 +492,9 @@ export function InterviewCalendarPage() {
   const selected = candidates.find((c) => c.id === selectedId);
   const earlyDepartureCandidate = candidates.find((c) => c.id === earlyDepartureId);
   const headhunterOfferCandidate = candidates.find((c) => c.id === headhunterOfferId);
+  const offerCandidate = candidates.find((c) => c.id === offerCandidateId);
+  const offerRecommendation = offerCandidate ? linkedOfferRecommendation(offerCandidate, recommendationItems) : undefined;
+  const offerModalItem = offerCandidate ? offerRecommendation || candidateOfferItem(offerCandidate) : undefined;
   const headhunterOfferTotal = (Number(headhunterOfferForm.monthlySalary) || 0) * (Number(headhunterOfferForm.salaryMonths) || 0);
   const selectedCommission = selected?.stage === 'offer'
     ? getOfferCommissionForCandidate(selected, ownerCandidates)
@@ -497,9 +575,19 @@ export function InterviewCalendarPage() {
       </div>
 
       {view === 'kanban' ? (
-        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} onAddHeadhunterInterview={() => setShowAddForm(true)} onAdvanceHeadhunterInterview={handleAdvanceHeadhunterInterview} onHeadhunterOffer={openHeadhunterOffer} />
+        <StageKanbanBoard candidates={boardCandidates} owner={ownerTab} onCandidateClick={setSelectedId} onFailCandidate={handleFailInterview} onDeleteCandidate={handleDeleteInterview} onEarlyDeparture={setEarlyDepartureId} onDeleteOffer={handleDeleteOffer} onCommissionTenureChange={handleCommissionTenureChange} onAddHeadhunterInterview={() => setShowAddForm(true)} onAdvanceHeadhunterInterview={handleAdvanceHeadhunterInterview} onHeadhunterOffer={openHeadhunterOffer} onOfferCandidate={setOfferCandidateId} />
       ) : (
         <WeekGridView candidates={recruitmentOwnerCandidates} onCandidateClick={setSelectedId} />
+      )}
+
+      {offerCandidate && offerModalItem && (
+        <OfferModal
+          item={offerModalItem}
+          candidate={offerCandidate}
+          candidates={candidates}
+          onClose={() => setOfferCandidateId(null)}
+          onConfirm={confirmRecruitmentOffer}
+        />
       )}
 
       {showImport && (
