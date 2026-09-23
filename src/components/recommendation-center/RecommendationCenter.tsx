@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Users, CalendarCheck, CalendarRange, FileUp, FileText, Loader2, MessageSquareText, Repeat2 } from 'lucide-react';
 import { ResumeIntake } from '@/components/repush-pool/ResumeIntake';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -198,6 +199,7 @@ function isSameJobTarget(item: RepushItem, jd: JD): boolean {
 }
 
 export function RecommendationCenter() {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const items = useRepushStore((s) => s.items);
   const columnNames = useRepushStore((s) => s.columnNames);
@@ -453,6 +455,12 @@ export function RecommendationCenter() {
         updateItem(item.id, { contact });
       }
     }
+  };
+
+  const openRematch = (item: RepushItem) => {
+    if (!item.resumeUrl) return;
+    setView(item.column);
+    router.push(`/resume-matching?rematch=${encodeURIComponent(item.id)}`);
   };
 
   const confirmSchedule = (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => {
@@ -760,6 +768,7 @@ export function RecommendationCenter() {
                             onSchedule={setScheduling}
                             onEdit={setEditing}
                             onRepush={setRepushing}
+                            onRematch={openRematch}
                             onOffer={setOffering}
                             offerRecorded={candidates.some((candidate) => candidate.id === it.candidateId && candidate.stage === 'offer')}
                             interviewFailed={candidates.some((candidate) => candidate.id === it.candidateId && candidate.outcome === 'failed')}

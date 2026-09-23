@@ -18,7 +18,7 @@ import { usePrefStore } from '@/store/pref-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
 import type { JD } from '@/types/jd';
 import type { Resume } from '@/types/resume';
-import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock, ListChecks } from 'lucide-react';
+import { FileSearch, Zap, FileText, AlertCircle, X, Filter, Trash2, Clock, ListChecks, Loader2, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { extractRecommendationInfo, type ExtractedRecommendation } from '@/lib/recommendation';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
@@ -171,7 +171,9 @@ export function ResumeMatchingPage() {
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [copyDialogInitialJdId, setCopyDialogInitialJdId] = useState('');
   const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
+  const [rematchNotice, setRematchNotice] = useState<{ tone: 'loading' | 'success' | 'error'; text: string } | null>(null);
   const recommendationGeneration = useRef(0);
+  const rematchRequest = useRef('');
   const pendingCandidateIdentity = useRef('');
   const ignorePastedCandidateCode = useRef(false);
   const activeOwner = usePrefStore((s) => s.activeOwner);
@@ -179,6 +181,7 @@ export function ResumeMatchingPage() {
   const jds = useJDStore((s) => s.jds);
   const addRecommendation = useRepushStore((s) => s.addRecommendation);
   const upsertDeliveryRecommendation = useRepushStore((s) => s.upsertDeliveryRecommendation);
+  const recommendationItems = useRepushStore((s) => s.items);
   const resumes = useResumeStore((s) => s.resumes);
   const activeResumeId = useResumeStore((s) => s.activeResumeId);
   const resultsByResume = useResumeStore((s) => s.resultsByResume);
@@ -199,6 +202,51 @@ export function ResumeMatchingPage() {
   };
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!mounted || isUploading) return;
+    const recommendationId = new URLSearchParams(window.location.search).get('rematch')?.trim() || '';
+    if (!recommendationId || rematchRequest.current === recommendationId) return;
+    const source = recommendationItems.find((item) => item.id === recommendationId);
+    if (!source) return;
+    rematchRequest.current = recommendationId;
+
+    if (!source.resumeUrl) {
+      setRematchNotice({ tone: 'error', text: '这条推荐没有可复用的简历文件，请返回推荐中心补充简历。' });
+      return;
+    }
+
+    const loadExistingResume = async () => {
+      setActiveOwner(source.column);
+      setRematchNotice({ tone: 'loading', text: `正在自动载入 ${source.candidateName || source.resumeFileName || '候选人'} 的原简历…` });
+      try {
+        const response = await fetch(source.resumeUrl!, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`原简历读取失败（${response.status}）`);
+        const blob = await response.blob();
+        const fallbackName = `${source.candidateName || '候选人'}-简历.pdf`;
+        const fileName = source.resumeFileName || source.fileName || fallbackName;
+        const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
+        const resumeId = await uploadResume(file);
+        if (!resumeId) throw new Error('简历自动载入失败，请先删除一份已保留的简历后重试');
+        const loaded = useResumeStore.getState().resumes.find((resume) => resume.id === resumeId);
+        if (!loaded || loaded.parsingStatus !== 'completed') {
+          throw new Error(loaded?.parseError || '简历识别失败，请在左侧点击重试');
+        }
+        setActiveResume(resumeId);
+        setMatchCategory('all');
+        setTargetJDIds(new Set());
+        setRematchNotice({ tone: 'success', text: `${fileName} 已自动载入，请选择本次需要匹配的岗位。` });
+        setTargetJDPickerOpen(true);
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.delete('rematch');
+        window.history.replaceState(window.history.state, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+      } catch (error) {
+        setRematchNotice({ tone: 'error', text: error instanceof Error ? error.message : '简历自动载入失败，请重试' });
+      }
+    };
+
+    void loadExistingResume();
+  }, [isUploading, mounted, recommendationItems, setActiveOwner, setActiveResume, uploadResume]);
 
   useEffect(() => {
     recommendationGeneration.current += 1;
@@ -396,6 +444,24 @@ export function ResumeMatchingPage() {
           ))}
         </div>
       </div>
+
+      {rematchNotice && (
+        <div className={cn(
+          'flex items-center gap-3 rounded-xl border px-4 py-3 text-sm',
+          rematchNotice.tone === 'error'
+            ? 'border-rose-200 bg-rose-50 text-rose-700'
+            : rematchNotice.tone === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-sky-200 bg-sky-50 text-sky-700',
+        )}>
+          {rematchNotice.tone === 'loading'
+            ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            : rematchNotice.tone === 'success'
+              ? <CheckCircle2 className="h-4 w-4 shrink-0" />
+              : <AlertCircle className="h-4 w-4 shrink-0" />}
+          <span>{rematchNotice.text}</span>
+        </div>
+      )}
 
       {/* Category selector bar */}
       <GlassPanel padding="md">

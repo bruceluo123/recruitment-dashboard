@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronRight, ChevronUp, Repeat, FileText, X, BriefcaseBusiness, Loader2 } from 'lucide-react';
+import { CalendarPlus, CalendarCheck, CircleX, Pencil, Trash2, Phone, UserCog, Check, Sparkles, ChevronDown, ChevronRight, ChevronUp, Repeat, FileText, FileSearch, X, BriefcaseBusiness, Loader2 } from 'lucide-react';
 import type { RecommendationDeliveryStatus, RepushItem } from '@/store/repush-store';
 import { displayName, formatOrgDept } from '@/lib/repush-format';
 import { isFeedbackEligibleDelivery, projectFeedbackStatus } from '@/lib/feedback-status';
@@ -47,6 +47,7 @@ interface RecommendationBarProps {
   onSchedule: (item: RepushItem) => void;
   onEdit: (item: RepushItem) => void;
   onRepush: (item: RepushItem) => void;
+  onRematch: (item: RepushItem) => void;
   onOffer: (item: RepushItem) => void;
   offerRecorded?: boolean;
   interviewFailed?: boolean;
@@ -54,7 +55,7 @@ interface RecommendationBarProps {
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, feedbackItem, feedbackReady = true, feedbackUnavailable = false, candidateGroupCount, candidateGroupExpanded, candidateGroupItems, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, feedbackItem, feedbackReady = true, feedbackUnavailable = false, candidateGroupCount, candidateGroupExpanded, candidateGroupItems, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onRematch, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -381,6 +382,15 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
         >
           <BriefcaseBusiness className="w-3.5 h-3.5" />
           {offerRecorded ? '已Offer' : 'Offer'}
+        </button>}
+        {!isCollapsedCandidateGroup && <button
+          onClick={() => onRematch(item)}
+          disabled={!item.resumeUrl}
+          className="flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 text-xs font-medium text-sky-600 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-300"
+          title={item.resumeUrl ? '复用原简历，重新选择岗位进行匹配' : '这条推荐没有可复用的简历文件'}
+        >
+          <FileSearch className="h-3.5 w-3.5" />
+          复匹配
         </button>}
         {!isCollapsedCandidateGroup && <button
           onClick={() => onRepush(item)}
