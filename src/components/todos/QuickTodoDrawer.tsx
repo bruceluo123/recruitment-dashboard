@@ -9,6 +9,7 @@ import {
   ChevronRight,
   GripVertical,
   ListTodo,
+  Pencil,
   Plus,
   X,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ import { useRepushStore } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { primaryTodoCategory, TODO_PRIMARY_CATEGORIES, TODO_CATEGORY_LABEL } from '@/types/todo';
 import type { TodoItem, TodoPrimaryCategory } from '@/types/todo';
+import { EditTodoModal } from './EditTodoModal';
 
 const TRIGGER_POSITION_KEY = 'recruitai-quick-todo-trigger-top';
 const TRIGGER_HEIGHT = 48;
@@ -45,6 +47,7 @@ export function QuickTodoDrawer() {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<TodoPrimaryCategory>('recruitment');
+  const [editing, setEditing] = useState<TodoItem | null>(null);
   const [triggerTop, setTriggerTop] = useState<number>();
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerDragRef = useRef<{ pointerId: number; startY: number; startTop: number; moved: boolean } | null>(null);
@@ -52,6 +55,7 @@ export function QuickTodoDrawer() {
 
   const todos = useTodoStore((state) => state.todos);
   const addTodo = useTodoStore((state) => state.addTodo);
+  const updateTodo = useTodoStore((state) => state.updateTodo);
   const toggleDone = useTodoStore((state) => state.toggleDone);
   const activeOwner = usePrefStore((state) => state.activeOwner);
   const columnNames = useRepushStore((state) => state.columnNames);
@@ -87,7 +91,7 @@ export function QuickTodoDrawer() {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 180);
     return () => window.clearTimeout(timer);
   }, [open]);
-  useEscapeClose(() => setOpen(false), open);
+  useEscapeClose(() => setOpen(false), open && !editing);
 
   if (!mounted) return null;
 
@@ -209,15 +213,21 @@ export function QuickTodoDrawer() {
           </div>
         </header>
 
-        <form onSubmit={handleAdd} className="border-b border-slate-100 px-5 py-4">
-          <label htmlFor="quick-todo-title" className="mb-2 block text-xs font-semibold text-slate-600">
+        <form autoComplete="off" onSubmit={handleAdd} className="border-b border-slate-100 px-5 py-4">
+          <label htmlFor="quick-todo-entry" className="mb-2 block text-xs font-semibold text-slate-600">
             快速记一件事
           </label>
           <div className="flex h-11 items-center rounded-lg border border-blue-200 bg-blue-50/40 pl-3 transition-colors focus-within:border-blue-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
             <Plus className="h-4 w-4 shrink-0 text-blue-600" />
             <input
               ref={inputRef}
-              id="quick-todo-title"
+              id="quick-todo-entry"
+              name="quick-todo-entry"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-1p-ignore
+              data-lpignore="true"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="输入任务，按 Enter 添加"
@@ -266,7 +276,13 @@ export function QuickTodoDrawer() {
           {actionable.length > 0 ? (
             <div className="space-y-2">
               {actionable.map((todo) => (
-                <QuickTodoRow key={todo.id} todo={todo} ownerName={todo.owner === 'both' ? '共同' : ownerName} onToggle={toggleDone} />
+                <QuickTodoRow
+                  key={todo.id}
+                  todo={todo}
+                  ownerName={todo.owner === 'both' ? '共同' : ownerName}
+                  onToggle={toggleDone}
+                  onEdit={setEditing}
+                />
               ))}
             </div>
           ) : (
@@ -317,11 +333,25 @@ export function QuickTodoDrawer() {
           </div>
         </footer>
       </aside>
+
+      {editing && (
+        <EditTodoModal
+          todo={editing}
+          ownerNames={{ a: columnNames.a, b: columnNames.b }}
+          onClose={() => setEditing(null)}
+          onSave={updateTodo}
+        />
+      )}
     </>
   );
 }
 
-function QuickTodoRow({ todo, ownerName, onToggle }: { todo: TodoItem; ownerName: string; onToggle: (id: string) => void }) {
+function QuickTodoRow({ todo, ownerName, onToggle, onEdit }: {
+  todo: TodoItem;
+  ownerName: string;
+  onToggle: (id: string) => void;
+  onEdit: (todo: TodoItem) => void;
+}) {
   const category = primaryTodoCategory(todo.category);
 
   return (
@@ -354,6 +384,15 @@ function QuickTodoRow({ todo, ownerName, onToggle }: { todo: TodoItem; ownerName
       )}>
         {TODO_CATEGORY_LABEL[category]}
       </span>
+      <button
+        type="button"
+        onClick={() => onEdit(todo)}
+        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+        aria-label={`编辑：${todo.title}`}
+        title="编辑"
+      >
+        <Pencil className="h-3.5 w-3.5" />编辑
+      </button>
     </div>
   );
 }
