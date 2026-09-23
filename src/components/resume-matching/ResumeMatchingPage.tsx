@@ -270,8 +270,7 @@ export function ResumeMatchingPage() {
         setActiveResume(resumeId);
         setMatchCategory('all');
         setTargetJDIds(new Set());
-        setRematchNotice({ tone: 'success', text: `${fileName} 已自动载入，请选择本次需要匹配的岗位。` });
-        setTargetJDPickerOpen(true);
+        setRematchNotice({ tone: 'success', text: `${fileName} 已自动载入，可以直接选择匹配范围或开始匹配。` });
         clearRematchParam();
       } catch (error) {
         if (controller.signal.aborted || loadGeneration !== rematchLoadGeneration.current) return;
