@@ -15,6 +15,7 @@ import { useResumeStore } from '@/store/resume-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore, type RecommendationDeliveryStatus, type RepushColumnId } from '@/store/repush-store';
 import { usePrefStore } from '@/store/pref-store';
+import { useTalentStore } from '@/store/talent-store';
 import { JD_CATEGORY_LABELS, JD_CATEGORY_COLORS, ALL_CATEGORIES, type JDCategory } from '@/types/jd';
 import type { JD } from '@/types/jd';
 import type { Resume } from '@/types/resume';
@@ -194,11 +195,13 @@ export function ResumeMatchingPage() {
   const matchError = useResumeStore((s) => s.matchError);
   const uploadError = useResumeStore((s) => s.uploadError);
   const uploadResume = useResumeStore((s) => s.uploadResume);
+  const restoreParsedResume = useResumeStore((s) => s.restoreParsedResume);
   const setActiveResume = useResumeStore((s) => s.setActiveResume);
   const matchWithJDs = useResumeStore((s) => s.matchWithJDs);
   const cancelMatching = useResumeStore((s) => s.cancelMatching);
   const clearMatchesFor = useResumeStore((s) => s.clearMatchesFor);
   const removeResume = useResumeStore((s) => s.removeResume);
+  const talents = useTalentStore((s) => s.talents);
 
   const handleRemoveResume = (id: string) => {
     removeResume(id);
@@ -239,21 +242,57 @@ export function ResumeMatchingPage() {
     rematchAbortController.current = controller;
     rematchResumeId.current = '';
 
-    if (!source.resumeUrl) {
-      setRematchNotice({ tone: 'error', text: '这条推荐没有可复用的简历文件，请返回推荐中心补充简历。' });
-      return;
-    }
-
     const loadExistingResume = async () => {
       setActiveOwner(source.column);
-      setRematchNotice({ tone: 'loading', text: `正在自动载入 ${source.candidateName || source.resumeFileName || '候选人'} 的原简历…` });
+      setRematchNotice({ tone: 'loading', text: `正在恢复 ${source.candidateName || source.resumeFileName || '候选人'} 已解析的简历内容…` });
       try {
+        const fileName = source.resumeFileName || source.fileName || `${source.candidateName || '候选人'}-简历.pdf`;
+        const existingResume = useResumeStore.getState().resumes.find((resume) => (
+          resume.parsingStatus === 'completed'
+          && (source.resumeUrl ? resume.blobUrl === source.resumeUrl : resume.fileName === fileName)
+        ));
+        if (existingResume) {
+          setActiveResume(existingResume.id);
+          setMatchCategory('all');
+          setTargetJDIds(new Set());
+          setRematchNotice({ tone: 'success', text: `${fileName} 已恢复，可以直接选择匹配范围或开始匹配。` });
+          clearRematchParam();
+          return;
+        }
+
+        const talent = talents.find((item) => (
+          item.id === source.talentId
+          || Boolean(source.candidateIdentityId && item.candidateIdentityId === source.candidateIdentityId)
+          || Boolean(source.candidateCode && item.candidateCode === source.candidateCode)
+        ));
+        if (talent?.hasResumeText) {
+          const textResponse = await fetch(`/api/talent/text?id=${encodeURIComponent(talent.id)}`, { cache: 'no-store', signal: controller.signal });
+          if (textResponse.ok) {
+            const data = await textResponse.json() as { text?: string };
+            if (data.text?.trim()) {
+              const resumeId = restoreParsedResume({
+                fileName,
+                rawText: data.text,
+                blobUrl: source.resumeUrl || talent.resumeUrl,
+                candidateName: source.candidateName || talent.name,
+              });
+              if (!resumeId) throw new Error('简历自动恢复失败，请先删除一份已保留的简历后重试');
+              rematchResumeId.current = resumeId;
+              setActiveResume(resumeId);
+              setMatchCategory('all');
+              setTargetJDIds(new Set());
+              setRematchNotice({ tone: 'success', text: `${fileName} 已从历史解析内容快速恢复，可以直接开始匹配。` });
+              clearRematchParam();
+              return;
+            }
+          }
+        }
+
+        if (!source.resumeUrl) throw new Error('没有找到已保存的简历正文或原简历文件，请返回推荐中心补充简历');
         const response = await fetch(source.resumeUrl!, { cache: 'no-store', signal: controller.signal });
         if (!response.ok) throw new Error(`原简历读取失败（${response.status}）`);
         const blob = await response.blob();
         if (loadGeneration !== rematchLoadGeneration.current) return;
-        const fallbackName = `${source.candidateName || '候选人'}-简历.pdf`;
-        const fileName = source.resumeFileName || source.fileName || fallbackName;
         const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
         const uploadPromise = uploadResume(file);
         rematchResumeId.current = useResumeStore.getState().resumes.find((resume) => resume.file === file)?.id || '';
@@ -284,7 +323,7 @@ export function ResumeMatchingPage() {
     };
 
     void loadExistingResume();
-  }, [isUploading, mounted, recommendationItems, setActiveOwner, setActiveResume, uploadResume]);
+  }, [isUploading, mounted, recommendationItems, restoreParsedResume, setActiveOwner, setActiveResume, talents, uploadResume]);
 
   useEffect(() => {
     recommendationGeneration.current += 1;

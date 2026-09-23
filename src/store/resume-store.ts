@@ -51,6 +51,7 @@ interface ResumeStore {
   abortController: AbortController | null;
 
   uploadResume: (file: File) => Promise<string>;
+  restoreParsedResume: (input: { fileName: string; rawText: string; blobUrl?: string; candidateName?: string }) => string;
   setActiveResume: (id: string | null) => void;
   matchWithJDs: (resumeId: string, category?: JDCategory | 'all', jdIds?: string[], mode?: 'reset' | 'next' | 'retry') => Promise<void>;
   cancelMatching: () => void;
@@ -158,6 +159,41 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
     pendingResumeUploads.set(file, work);
     void work.finally(() => pendingResumeUploads.delete(file));
     return work;
+  },
+
+  restoreParsedResume: ({ fileName, rawText, blobUrl, candidateName }) => {
+    const text = rawText.trim();
+    if (!text) return '';
+    const existing = get().resumes.find((resume) => (
+      resume.parsingStatus === 'completed'
+      && (blobUrl ? resume.blobUrl === blobUrl : resume.fileName === fileName)
+    ));
+    if (existing) {
+      set({ activeResumeId: existing.id, uploadError: null });
+      return existing.id;
+    }
+    if (get().resumes.length >= MAX_RESUMES) {
+      set({ uploadError: `最多同时保留 ${MAX_RESUMES} 份简历，请先删除部分简历` });
+      return '';
+    }
+    const id = generateId();
+    const lowerName = fileName.toLowerCase();
+    const fileType: Resume['fileType'] = lowerName.endsWith('.pdf')
+      ? 'pdf'
+      : /\.(jpe?g|png|webp|gif)$/.test(lowerName) ? 'image' : 'docx';
+    const resume: Resume = {
+      id,
+      fileName,
+      fileType,
+      rawText: text,
+      parsedData: { name: candidateName?.trim() || undefined, skills: [], experience: [], education: [] },
+      uploadedAt: new Date().toISOString(),
+      parsingStatus: 'completed',
+      parseSource: 'saved-text',
+      blobUrl,
+    };
+    set((state) => ({ resumes: [...state.resumes, resume], activeResumeId: id, uploadError: null }));
+    return id;
   },
 
   setActiveResume: (id) => set({ activeResumeId: id }),
