@@ -174,6 +174,9 @@ export function ResumeMatchingPage() {
   const [rematchNotice, setRematchNotice] = useState<{ tone: 'loading' | 'success' | 'error'; text: string } | null>(null);
   const recommendationGeneration = useRef(0);
   const rematchRequest = useRef('');
+  const rematchLoadGeneration = useRef(0);
+  const rematchAbortController = useRef<AbortController | null>(null);
+  const rematchResumeId = useRef('');
   const pendingCandidateIdentity = useRef('');
   const ignorePastedCandidateCode = useRef(false);
   const activeOwner = usePrefStore((s) => s.activeOwner);
@@ -201,7 +204,27 @@ export function ResumeMatchingPage() {
     removeResume(id);
   };
 
+  const clearRematchParam = () => {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete('rematch');
+    window.history.replaceState(window.history.state, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+  };
+
+  const cancelAutomaticResumeLoad = () => {
+    rematchLoadGeneration.current += 1;
+    rematchAbortController.current?.abort();
+    rematchAbortController.current = null;
+    if (rematchResumeId.current) {
+      useResumeStore.getState().removeResume(rematchResumeId.current);
+      rematchResumeId.current = '';
+    }
+    rematchRequest.current = '';
+    setRematchNotice(null);
+    clearRematchParam();
+  };
+
   useEffect(() => setMounted(true), []);
+  useEffect(() => () => rematchAbortController.current?.abort(), []);
 
   useEffect(() => {
     if (!mounted || isUploading) return;
@@ -210,6 +233,11 @@ export function ResumeMatchingPage() {
     const source = recommendationItems.find((item) => item.id === recommendationId);
     if (!source) return;
     rematchRequest.current = recommendationId;
+    const loadGeneration = ++rematchLoadGeneration.current;
+    const controller = new AbortController();
+    rematchAbortController.current?.abort();
+    rematchAbortController.current = controller;
+    rematchResumeId.current = '';
 
     if (!source.resumeUrl) {
       setRematchNotice({ tone: 'error', text: '这条推荐没有可复用的简历文件，请返回推荐中心补充简历。' });
@@ -220,13 +248,20 @@ export function ResumeMatchingPage() {
       setActiveOwner(source.column);
       setRematchNotice({ tone: 'loading', text: `正在自动载入 ${source.candidateName || source.resumeFileName || '候选人'} 的原简历…` });
       try {
-        const response = await fetch(source.resumeUrl!, { cache: 'no-store' });
+        const response = await fetch(source.resumeUrl!, { cache: 'no-store', signal: controller.signal });
         if (!response.ok) throw new Error(`原简历读取失败（${response.status}）`);
         const blob = await response.blob();
+        if (loadGeneration !== rematchLoadGeneration.current) return;
         const fallbackName = `${source.candidateName || '候选人'}-简历.pdf`;
         const fileName = source.resumeFileName || source.fileName || fallbackName;
         const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
-        const resumeId = await uploadResume(file);
+        const uploadPromise = uploadResume(file);
+        rematchResumeId.current = useResumeStore.getState().resumes.find((resume) => resume.file === file)?.id || '';
+        const resumeId = await uploadPromise;
+        if (loadGeneration !== rematchLoadGeneration.current) {
+          if (resumeId) useResumeStore.getState().removeResume(resumeId);
+          return;
+        }
         if (!resumeId) throw new Error('简历自动载入失败，请先删除一份已保留的简历后重试');
         const loaded = useResumeStore.getState().resumes.find((resume) => resume.id === resumeId);
         if (!loaded || loaded.parsingStatus !== 'completed') {
@@ -237,11 +272,15 @@ export function ResumeMatchingPage() {
         setTargetJDIds(new Set());
         setRematchNotice({ tone: 'success', text: `${fileName} 已自动载入，请选择本次需要匹配的岗位。` });
         setTargetJDPickerOpen(true);
-        const nextUrl = new URL(window.location.href);
-        nextUrl.searchParams.delete('rematch');
-        window.history.replaceState(window.history.state, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+        clearRematchParam();
       } catch (error) {
+        if (controller.signal.aborted || loadGeneration !== rematchLoadGeneration.current) return;
         setRematchNotice({ tone: 'error', text: error instanceof Error ? error.message : '简历自动载入失败，请重试' });
+      } finally {
+        if (loadGeneration === rematchLoadGeneration.current) {
+          rematchAbortController.current = null;
+          rematchResumeId.current = '';
+        }
       }
     };
 
@@ -459,7 +498,16 @@ export function ResumeMatchingPage() {
             : rematchNotice.tone === 'success'
               ? <CheckCircle2 className="h-4 w-4 shrink-0" />
               : <AlertCircle className="h-4 w-4 shrink-0" />}
-          <span>{rematchNotice.text}</span>
+          <span className="min-w-0 flex-1">{rematchNotice.text}</span>
+          {rematchNotice.tone === 'loading' && (
+            <button
+              type="button"
+              onClick={cancelAutomaticResumeLoad}
+              className="shrink-0 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100"
+            >
+              取消载入
+            </button>
+          )}
         </div>
       )}
 
