@@ -20,17 +20,10 @@ interface RecommendationCandidateDialogProps {
 
 const RESUME_SOURCE_OPTIONS = [
   'boss',
-  'LinkedIn',
-  'TG 私聊',
-  'TG 群',
-  'Indeed',
-  '小红书',
-  '猎聘',
-  '脉脉',
-  '内推',
+  'TG',
   '个人资源',
-  '简历储备',
-  '社群',
+  '猎聘',
+  '人才库',
 ];
 
 const CANDIDATE_PLACEHOLDER = `候选人姓名（英文名）：Austin
