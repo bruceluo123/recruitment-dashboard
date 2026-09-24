@@ -15,16 +15,22 @@ export function AuthenticatedShell({ children }: { children: React.ReactNode }) 
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (pathname === '/login') return;
+    if (pathname === '/login' || ready) return;
     let active = true;
-    fetch('/api/auth/session', { cache: 'no-store' })
-      .then(async (response) => {
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const validateSession = async (attempt = 0) => {
+      try {
+        const response = await fetch('/api/auth/session', { cache: 'no-store' });
+        if (response.status === 401 || response.status === 403) {
+          if (active) window.location.assign(`/login?next=${encodeURIComponent(pathname || '/')}`);
+          return;
+        }
+        if (!response.ok) throw new Error(`session check failed (${response.status})`);
         const data = await response.json().catch(() => ({})) as {
           user?: { owners?: RepushColumnId[] };
         };
-        if (!response.ok || !Array.isArray(data.user?.owners) || data.user.owners.length === 0) {
-          throw new Error('session unavailable');
-        }
+        if (!Array.isArray(data.user?.owners) || data.user.owners.length === 0) throw new Error('session unavailable');
         if (!active) return;
         const owners = new Set(data.user.owners);
         useInterviewStore.setState((state) => ({
@@ -40,12 +46,24 @@ export function AuthenticatedShell({ children }: { children: React.ReactNode }) 
           usePrefStore.getState().setActiveOwner(data.user.owners[0]);
         }
         setReady(true);
-      })
-      .catch(() => {
-        if (active) window.location.assign(`/login?next=${encodeURIComponent(pathname || '/')}`);
-      });
-    return () => { active = false; };
-  }, [pathname]);
+      } catch {
+        if (!active) return;
+        if (attempt < 2) {
+          retryTimer = setTimeout(() => { void validateSession(attempt + 1); }, 700 * (attempt + 1));
+          return;
+        }
+        // 当前页面请求已经通过服务端中间件鉴权。短暂断网或接口抖动时保留页面，
+        // 后续所有数据接口仍各自校验 Cookie，不能把网络错误误判为退出登录。
+        setReady(true);
+      }
+    };
+
+    void validateSession();
+    return () => {
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [pathname, ready]);
 
   if (pathname === '/login') return children;
   if (!ready) {
