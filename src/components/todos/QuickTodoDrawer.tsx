@@ -27,10 +27,36 @@ import { EditTodoModal } from './EditTodoModal';
 const TRIGGER_POSITION_KEY = 'recruitai-quick-todo-trigger-top';
 const TRIGGER_HEIGHT = 48;
 const TRIGGER_MARGIN = 16;
-const QUICK_TODO_CATEGORY_STYLE: Record<TodoPrimaryCategory, string> = {
-  recruitment: 'bg-blue-50 text-blue-700',
-  supervision: 'bg-amber-50 text-amber-700',
-  other: 'bg-slate-100 text-slate-600',
+const QUICK_TODO_SECTION_STYLE: Record<TodoPrimaryCategory, {
+  shell: string;
+  header: string;
+  dot: string;
+  button: string;
+}> = {
+  other: {
+    shell: 'border-slate-200',
+    header: 'bg-slate-50/90',
+    dot: 'bg-slate-400',
+    button: 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-100',
+  },
+  recruitment: {
+    shell: 'border-blue-200',
+    header: 'bg-blue-50/80',
+    dot: 'bg-blue-500',
+    button: 'border-blue-200 bg-white text-blue-700 hover:border-blue-300 hover:bg-blue-50',
+  },
+  supervision: {
+    shell: 'border-violet-200',
+    header: 'bg-violet-50/80',
+    dot: 'bg-violet-500',
+    button: 'border-violet-200 bg-white text-violet-700 hover:border-violet-300 hover:bg-violet-50',
+  },
+  reminder: {
+    shell: 'border-amber-200',
+    header: 'bg-amber-50/80',
+    dot: 'bg-amber-500',
+    button: 'border-amber-200 bg-white text-amber-700 hover:border-amber-300 hover:bg-amber-50',
+  },
 };
 
 function clampTriggerTop(top: number, viewportHeight: number) {
@@ -46,7 +72,7 @@ export function QuickTodoDrawer() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<TodoPrimaryCategory>('recruitment');
+  const [activeCategory, setActiveCategory] = useState<TodoPrimaryCategory | null>(null);
   const [editing, setEditing] = useState<TodoItem | null>(null);
   const [triggerTop, setTriggerTop] = useState<number>();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -87,10 +113,10 @@ export function QuickTodoDrawer() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
   useEffect(() => {
-    if (!open) return;
+    if (!open || !activeCategory) return;
     const timer = window.setTimeout(() => inputRef.current?.focus(), 180);
     return () => window.clearTimeout(timer);
-  }, [open]);
+  }, [activeCategory, open]);
   useEscapeClose(() => setOpen(false), open && !editing);
 
   if (!mounted) return null;
@@ -99,13 +125,13 @@ export function QuickTodoDrawer() {
   const handleAdd = (event: FormEvent) => {
     event.preventDefault();
     const nextTitle = title.trim();
-    if (!nextTitle) return;
+    if (!nextTitle || !activeCategory) return;
     addTodo({
       owner: activeOwner,
       title: parsedTitleDate?.rest.trim() || nextTitle,
       dueDate: parsedTitleDate?.date,
       priority: 'normal',
-      category,
+      category: activeCategory,
     });
     setTitle('');
     inputRef.current?.focus();
@@ -213,87 +239,96 @@ export function QuickTodoDrawer() {
           </div>
         </header>
 
-        <form autoComplete="off" onSubmit={handleAdd} className="border-b border-slate-100 px-5 py-4">
-          <label htmlFor="quick-todo-entry" className="mb-2 block text-xs font-semibold text-slate-600">
-            快速记一件事
-          </label>
-          <div className="flex h-11 items-center rounded-lg border border-blue-200 bg-blue-50/40 pl-3 transition-colors focus-within:border-blue-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
-            <Plus className="h-4 w-4 shrink-0 text-blue-600" />
-            <input
-              ref={inputRef}
-              id="quick-todo-entry"
-              name="quick-todo-entry"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              data-1p-ignore
-              data-lpignore="true"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="输入任务，按 Enter 添加"
-              className="h-full min-w-0 flex-1 bg-transparent px-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-            />
-            <button
-              type="submit"
-              disabled={!title.trim()}
-              className="mr-1 flex h-9 items-center justify-center rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-200"
-            >
-              添加
-            </button>
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-slate-500">待办类型</span>
-            <div className="flex h-8 overflow-hidden rounded-lg border border-slate-200 bg-white p-0.5">
-              {TODO_PRIMARY_CATEGORIES.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setCategory(option)}
-                  className={cn(
-                    'min-w-16 rounded-md px-3 text-xs font-semibold transition-colors',
-                    category === option ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
-                  )}
-                >
-                  {TODO_CATEGORY_LABEL[option]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+          <p className="mb-3 flex items-center gap-1.5 px-1 text-xs text-slate-400">
             <CalendarDays className="h-3.5 w-3.5" />
-            {parsedTitleDate
-              ? <>已识别提醒时间：<span className="font-medium text-indigo-500">{formatDueDate(parsedTitleDate.date)}</span></>
-              : '识别到的时间会显示在待办后，仅作提醒，不会过期'}
+            在对应分层直接添加；输入“明天、下周一”等时间会自动识别
           </p>
-        </form>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-800">现在要做</h3>
-            <span className="text-xs text-slate-400">{actionable.length} 项</span>
+          <div className="space-y-3">
+            {TODO_PRIMARY_CATEGORIES.map((sectionCategory) => {
+              const sectionTodos = actionable.filter((todo) => primaryTodoCategory(todo.category) === sectionCategory);
+              const sectionStyle = QUICK_TODO_SECTION_STYLE[sectionCategory];
+              const isAdding = activeCategory === sectionCategory;
+              return (
+                <section key={sectionCategory} className={cn('overflow-hidden rounded-xl border bg-white', sectionStyle.shell)}>
+                  <div className={cn('flex min-h-12 items-center justify-between gap-3 border-b border-inherit px-3 py-2', sectionStyle.header)}>
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', sectionStyle.dot)} />
+                      <h3 className="text-sm font-bold text-slate-800">{TODO_CATEGORY_LABEL[sectionCategory]}</h3>
+                      <span className="rounded-md bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 shadow-sm ring-1 ring-black/5">
+                        {sectionTodos.length}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTitle('');
+                        setActiveCategory(isAdding ? null : sectionCategory);
+                      }}
+                      className={cn('inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-semibold transition-colors', sectionStyle.button)}
+                      aria-expanded={isAdding}
+                      aria-label={`添加${TODO_CATEGORY_LABEL[sectionCategory]}待办`}
+                    >
+                      {isAdding ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                      {isAdding ? '收起' : '添加'}
+                    </button>
+                  </div>
+
+                  {isAdding && (
+                    <form autoComplete="off" onSubmit={handleAdd} className="border-b border-slate-100 bg-white p-3">
+                      <div className="flex h-10 items-center rounded-lg border border-blue-200 bg-blue-50/30 pl-2.5 transition-colors focus-within:border-blue-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
+                        <Plus className="h-4 w-4 shrink-0 text-blue-600" />
+                        <input
+                          ref={inputRef}
+                          id={`quick-todo-entry-${sectionCategory}`}
+                          name={`quick-todo-entry-${sectionCategory}`}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          data-1p-ignore
+                          data-lpignore="true"
+                          value={title}
+                          onChange={(event) => setTitle(event.target.value)}
+                          placeholder={`记录一条${TODO_CATEGORY_LABEL[sectionCategory]}`}
+                          className="h-full min-w-0 flex-1 bg-transparent px-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!title.trim()}
+                          className="mr-1 flex h-8 items-center justify-center rounded-md bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-200"
+                        >
+                          添加
+                        </button>
+                      </div>
+                      {parsedTitleDate && (
+                        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
+                          <CalendarDays className="h-3 w-3" />已识别提醒时间：
+                          <span className="font-medium text-indigo-500">{formatDueDate(parsedTitleDate.date)}</span>
+                        </p>
+                      )}
+                    </form>
+                  )}
+
+                  <div className="space-y-2 p-2.5">
+                    {sectionTodos.length > 0 ? sectionTodos.map((todo) => (
+                      <QuickTodoRow
+                        key={todo.id}
+                        todo={todo}
+                        ownerName={todo.owner === 'both' ? '共同' : ownerName}
+                        onToggle={toggleDone}
+                        onEdit={setEditing}
+                      />
+                    )) : (
+                      <div className="flex h-12 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-xs text-slate-400">
+                        暂无{TODO_CATEGORY_LABEL[sectionCategory]}待办
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
           </div>
-
-          {actionable.length > 0 ? (
-            <div className="space-y-2">
-              {actionable.map((todo) => (
-                <QuickTodoRow
-                  key={todo.id}
-                  todo={todo}
-                  ownerName={todo.owner === 'both' ? '共同' : ownerName}
-                  onToggle={toggleDone}
-                  onEdit={setEditing}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-5 text-center">
-              <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-                <CheckCircle2 className="h-5 w-5" />
-              </span>
-              <p className="text-sm font-semibold text-slate-700">待办已清空</p>
-              <p className="mt-1 text-xs text-slate-400">有新任务时直接在上方记下来</p>
-            </div>
-          )}
 
           {doneToday.length > 0 && (
             <section className="mt-6">
@@ -352,8 +387,6 @@ function QuickTodoRow({ todo, ownerName, onToggle, onEdit }: {
   onToggle: (id: string) => void;
   onEdit: (todo: TodoItem) => void;
 }) {
-  const category = primaryTodoCategory(todo.category);
-
   return (
     <div className={cn(
       'group flex min-h-14 items-center gap-3 rounded-lg border bg-white px-3 py-2.5 transition-colors',
@@ -378,12 +411,6 @@ function QuickTodoRow({ todo, ownerName, onToggle, onEdit }: {
           {todo.owner === 'both' && <span className="text-indigo-500">{ownerName}</span>}
         </div>
       </div>
-      <span className={cn(
-        'shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold',
-        QUICK_TODO_CATEGORY_STYLE[category],
-      )}>
-        {TODO_CATEGORY_LABEL[category]}
-      </span>
       <button
         type="button"
         onClick={() => onEdit(todo)}

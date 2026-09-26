@@ -8,12 +8,13 @@ export type TodoOwner = RepushColumnId | 'both';
 /** 重要程度（影响排序与高亮） */
 export type TodoPriority = 'high' | 'normal' | 'low';
 
-/** 待办的三个主类型；旧分类继续兼容，展示时统一归入「招聘」。 */
-export const TODO_PRIMARY_CATEGORIES = ['recruitment', 'supervision', 'other'] as const;
+/** 待办四个主分层；沿用旧值保证历史数据无需迁移。 */
+export const TODO_PRIMARY_CATEGORIES = ['other', 'recruitment', 'supervision', 'reminder'] as const;
 export type TodoPrimaryCategory = typeof TODO_PRIMARY_CATEGORIES[number];
 export type TodoCategory = TodoPrimaryCategory | 'follow' | 'interview' | 'offer';
 
 export function primaryTodoCategory(category: TodoCategory): TodoPrimaryCategory {
+  if (category === 'reminder') return 'reminder';
   if (category === 'supervision') return 'supervision';
   if (category === 'other') return 'other';
   return 'recruitment';
@@ -39,10 +40,11 @@ export const TODO_PRIORITY_LABEL: Record<TodoPriority, string> = {
 };
 
 export const TODO_CATEGORY_LABEL: Record<TodoCategory, string> = {
-  recruitment: '招聘',
-  supervision: '督导',
-  other: '其他',
-  follow: '招聘',
-  interview: '招聘',
-  offer: '招聘',
+  recruitment: '工作',
+  supervision: '系统',
+  other: '杂事',
+  reminder: '提醒',
+  follow: '工作',
+  interview: '工作',
+  offer: '工作',
 };
