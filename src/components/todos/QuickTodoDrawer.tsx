@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { DragEvent as ReactDragEvent, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   Check,
@@ -74,14 +74,18 @@ export function QuickTodoDrawer() {
   const [title, setTitle] = useState('');
   const [activeCategory, setActiveCategory] = useState<TodoPrimaryCategory | null>(null);
   const [editing, setEditing] = useState<TodoItem | null>(null);
+  const [draggedTodoId, setDraggedTodoId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ category: TodoPrimaryCategory; beforeId?: string } | null>(null);
   const [triggerTop, setTriggerTop] = useState<number>();
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerDragRef = useRef<{ pointerId: number; startY: number; startTop: number; moved: boolean } | null>(null);
+  const touchDragRef = useRef<{ pointerId: number; todoId: string; startX: number; startY: number; moved: boolean } | null>(null);
   const ignoreTriggerClickRef = useRef(false);
 
   const todos = useTodoStore((state) => state.todos);
   const addTodo = useTodoStore((state) => state.addTodo);
   const updateTodo = useTodoStore((state) => state.updateTodo);
+  const moveTodo = useTodoStore((state) => state.moveTodo);
   const toggleDone = useTodoStore((state) => state.toggleDone);
   const activeOwner = usePrefStore((state) => state.activeOwner);
   const columnNames = useRepushStore((state) => state.columnNames);
@@ -93,7 +97,7 @@ export function QuickTodoDrawer() {
     [activeOwner, todos],
   );
   const actionable = useMemo(
-    () => sortInBucket(visibleTodos.filter((todo) => !todo.done)),
+    () => sortInBucket(visibleTodos.filter((todo) => !todo.done), true),
     [visibleTodos],
   );
   const doneToday = useMemo(
@@ -177,6 +181,51 @@ export function QuickTodoDrawer() {
     setOpen(true);
   };
 
+  const finishTodoDrop = (todoId: string, target: { category: TodoPrimaryCategory; beforeId?: string } | null) => {
+    if (target && target.beforeId !== todoId) moveTodo(todoId, target.category, target.beforeId);
+    setDraggedTodoId(null);
+    setDropTarget(null);
+  };
+
+  const handleTodoDragStart = (event: ReactDragEvent<HTMLDivElement>, todoId: string) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', todoId);
+    setDraggedTodoId(todoId);
+  };
+
+  const handleTouchDragStart = (event: ReactPointerEvent<HTMLButtonElement>, todoId: string) => {
+    if (event.pointerType === 'mouse') return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    touchDragRef.current = {
+      pointerId: event.pointerId,
+      todoId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+  };
+
+  const handleTouchDragMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = touchDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+    drag.moved = true;
+    setDraggedTodoId(drag.todoId);
+    const element = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+    const card = element?.closest<HTMLElement>('[data-todo-drop-id]');
+    const section = element?.closest<HTMLElement>('[data-todo-drop-category]');
+    const category = section?.dataset.todoDropCategory as TodoPrimaryCategory | undefined;
+    if (category) setDropTarget({ category, beforeId: card?.dataset.todoDropId || undefined });
+  };
+
+  const handleTouchDragEnd = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = touchDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    finishTodoDrop(drag.todoId, drag.moved ? dropTarget : null);
+    touchDragRef.current = null;
+  };
+
   return (
     <>
       <button
@@ -241,8 +290,8 @@ export function QuickTodoDrawer() {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
           <p className="mb-3 flex items-center gap-1.5 px-1 text-xs text-slate-400">
-            <CalendarDays className="h-3.5 w-3.5" />
-            在对应分层直接添加；输入“明天、下周一”等时间会自动识别
+            <GripVertical className="h-3.5 w-3.5" />
+            拖动卡片可调整分层和顺序；输入时间会自动识别提醒
           </p>
 
           <div className="space-y-3">
@@ -251,7 +300,25 @@ export function QuickTodoDrawer() {
               const sectionStyle = QUICK_TODO_SECTION_STYLE[sectionCategory];
               const isAdding = activeCategory === sectionCategory;
               return (
-                <section key={sectionCategory} className={cn('overflow-hidden rounded-xl border bg-white', sectionStyle.shell)}>
+                <section
+                  key={sectionCategory}
+                  data-todo-drop-category={sectionCategory}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    setDropTarget({ category: sectionCategory });
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const target = dropTarget?.category === sectionCategory ? dropTarget : { category: sectionCategory };
+                    finishTodoDrop(event.dataTransfer.getData('text/plain') || draggedTodoId || '', target);
+                  }}
+                  className={cn(
+                    'overflow-hidden rounded-xl border bg-white transition-[border-color,box-shadow,transform]',
+                    sectionStyle.shell,
+                    draggedTodoId && dropTarget?.category === sectionCategory && 'ring-2 ring-blue-300 ring-offset-2',
+                  )}
+                >
                   <div className={cn('flex min-h-12 items-center justify-between gap-3 border-b border-inherit px-3 py-2', sectionStyle.header)}>
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', sectionStyle.dot)} />
@@ -315,9 +382,25 @@ export function QuickTodoDrawer() {
                       <QuickTodoRow
                         key={todo.id}
                         todo={todo}
+                        dragging={draggedTodoId === todo.id}
+                        dropBefore={dropTarget?.category === sectionCategory && dropTarget.beforeId === todo.id && draggedTodoId !== todo.id}
                         ownerName={todo.owner === 'both' ? '共同' : ownerName}
                         onToggle={toggleDone}
                         onEdit={setEditing}
+                        onDragStart={handleTodoDragStart}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          event.dataTransfer.dropEffect = 'move';
+                          setDropTarget({ category: sectionCategory, beforeId: todo.id });
+                        }}
+                        onDragEnd={() => {
+                          setDraggedTodoId(null);
+                          setDropTarget(null);
+                        }}
+                        onTouchDragStart={handleTouchDragStart}
+                        onTouchDragMove={handleTouchDragMove}
+                        onTouchDragEnd={handleTouchDragEnd}
                       />
                     )) : (
                       <div className="flex h-12 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-xs text-slate-400">
@@ -381,17 +464,58 @@ export function QuickTodoDrawer() {
   );
 }
 
-function QuickTodoRow({ todo, ownerName, onToggle, onEdit }: {
+function QuickTodoRow({
+  todo,
+  ownerName,
+  dragging,
+  dropBefore,
+  onToggle,
+  onEdit,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onTouchDragStart,
+  onTouchDragMove,
+  onTouchDragEnd,
+}: {
   todo: TodoItem;
   ownerName: string;
+  dragging: boolean;
+  dropBefore: boolean;
   onToggle: (id: string) => void;
   onEdit: (todo: TodoItem) => void;
+  onDragStart: (event: ReactDragEvent<HTMLDivElement>, todoId: string) => void;
+  onDragOver: (event: ReactDragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+  onTouchDragStart: (event: ReactPointerEvent<HTMLButtonElement>, todoId: string) => void;
+  onTouchDragMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onTouchDragEnd: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   return (
-    <div className={cn(
-      'group flex min-h-14 items-center gap-3 rounded-lg border bg-white px-3 py-2.5 transition-colors',
+    <div
+      draggable
+      data-todo-drop-id={todo.id}
+      onDragStart={(event) => onDragStart(event, todo.id)}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      className={cn(
+      'group relative flex min-h-14 items-center gap-2 rounded-lg border bg-white px-2 py-2.5 transition-[border-color,box-shadow,opacity,transform]',
       todo.priority === 'high' ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 hover:border-blue-200',
+      dragging && 'scale-[0.98] opacity-45 shadow-none',
+      dropBefore && 'before:absolute before:-top-[6px] before:left-2 before:right-2 before:h-0.5 before:rounded-full before:bg-blue-500',
     )}>
+      <button
+        type="button"
+        onPointerDown={(event) => onTouchDragStart(event, todo.id)}
+        onPointerMove={onTouchDragMove}
+        onPointerUp={onTouchDragEnd}
+        onPointerCancel={onTouchDragEnd}
+        className="flex h-8 w-5 touch-none cursor-grab shrink-0 items-center justify-center rounded text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-500 active:cursor-grabbing"
+        aria-label={`拖动：${todo.title}`}
+        title="拖动调整分层或顺序"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
       <button
         type="button"
         onClick={() => onToggle(todo.id)}

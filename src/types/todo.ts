@@ -29,6 +29,7 @@ export interface TodoItem {
   category: TodoCategory;
   note?: string;
   done: boolean;
+  position?: number;           // 手动拖拽顺序；旧数据缺省时仍按原规则排序
   createdAt: string;           // ISO
   completedAt?: string;        // ISO，标记完成时写入
 }

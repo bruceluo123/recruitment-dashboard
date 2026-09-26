@@ -42,8 +42,12 @@ export function formatDueDate(dueDate: string, now = new Date()): string {
 /** 所有待办按重要程度排序，同级保持创建顺序；提醒日期不改变待办性质。 */
 const PRIORITY_WEIGHT: Record<TodoItem['priority'], number> = { high: 0, normal: 1, low: 2 };
 
-export function sortInBucket(items: TodoItem[]): TodoItem[] {
+export function sortInBucket(items: TodoItem[], respectManualOrder = false): TodoItem[] {
   return [...items].sort((a, b) => {
+    if (respectManualOrder && (a.position !== undefined || b.position !== undefined)) {
+      const manual = (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER);
+      if (manual !== 0) return manual;
+    }
     const pa = PRIORITY_WEIGHT[a.priority];
     const pb = PRIORITY_WEIGHT[b.priority];
     if (pa !== pb) return pa - pb;
