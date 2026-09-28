@@ -129,6 +129,7 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
 
   const startEditContact = () => {
     setCopied(false);
+    setContactHint('');
     setContactDraft(item.contact || '');
     setEditingContact(true);
   };
@@ -171,10 +172,17 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
 
   const saveContact = () => {
     const next = contactDraft.trim();
-    onUpdateContact(item.id, next || undefined);
-    setContactDraft(next);
-    setEditingContact(false);
-    setCopied(false);
+    try {
+      onUpdateContact(item.id, next || undefined);
+      setContactDraft(next);
+      setEditingContact(false);
+      setCopied(false);
+      setContactHint('');
+    } catch (error) {
+      setContactHint(error instanceof Error && /quota|storage/i.test(error.message)
+        ? '本机缓存空间不足，请刷新页面后重试'
+        : '保存失败，请重试');
+    }
   };
 
   const handleContactKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -288,10 +296,10 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
             placeholder="手机号 / 邮箱 / 微信 / TG"
             className="w-[180px] bg-transparent outline-none text-sm font-semibold text-indigo-600 placeholder:text-gray-300"
           />
-          <button data-contact-action="save" onClick={saveContact} className="p-0.5 rounded text-green-500 hover:bg-green-50" title="保存联系方式">
+          <button type="button" data-contact-action="save" onClick={saveContact} className="p-0.5 rounded text-green-500 hover:bg-green-50" title="保存联系方式">
             <Check className="w-3.5 h-3.5" />
           </button>
-          <button onClick={cancelEditContact} className="p-0.5 rounded text-gray-400 hover:bg-gray-100" title="取消">
+          <button type="button" onClick={cancelEditContact} className="p-0.5 rounded text-gray-400 hover:bg-gray-100" title="取消">
             <X className="w-3.5 h-3.5" />
           </button>
           </div>
