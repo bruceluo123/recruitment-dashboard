@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, isApplyingRemoteStoreUpdate, applyRemoteStoreUpdate, type DataType } from '@/lib/sync';
+import { startSync, stopSync, syncPush, retrySync, resolveSyncConflicts, subscribeSyncStatus, fetchImportDiff, fetchWeeklyAdded, requestSyncTypes, refreshSyncedData, isApplyingRemoteStoreUpdate, applyRemoteStoreUpdate, type DataType } from '@/lib/sync';
 import { isMockJds } from '@/lib/mock-guard';
 import { mergeUniqueJDs } from '@/lib/jd-parse-core';
 import { useJDStore } from '@/store/jd-store';
@@ -11,6 +11,7 @@ import { sanitizeRepushItem, useRepushStore } from '@/store/repush-store';
 import { useTodoStore } from '@/store/todo-store';
 import { useCompanyStore } from '@/store/company-store';
 import { usePerformanceStore, type PerformanceKpiRecord } from '@/store/performance-store';
+import { usePrefStore } from '@/store/pref-store';
 import type { JD, JDImportResult, WeeklyAdded } from '@/types/jd';
 import type { Candidate } from '@/types/interview';
 import type { Talent } from '@/types/talent';
@@ -34,8 +35,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [resolvingConflict, setResolvingConflict] = useState(false);
   const [deliveryMessage, setDeliveryMessage] = useState('');
   const pathname = usePathname();
+  const activeOwner = usePrefStore((state) => state.activeOwner);
 
-  useEffect(() => { requestSyncTypes(routeTypes(pathname)); }, [pathname]);
+  useEffect(() => {
+    requestSyncTypes(routeTypes(pathname));
+    // 切换麦满分/啵啵时绕过旧版本缓存，立即读取一次完整云端数据。
+    void refreshSyncedData();
+  }, [activeOwner, pathname]);
 
   useEffect(() => {
     let active = true;
