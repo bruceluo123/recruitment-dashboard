@@ -119,6 +119,12 @@ assert.equal(identities.get('XYBB00123').allowRepair, true);
   assert.equal(parseRequests, 1, 'identical PDF bytes across separate TG messages are OCRed once');
   await api.main({ client, write: true, dialog: 'ojisamer' });
   assert.equal(JSON.parse(db.get('recruit:repush')).length, 3, 'a repeated scan creates no duplicates');
+  const missingBusinessRow = JSON.parse(db.get('recruit:repush'));
+  const removedBusinessRow = missingBusinessRow.shift();
+  db.set('recruit:repush', JSON.stringify(missingBusinessRow));
+  await api.main({ client, write: true, dialog: 'ojisamer' });
+  assert.ok(JSON.parse(db.get('recruit:repush')).some(row => row.id === removedBusinessRow.id),
+    'a durable intake receipt repairs its missing recommendation row');
   assert.equal(disconnects, 0, 'inbound never disconnects the borrowed sender connection');
   const edited = messages[0];
   edited.message = edited.message.replace('应聘岗位：开发', '应聘岗位：高级开发');

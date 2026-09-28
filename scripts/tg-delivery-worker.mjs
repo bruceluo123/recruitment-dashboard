@@ -1477,10 +1477,12 @@ async function runWatch() {
 
   // Inbound history uses this authenticated connection. It must never stop the
   // sender or wait for OCR on the outgoing delivery loop.
+  let backgroundRunning = false;
   let intakeRunning = false;
   const runIntake = async () => {
-    if (intakeRunning || stopping) return;
+    if (intakeRunning || backgroundRunning || stopping) return;
     intakeRunning = true;
+    backgroundRunning = true;
     try {
       if (await hasOutboundWork()) return;
       await withBackgroundClient(async (backgroundClient) => {
@@ -1505,14 +1507,16 @@ async function runWatch() {
       console.error(`[tg-intake] ${error?.stack || error}`);
     } finally {
       intakeRunning = false;
+      backgroundRunning = false;
     }
   };
   const intakeTimer = setInterval(() => { void runIntake(); }, 5 * 60_000);
   const intakeInitialTimer = setTimeout(() => { void runIntake(); }, 60_000);
   let feedbackRunning = false;
   const runFeedback = async () => {
-    if (feedbackRunning || stopping) return;
+    if (feedbackRunning || backgroundRunning || stopping) return;
     feedbackRunning = true;
+    backgroundRunning = true;
     try {
       if (await hasOutboundWork()) return;
       await withBackgroundClient(async (backgroundClient) => {
@@ -1523,6 +1527,7 @@ async function runWatch() {
       console.error(`[tg-feedback] ${error?.stack || error}`);
     } finally {
       feedbackRunning = false;
+      backgroundRunning = false;
     }
   };
   const feedbackTimer = setInterval(() => { void runFeedback(); }, 2 * 60 * 60_000);

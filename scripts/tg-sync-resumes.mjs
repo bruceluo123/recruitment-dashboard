@@ -789,10 +789,15 @@ async function main(options = {}) {
 
   const ledgerRaw = snapshotString(await kvGet(ledgerKey), ledgerKey);
   const ledger = parseArraySnapshot(ledgerRaw, ledgerKey);
+  const repushKey = 'recruit:repush';
+  const repushRaw = snapshotString(await kvGet(repushKey), repushKey);
+  const repush = parseArraySnapshot(repushRaw, repushKey);
+  const repushIds = new Set(repush.map((row) => row?.id).filter(Boolean));
   // 文件已入库但正文解析失败时不能永久跳过；后续网络恢复后自动重试并补齐全文索引。
   const completed = (row, target) => row.parsed !== false
     && (!row.contentFingerprint || row.contentFingerprint === target.contentFingerprint)
-    && (!target.editedAt || Date.parse(target.editedAt) <= Date.parse(row.syncedAt || ''));
+    && (!target.editedAt || Date.parse(target.editedAt) <= Date.parse(row.syncedAt || ''))
+    && (!row.repushId || repushIds.has(row.repushId));
   const pending = targets.filter((target) => !ledger.some(row => (
     (row.key === target.key || (row.key === target.legacyKey
       && Number(row.recommendationMessageId) === Number(target.recommendationMessageId)))
@@ -850,16 +855,13 @@ async function main(options = {}) {
   }
 
   const talentsKey = 'recruit:talents';
-  const repushKey = 'recruit:repush';
   const codeLedgerKey = 'recruit:candidate-code-ledger';
   const tombstonesKey = 'recruit:tombstones';
   const tombstonesRaw = snapshotString(await kvGet(tombstonesKey), tombstonesKey);
   const tombstones = parseObjectSnapshot(tombstonesRaw, tombstonesKey);
   const talentsRaw = snapshotString(await kvGet(talentsKey), talentsKey);
-  const repushRaw = snapshotString(await kvGet(repushKey), repushKey);
   const codeLedgerRaw = snapshotString(await kvGet(codeLedgerKey), codeLedgerKey);
   const talents = parseArraySnapshot(talentsRaw, talentsKey);
-  const repush = parseArraySnapshot(repushRaw, repushKey);
   let codeLedger = parseArraySnapshot(codeLedgerRaw, codeLedgerKey);
 
   const byTalentCode = new Map(talents.filter((t) => t?.candidateCode).map((t) => [String(t.candidateCode).toUpperCase(), t]));
