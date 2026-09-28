@@ -68,7 +68,7 @@ const VARIANTS: Record<AdVariant, VariantConfig> = {
     buildHeader: () => '全远程居家工作—今日急招',
     buildHeading: (emoji, label) => `${emoji}${label}类`,
     buildLine: (title, salary, loc) => `- ${title}${salary ? ` ｜ ${salary}` : ''}${loc ? `  ${loc}` : ''}`,
-    signature: '欢迎自荐或转推荐，投递联系 @forforle',
+    signature: '简历投递：@forforle\n备用联系：@kukuzhaopin',
   },
 };
 
@@ -201,15 +201,29 @@ export interface AdSegment {
   count: number;
 }
 
-/** 啵啵热招文案只列出本次从当前 JD 库传入的岗位。 */
+/** 啵啵热招看板固定使用岗位大类总览模板。 */
 export function buildBoboHotHiringCopy(jds: JD[]): AdSegment {
   const currentJds = currentHiringJds(jds);
   if (currentJds.length === 0) return { title: '啵啵热招文案', text: '', count: 0 };
   const text = [
-    '远程岗急招：',
-    ...currentJds.map((jd) => jd.title),
+    '🔥 400+远程岗位热招｜国内外均可投｜持续更新',
     '',
-    '更多前后端/测试/AI等技术岗位/远程岗位欢迎投递：@forforle',
+    '✅ 多数岗位支持远程办公',
+    '✅ 国内、海外人才均可投递',
+    '✅ 覆盖技术 / AI / 产品 / 运营 / 内容 / 商务等方向',
+    '✅ 经验相符即可投，也可直接发简历匹配',
+    '',
+    '💻 技术研发：Go / Java / Python / 前端 / Flutter / 测试 / 大数据 / 安全 / DevOps',
+    '🤖 AI方向：AI Agent / AIGC / RAG / ComfyUI / AI视频 / AI短剧 / 自动化',
+    '📈 产品运营：产品经理 / 产品运营 / 内容运营 / 用户增长 / KOL投放 / 社媒 / SEO',
+    '🎨 内容设计：UI / 平面 / 剪辑 / 编导 / 动画 / 游戏美术 / 广告素材',
+    '🤝 商务支持：商务 / 渠道 / 销售 / PMO / 技术支持 / 客服 / 项目助理',
+    '🎮 游戏泛娱乐：游戏研发 / 游戏运营 / 直播 / 短剧 / 内容平台',
+    '',
+    '📌 岗位持续更新，不确定适合哪个方向，也可以直接发简历帮你匹配。',
+    '',
+    '🦋 简历投递：@forforle',
+    '备用联系：@kukuzhaopin',
   ].join('\n');
 
   return { title: '啵啵热招文案', text, count: currentJds.length };
