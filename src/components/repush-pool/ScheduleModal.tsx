@@ -8,7 +8,7 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 interface ScheduleModalProps {
   item: RepushItem;
   onClose: () => void;
-  onConfirm: (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => void;
+  onConfirm: (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => void | Promise<void>;
 }
 
 const ROUNDS: InterviewRound[] = ['一面', '二面', '三面'];
@@ -27,20 +27,34 @@ export function ScheduleModal({ item, onClose, onConfirm }: ScheduleModalProps) 
     : defaultLocalTime());
   const [interviewer, setInterviewer] = useState('');
   const [round, setRound] = useState<InterviewRound>(nextRound(item.interviewRound));
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   useEscapeClose(onClose);
 
   const base = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '');
 
+  const handleConfirm = async () => {
+    if (!interviewAt || submitting) return;
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await onConfirm({ interviewAt, interviewer, round });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '约面失败，请重试');
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" />
-      <div className="relative w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
+      <div className="pointer-events-none fixed inset-0 bg-black/30" />
+      <div className="relative z-10 w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 animate-fade-in">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
             <span className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center"><CalendarPlus className="w-4 h-4 text-white" /></span>
             约面
           </h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100" title="关闭"><X className="w-4 h-4" /></button>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100" title="关闭"><X className="w-4 h-4" /></button>
         </div>
 
         <p className="text-sm text-gray-500 mb-4">
@@ -54,6 +68,7 @@ export function ScheduleModal({ item, onClose, onConfirm }: ScheduleModalProps) 
             <div className="flex gap-2">
               {ROUNDS.map((r) => (
                 <button
+                  type="button"
                   key={r}
                   onClick={() => setRound(r)}
                   className={cn(
@@ -86,17 +101,20 @@ export function ScheduleModal({ item, onClose, onConfirm }: ScheduleModalProps) 
           </div>
         </div>
 
+        {submitError ? <p className="mt-4 text-sm text-red-500">{submitError}</p> : null}
+
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
+          <button type="button" onClick={onClose} className="h-10 px-4 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100">取消</button>
           <button
-            onClick={() => onConfirm({ interviewAt, interviewer, round })}
-            disabled={!interviewAt}
+            type="button"
+            onClick={handleConfirm}
+            disabled={!interviewAt || submitting}
             className={cn(
               'h-10 px-5 rounded-xl text-sm font-medium text-white transition-colors',
-              interviewAt ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed',
+              interviewAt && !submitting ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-gray-200 cursor-not-allowed',
             )}
           >
-            约{round}
+            {submitting ? '提交中...' : `约${round}`}
           </button>
         </div>
       </div>

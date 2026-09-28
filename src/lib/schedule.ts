@@ -72,12 +72,14 @@ export function reconcileScheduledRecommendations(items: RepushItem[], candidate
 export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, deps: ScheduleDeps): void {
   const { interviewAt, interviewer, round } = args;
   const { jds, candidates, addCandidate, updateCandidate, updateItem } = deps;
-  if (!interviewAt) return;
+  if (!interviewAt) throw new Error('请选择面试时间');
 
   const name = item.candidateName || item.fileName.replace(/\.(pdf|docx?)$/i, '').trim();
   const jdTitle = item.jdTitle || '';
   const jd = jdTitle ? matchJDByTitle(jdTitle, jds) : null;
-  const isoAt = new Date(interviewAt).toISOString();
+  const parsedInterviewAt = new Date(interviewAt);
+  if (Number.isNaN(parsedInterviewAt.getTime())) throw new Error('面试时间无效，请重新选择');
+  const isoAt = parsedInterviewAt.toISOString();
   const scheduledAt = new Date().toISOString();
   const organization = item.organization || jd?.organization?.trim() || undefined;
   const department = item.department || jd?.department?.trim() || undefined;
