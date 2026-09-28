@@ -151,6 +151,18 @@ function overlayPendingRecommendations(rows: SyncRecord[]): SyncRecord[] {
   return Array.from(result.values());
 }
 
+function overlayObservedRecommendations(rows: SyncRecord[]): SyncRecord[] {
+  const result = new Map(rows.map(row => [row.id, row]));
+  for (const row of observed.repush || []) {
+    if (result.has(row.id) || isTombstoned('repush', row.id)
+      || typeof row.applicationId === 'string' && isTombstoned('repush', row.applicationId)) continue;
+    // 推荐发送投影和业务快照短暂不同步时，云端可能返回缺行快照。
+    // 只有明确的删除标记才能移除本机已经看到的推荐，避免约面后整组人选消失。
+    result.set(row.id, row);
+  }
+  return Array.from(result.values());
+}
+
 function overlayPendingRecords(type: 'candidates' | 'todos' | 'performance', rows: SyncRecord[]): SyncRecord[] {
   const result = new Map(rows.map(row => [row.id, row]));
   for (const mutation of pending.filter(item => item.type === type)) {
@@ -208,7 +220,7 @@ async function refresh(force = false) {
         if (!Array.isArray(rows)) throw new Error('数据格式异常');
         const visible = rows.filter((row: SyncRecord) => !isTombstoned(type, row.id));
         const data = type === 'repush'
-          ? overlayPendingRecommendations(overlayDeliveryReceipts(visible))
+          ? overlayPendingRecommendations(overlayDeliveryReceipts(overlayObservedRecommendations(visible)))
           : type === 'candidates' || type === 'todos' || type === 'performance'
             ? overlayPendingRecords(type, visible)
             : visible;
