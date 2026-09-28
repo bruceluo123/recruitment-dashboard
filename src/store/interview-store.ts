@@ -48,9 +48,17 @@ export const useInterviewStore = create<InterviewStore>()(
     }),
     {
       name: 'recruitai-interview-store',
-      version: 1,
-      // 版本化 persist：字段结构变更时在此按 version 迁移，避免历史 localStorage 无迁移路径而丢候选人。
-      migrate: (persisted) => persisted as InterviewStore,
+      version: 2,
+      // 候选人由云端同步，本机只保留很小的看板配置，避免完整候选人库耗尽 localStorage。
+      partialize: (state) => ({ customStages: state.customStages }),
+      migrate: (persisted) => {
+        const previous = persisted as Partial<InterviewStore>;
+        return {
+          ...previous,
+          candidates: MOCK_CANDIDATES,
+          lastDeletedCandidate: null,
+        } as InterviewStore;
+      },
     },
   ),
 );
