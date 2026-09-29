@@ -218,6 +218,14 @@ function isRepushRecommendation(item: RepushItem): boolean {
   return item.source === 'repush' || Boolean(item.repushSourceId);
 }
 
+function recommendationCandidateKey(item: RepushItem): string {
+  return item.candidateIdentityId
+    || item.candidateCode
+    || item.candidateName?.trim().toLowerCase()
+    || item.applicationId
+    || item.id;
+}
+
 /** 一键看板只统计当天实际送达的首次推荐，复推不进入数量。 */
 export function todaysRecommendations(items: RepushItem[], ref: Date, column?: 'a' | 'b'): RepushItem[] {
   return items.filter((item) => (
@@ -227,11 +235,26 @@ export function todaysRecommendations(items: RepushItem[], ref: Date, column?: '
   ));
 }
 
-/** 今日日报保留复推岗位，但同一复推岗位当天无论人数只计 1。 */
+/** 麦满分日报按候选人计数（复推多个岗位只保留一条）；啵啵继续按复推岗位计数。 */
 export function todaysReportRecommendations(items: RepushItem[], ref: Date, column?: 'a' | 'b'): RepushItem[] {
+  const delivered = items.filter((item) => (
+    (!column || item.column === column) && deliveredToday(item, ref)
+  ));
+
+  if (column === 'a') {
+    const selectedByCandidate = new Map<string, RepushItem>();
+    for (const item of delivered) {
+      const candidateKey = recommendationCandidateKey(item);
+      const selected = selectedByCandidate.get(candidateKey);
+      if (!selected || (isRepushRecommendation(selected) && !isRepushRecommendation(item))) {
+        selectedByCandidate.set(candidateKey, item);
+      }
+    }
+    return delivered.filter((item) => selectedByCandidate.get(recommendationCandidateKey(item)) === item);
+  }
+
   const seenRepushJobs = new Set<string>();
-  return items.filter((item) => {
-    if ((column && item.column !== column) || !deliveredToday(item, ref)) return false;
+  return delivered.filter((item) => {
     if (!isRepushRecommendation(item)) return true;
     const jobKey = item.jdId || makeJobKey(item.jdTitle || item.fileName, item.department || '');
     if (seenRepushJobs.has(jobKey)) return false;
@@ -343,11 +366,7 @@ export function buildRemoteRecord(opts: BuildOptions): RemoteRecord {
   const recommendTotal = sum(recommendDetail);
   const seenCandidates = new Set<string>();
   const uniqueCandidateRecommendations = opts.recommendations.filter((item) => {
-    const candidateKey = item.candidateIdentityId
-      || item.candidateCode
-      || item.candidateName?.trim().toLowerCase()
-      || item.applicationId
-      || item.id;
+    const candidateKey = recommendationCandidateKey(item);
     if (seenCandidates.has(candidateKey)) return false;
     seenCandidates.add(candidateKey);
     return true;
