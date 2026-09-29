@@ -212,6 +212,17 @@ function applyRowTemplate(ws: Worksheet, rowNumber: number, template: RowTemplat
   }
 }
 
+function applyWhiteBackgroundToUnfilledCells(ws: Worksheet, startRow: number, endRow: number): void {
+  for (let row = startRow; row <= endRow; row++) {
+    for (let col = START_COL; col <= END_COL; col++) {
+      const cell = ws.getCell(row, col);
+      if (!cell.fill || cell.fill.type !== 'pattern' || cell.fill.pattern === 'none') {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+      }
+    }
+  }
+}
+
 function writeCells(ws: Worksheet, rowNumber: number, values: ReportRow, template: RowTemplate): void {
   applyRowTemplate(ws, rowNumber, template);
   for (let col = START_COL; col <= END_COL; col++) {
@@ -317,6 +328,10 @@ export async function exportDailyReportExcel({
   applyRowTemplate(ws, row + 1, difficultyNoteTemplate);
   ws.mergeCells(row, START_COL, row + 1, END_COL);
   ws.getCell(row, START_COL).value = null;
+
+  if (column === 'a') {
+    applyWhiteBackgroundToUnfilledCells(ws, 2, row + 1);
+  }
 
   const output = await workbook.xlsx.writeBuffer();
   const filename = `${name}-工作日报-${localDateKey(date)}.xlsx`;
