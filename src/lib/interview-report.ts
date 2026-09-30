@@ -175,6 +175,18 @@ function hasPassed(candidates: Candidate[]): boolean {
  * 淘汰候选人不会被排除；不同部门永远分行。
  */
 export function buildRecruitmentReportRows(candidates: Candidate[], range: RecruitmentReportRange): RecruitmentReportRow[] {
+  const onboardingByIdentity = new Map<string, { dateKey: string; updatedAt: string }>();
+  for (const candidate of candidates) {
+    if (isHeadhunterInterview(candidate) || candidate.stage !== 'offer') continue;
+    const dateKey = localDateKey(candidate.onboardDate || '');
+    if (!dateKey) continue;
+    const key = reportIdentity(candidate);
+    const existing = onboardingByIdentity.get(key);
+    if (!existing || candidate.updatedAt > existing.updatedAt) {
+      onboardingByIdentity.set(key, { dateKey, updatedAt: candidate.updatedAt });
+    }
+  }
+
   const grouped = new Map<string, {
     candidates: Candidate[];
     events: InterviewEvent[];
@@ -183,6 +195,9 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
   }>();
   for (const candidate of candidates) {
     if (isHeadhunterInterview(candidate)) continue;
+    const key = reportIdentity(candidate);
+    const fixedOnboardKey = onboardingByIdentity.get(key)?.dateKey;
+    if (fixedOnboardKey && (fixedOnboardKey < range.start || fixedOnboardKey > range.end)) continue;
     const allEvents = candidateEvents(candidate);
     const events = allEvents.filter((event) => {
       const scheduledKey = localDateKey(event.scheduledAt);
@@ -202,7 +217,6 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       : undefined;
     const directOfferKey = directOfferAt ? localDateKey(directOfferAt) : '';
     if (!events.length && !onboardAt && !directOfferKey) continue;
-    const key = reportIdentity(candidate);
     const group = grouped.get(key) || { candidates: [], events: [] };
     group.candidates.push(candidate);
     group.events.push(...events);
