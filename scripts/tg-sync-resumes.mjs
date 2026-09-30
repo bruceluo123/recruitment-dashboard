@@ -908,7 +908,6 @@ async function main(options = {}) {
         if (tombstones.repush?.[`tg-intake:${account}:${createHash('sha1').update(target.key).digest('hex')}`]) continue;
         const p = target.parsed;
         const attachmentOnly = /作品|portfolio|showcase/i.test(target.fileName);
-        if (target.missingFile) throw new Error('推荐文案已发现，等待关联简历附件');
         let manualBuffer = !target.code ? await readTelegram(client.downloadMedia(target.msg, {})) : null;
         if (!target.code && (!Buffer.isBuffer(manualBuffer) || !manualBuffer.length)) throw new Error('手动附件下载失败');
         let code = target.code || await allocateManualCode(target, account, manualBuffer);
@@ -919,6 +918,17 @@ async function main(options = {}) {
           code = await allocateManualCode(target, account, manualBuffer);
           candidateSequenceSuffix(code, account);
         }
+        const reusableResume = [
+          byTalentCode.get(code),
+          [...repush].reverse().find(item => String(item.candidateCode || '').toUpperCase() === code && item.resumeUrl),
+          byCodeLedger.get(code),
+        ].find(item => item?.resumeUrl);
+        if (target.missingFile && !reusableResume?.resumeUrl) {
+          throw new Error('推荐文案已发现，等待关联简历附件');
+        }
+        const effectiveFileName = target.fileName
+          || reusableResume?.resumeFileName
+          || `${p.name || code}-简历.pdf`;
         const owner = code.includes('BB') ? 'BB' : 'MMF';
         let knownBusinessNames = businessNamesByCode.get(code) || new Set();
         const knownName = byTalentCode.get(code)?.name
@@ -969,16 +979,29 @@ async function main(options = {}) {
           throw new Error(`候选人编号 ${code} 的身份登记与当前简历不一致`);
         }
 
-        const cacheKey = `${account}:${target.chatId}:${target.messageId}`;
+        const cacheKey = target.missingFile
+          ? `${account}:reuse:${code}:${reusableResume.resumeUrl}`
+          : `${account}:${target.chatId}:${target.messageId}`;
         let prepared = preparedFiles.get(cacheKey);
         if (!prepared) {
-          const buffer = manualBuffer || await readTelegram(client.downloadMedia(target.msg, {}));
-          if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error(`TG download failed: ${target.fileName}`);
-          const contentKey = `${account}:content:${createHash('sha256').update(buffer).digest('hex')}:${path.extname(target.fileName).toLowerCase()}`;
-          prepared = preparedFiles.get(contentKey);
-          if (!prepared) {
-            prepared = { uploaded: await uploadResume(buffer, target.fileName), resumeText: '', parseSource: '', parseError: '' };
-            preparedFiles.set(contentKey, prepared);
+          if (target.missingFile) {
+            const talentTextKey = byTalentCode.get(code)?.id ? `recruit:talent-text:${byTalentCode.get(code).id}` : '';
+            const resumeText = talentTextKey ? snapshotString(await kvGet(talentTextKey), talentTextKey) : '';
+            prepared = {
+              uploaded: { url: reusableResume.resumeUrl, blobUrl: reusableResume.resumeUrl },
+              resumeText,
+              parseSource: resumeText ? 'existing-candidate' : '',
+              parseError: '',
+            };
+          } else {
+            const buffer = manualBuffer || await readTelegram(client.downloadMedia(target.msg, {}));
+            if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error(`TG download failed: ${target.fileName}`);
+            const contentKey = `${account}:content:${createHash('sha256').update(buffer).digest('hex')}:${path.extname(target.fileName).toLowerCase()}`;
+            prepared = preparedFiles.get(contentKey);
+            if (!prepared) {
+              prepared = { uploaded: await uploadResume(buffer, target.fileName), resumeText: '', parseSource: '', parseError: '' };
+              preparedFiles.set(contentKey, prepared);
+            }
           }
           preparedFiles.set(cacheKey, prepared);
           while (preparedFiles.size > 200) preparedFiles.delete(preparedFiles.keys().next().value);
@@ -988,7 +1011,7 @@ async function main(options = {}) {
         if (!attachmentOnly && !prepared.resumeText && (!prepared.parseAttemptAt || Date.now() - prepared.parseAttemptAt > 180_000)) {
           prepared.parseAttemptAt = Date.now();
           try {
-            const parsedResume = await parseResumeFromBlob(prepared.uploaded.url, target.fileName);
+            const parsedResume = await parseResumeFromBlob(prepared.uploaded.url, effectiveFileName);
             // PDF extraction can contain NUL bytes; PostgreSQL JSON/text cannot
             // store them. Preserve the resume text, removing only these bytes.
             prepared.resumeText = (parsedResume.text || '').replace(/\u0000/g, '');
@@ -1018,7 +1041,7 @@ async function main(options = {}) {
           jobTitle,
           categories: cats,
           resumeUrl: uploaded.url,
-          resumeFileName: target.fileName,
+          resumeFileName: effectiveFileName,
           tg: p.contact && p.contact !== '/' ? p.contact : undefined,
           notes: `TG auto sync; ${target.chatTitle}; ${p.source || ''}`.trim(),
           archived: false,
@@ -1035,7 +1058,7 @@ async function main(options = {}) {
           jobTitle: jobTitle || talent.jobTitle,
           categories: cats.length ? cats : talent.categories,
           resumeUrl: uploaded.url,
-          resumeFileName: target.fileName,
+          resumeFileName: effectiveFileName,
           tg: p.contact && p.contact !== '/' ? p.contact : talent.tg,
           organization: p.organization || talent.organization,
           recruiter: p.recommender || talent.recruiter,
@@ -1063,7 +1086,7 @@ async function main(options = {}) {
           contact: p.contact && p.contact !== '/' ? p.contact : rec.contact,
           contactPerson: String(p.recommender || rec.contactPerson || '').replace(/\s*@bruceluo123\b/ig, '').trim() || undefined,
           resumeUrl: uploaded.url,
-          resumeFileName: target.fileName,
+          resumeFileName: effectiveFileName,
           rawText: rawText.slice(0, 2000),
           talentId: talent.id,
           candidateIdentityId,
@@ -1087,7 +1110,7 @@ async function main(options = {}) {
           contactPerson: String(p.recommender || (owner === 'BB' ? 'BOBO @bobomiepucha' : '\u9ea6\u6ee1\u5206')).replace(/\s*@bruceluo123\b/ig, '').trim(),
           rawText: rawText.slice(0, 2000),
           resumeUrl: uploaded.url,
-          resumeFileName: target.fileName,
+          resumeFileName: effectiveFileName,
           talentId: talent.id,
           candidateIdentityId,
           deliveryStatus: 'sent',
@@ -1122,7 +1145,7 @@ async function main(options = {}) {
         messageId: target.messageId,
         recommendationMessageId: target.recommendationMessageId,
         contentFingerprint: target.contentFingerprint,
-        fileName: target.fileName,
+        fileName: effectiveFileName,
         resumeUrl: uploaded.url,
         talentId: talent.id,
         repushId: rec.id,
@@ -1149,10 +1172,10 @@ async function main(options = {}) {
         firstMessageDate: target.date,
         firstMessageId: target.recommendationMessageId,
         resumeUrl: uploaded.url,
-        resumeFileName: target.fileName,
+        resumeFileName: effectiveFileName,
         recoveredAt: now,
       });
-        results.push({ code, name, jobTitle, fileName: target.fileName, chatTitle: target.chatTitle, parsed: !!resumeText, parseError });
+        results.push({ code, name, jobTitle, fileName: effectiveFileName, chatTitle: target.chatTitle, parsed: !!resumeText, parseError });
       } catch (err) {
         failures.push({
           code: target.code,
