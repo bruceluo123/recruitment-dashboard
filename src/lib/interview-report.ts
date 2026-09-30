@@ -175,7 +175,12 @@ function hasPassed(candidates: Candidate[]): boolean {
  * 淘汰候选人不会被排除；不同部门永远分行。
  */
 export function buildRecruitmentReportRows(candidates: Candidate[], range: RecruitmentReportRange): RecruitmentReportRow[] {
-  const grouped = new Map<string, { candidates: Candidate[]; events: InterviewEvent[]; offerAppliedAt?: string }>();
+  const grouped = new Map<string, {
+    candidates: Candidate[];
+    events: InterviewEvent[];
+    offerAppliedAt?: string;
+    onboardAt?: string;
+  }>();
   for (const candidate of candidates) {
     if (isHeadhunterInterview(candidate)) continue;
     const allEvents = candidateEvents(candidate);
@@ -185,17 +190,27 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       return (scheduledKey >= range.start && scheduledKey <= range.end)
         || (interviewKey >= range.start && interviewKey <= range.end);
     });
-    const directOfferAt = events.length === 0 && candidate.stage === 'offer'
-      ? candidate.offerAppliedAt || candidate.updatedAt
+    const onboardKey = candidate.stage === 'offer' ? localDateKey(candidate.onboardDate || '') : '';
+    const onboardAt = onboardKey >= range.start && onboardKey <= range.end
+      ? candidate.onboardDate
+      : undefined;
+    const offerDate = candidate.stage === 'offer' ? candidate.offerAppliedAt || candidate.updatedAt : undefined;
+    const offerDateKey = offerDate ? localDateKey(offerDate) : '';
+    const directOfferAt = events.length === 0 && !onboardAt
+      && offerDateKey >= range.start && offerDateKey <= range.end
+      ? offerDate
       : undefined;
     const directOfferKey = directOfferAt ? localDateKey(directOfferAt) : '';
-    if (!events.length && (!directOfferKey || directOfferKey < range.start || directOfferKey > range.end)) continue;
+    if (!events.length && !onboardAt && !directOfferKey) continue;
     const key = reportIdentity(candidate);
     const group = grouped.get(key) || { candidates: [], events: [] };
     group.candidates.push(candidate);
     group.events.push(...events);
     if (directOfferAt && (!group.offerAppliedAt || directOfferAt < group.offerAppliedAt)) {
       group.offerAppliedAt = directOfferAt;
+    }
+    if (onboardAt && (!group.onboardAt || onboardAt < group.onboardAt)) {
+      group.onboardAt = onboardAt;
     }
     grouped.set(key, group);
   }
@@ -225,7 +240,9 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       stage,
       interviewDates: uniqueEvents.length
         ? uniqueEvents.map(formatInterviewDay).join('/')
-        : group.offerAppliedAt ? `${formatOnboardDay(group.offerAppliedAt)}确认Offer` : '',
+        : group.onboardAt
+          ? `${formatOnboardDay(group.onboardAt)}入职`
+          : group.offerAppliedAt ? `${formatOnboardDay(group.offerAppliedAt)}确认Offer` : '',
       status: hasPassed(group.candidates) ? '通过' : 'pass',
       salaryPlan: salaryPlan(offerCandidate),
       department: latestCandidate.department || latestCandidate.organization || '',
@@ -236,7 +253,7 @@ export function buildRecruitmentReportRows(candidates: Candidate[], range: Recru
       source: latestCandidate.recommendationSource === 'repush' ? '转推荐' : '人才库',
       sortAt: uniqueEvents.length
         ? new Date(uniqueEvents[0].interviewDate).getTime()
-        : new Date(group.offerAppliedAt!).getTime(),
+        : new Date(group.onboardAt || group.offerAppliedAt!).getTime(),
     };
   }).sort((a, b) => a.sortAt - b.sortAt || a.name.localeCompare(b.name, 'zh-CN'));
 }

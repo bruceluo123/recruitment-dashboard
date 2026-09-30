@@ -326,7 +326,7 @@ export function InterviewCalendarPage() {
     }
   };
 
-  // Excel看板：按面试流程点击日期回溯；无约面流程的直接 Offer 按确认日期纳入。
+  // Excel看板：面试按约面/实际面试日期，Offer 按入职日期；无入职日期再按确认日期纳入。
   const openExcelPicker = async () => {
     setReportLoading(true);
     setShowExcelPicker(true);
@@ -637,7 +637,7 @@ export function InterviewCalendarPage() {
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <FileSpreadsheet className="w-5 h-5 text-indigo-500" />Excel看板
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">按约面操作日或实际面试日统计；本期无面试记录的 Offer 按确认日期纳入，未通过的人选也会保留。</p>
+                <p className="text-xs text-gray-500 mt-1">招聘月按上月26日至本月25日；面试按约面/实际日期，Offer 按入职日期，无入职日期再按确认日期纳入。</p>
               </div>
               <button onClick={() => setShowExcelPicker(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
