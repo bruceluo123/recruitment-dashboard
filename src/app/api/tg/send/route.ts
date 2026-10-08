@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
 import { apiSessionUser, requireApiSession, requireOwnerSession } from '@/lib/auth-api';
 import { kvCommandStrict, kvFindRepushRecords, kvTransaction } from '@/lib/kv-server';
+import { stripCandidateContactLine } from '@/lib/recommendation-copy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -325,11 +326,11 @@ function prepareDelivery(body: SendInput, id: string, sender: 'a' | 'b') {
   }
   const deliveries: DeliveryItem[] = requestedDeliveries
     .map((item) => ({
-      text: item.text?.trim() || '',
+      text: stripCandidateContactLine(item.text?.trim() || ''),
       fileName: safeFileName(item.fileName || 'resume.pdf'),
       status: 'pending' as const,
     }));
-  if (!target || !fileUrl || deliveries.length === 0) {
+  if (!target || !fileUrl || deliveries.length === 0 || deliveries.some(item => !item.text.trim())) {
     throw new Error('接收人、推荐文案和简历均不能为空');
   }
   const urlError = blobUrlError(fileUrl);
@@ -358,7 +359,7 @@ function prepareDelivery(body: SendInput, id: string, sender: 'a' | 'b') {
       jdTitle,
       contact: cleanText(application.contact, 300) || undefined,
       contactPerson: cleanText(application.contactPerson, 200) || undefined,
-      rawText: item.text?.trim() || undefined,
+      rawText: deliveries[index].text,
       highlights: cleanText(application.highlights, 1500) || undefined,
       resumeUrl: fileUrl,
       resumeFileName: safeFileName(cleanText(application.resumeFileName, 180) || item.fileName || 'resume.pdf'),
@@ -460,7 +461,8 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
               const previous = existing.deliveries[itemIndex];
               const application = existing.applications?.[itemIndex];
               const business = existing.businessRecords?.find(row => row.deliveryIndex === itemIndex);
-              return item.text?.trim() !== previous.text || safeFileName(item.fileName || 'resume.pdf') !== previous.fileName
+              return stripCandidateContactLine(item.text?.trim() || '') !== stripCandidateContactLine(previous.text)
+                || safeFileName(item.fileName || 'resume.pdf') !== previous.fileName
                 || (application && cleanText(item.application?.jdId, 240) !== application.jdId)
                 || (business && ['candidateCode', 'candidateIdentityId', 'candidateName', 'repushSourceId'].some(field => (
                   cleanText(item.application?.[field as keyof DeliveryApplicationInput], 240) !== cleanText(business[field], 240)

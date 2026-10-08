@@ -78,6 +78,10 @@ function environment() {
     }
     throw new Error('External network is forbidden: ' + url);
   };
+  const recommendationCopy = load('src/lib/recommendation-copy.ts', {
+    '@/lib/security-redaction': { redactCompromisedTelegram: value => value || '' },
+  });
+  state.stripCandidateContactLine = recommendationCopy.stripCandidateContactLine;
   const api = load('src/app/api/tg/send/route.ts', {
     'next/server': { NextResponse: { json: (data, options) => ({ data: clone(data), status: options?.status || 200 }) } },
     '@/lib/api-guard': { guardApi: () => null, blobUrlError: url => state.files.has(url) ? '' : 'Unknown offline attachment' },
@@ -87,6 +91,7 @@ function environment() {
       requireOwnerSession: async (request, owner) => request.owner === owner ? null : { status: 403, data: { ok: false, error: 'Denied' } },
     },
     '@/lib/kv-server': state.storage,
+    '@/lib/recommendation-copy': recommendationCopy,
   });
   state.client = owner => {
     const transport = { loseNextAck: false };
@@ -162,7 +167,7 @@ function payload(state, owner, person, job, source = 'intake', long = false) {
   }
   return { sender: owner, target: '@offline_recipient', fileUrl,
     ...(source === 'repush' ? { sourceSnapshot: snapshot } : {}),
-    deliveries: [{ text: recommendation, fileName: resumeFileName,
+    deliveries: [{ text: recommendation + '\n候选人联系方式：@should-not-send', fileName: resumeFileName,
       application: { jdId: job, jdTitle: 'Title ' + job, source,
         candidateName: name, candidateCode: snapshot.candidateCode, candidateIdentityId: snapshot.candidateIdentityId,
         resumeFileName, organization: '测试编制', department: '测试服务单位',
@@ -208,6 +213,7 @@ async function main() {
   assert.equal(JSON.parse(state.db.get(taskKey(badId))).status, 'failed');
   assert.ok(tasks.every(item => JSON.parse(state.db.get(taskKey(item.requestId))).status === 'sent'));
   const messages = Array.from(state.ledger.values()), media = messages.filter(item => item.fileName);
+  assert.ok(media.every(item => !item.text.includes('候选人联系方式')));
   assert.equal(media.length, tasks.length);
   assert.equal(new Set(state.attempts).size, state.attempts.length);
   for (const item of tasks) {
@@ -217,7 +223,7 @@ async function main() {
     assert.equal(message.fileName, item.deliveries[0].fileName);
     assert.equal(message.fileBytes, state.files.get(item.fileUrl));
     const continuation = (receipt.textReceipts || []).map(part => messages.find(row => row.id === part.messageId).text).join('');
-    assert.equal(message.text + continuation, item.deliveries[0].text);
+    assert.equal(message.text + continuation, state.stripCandidateContactLine(item.deliveries[0].text));
   }
   console.log('PASS real worker consumes both queues concurrently; bad head isolated, each candidate/job file delivered once with complete long text');
 
@@ -232,7 +238,7 @@ async function main() {
     assert.equal(row.candidateIdentityId, application.candidateIdentityId);
     assert.equal(row.resumeUrl, item.fileUrl);
     assert.equal(row.resumeFileName, application.resumeFileName);
-    assert.equal(row.rawText, item.deliveries[0].text);
+    assert.equal(row.rawText, state.stripCandidateContactLine(item.deliveries[0].text));
     assert.equal(row.deliveryStatus, 'sent'); assert.ok(row.telegramMessageId);
   }
   const manual = projected.find(row => row.id === editedId);

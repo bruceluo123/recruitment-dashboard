@@ -31,6 +31,10 @@ function formatContactPerson(value?: string): string {
     .replace(/([^\s])\s*(@[A-Za-z0-9_]{2,})/g, '$1 $2');
 }
 
+export function stripCandidateContactLine(text: string): string {
+  return text.split(/\r?\n/).filter(line => !/^\s*(?:候选人)?联系方式\s*[:：]/.test(line)).join('\n');
+}
+
 /** 首次推荐和复推共用的唯一推荐文案模板。 */
 export function buildRecommendationText(
   owner: RepushColumnId,
@@ -52,7 +56,6 @@ export function buildRecommendationText(
     '招聘渠道：寻英',
     `简历推荐人：${OWNER_RECOMMENDER[owner]}`,
     `简历来源：${candidate.resumeSource || 'boss'}`,
-    '候选人联系方式：/',
     `简历对接BP：${formatContactPerson(jd.odc)}`,
   ].join('\n');
 }
