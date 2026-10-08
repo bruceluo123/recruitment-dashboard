@@ -85,7 +85,9 @@ export async function kvFindRepushRecords(args: {
         p_resume_urls: resumeUrls,
         p_column: args.column,
       },
-      { attempts: 3, timeoutMs: 5_000 },
+      // This lookup scans the recommendation snapshot; short retries can
+      // repeatedly abort the same otherwise successful read.
+      { attempts: 1, timeoutMs: 20_000 },
     );
     if (!Array.isArray(records)) throw new Error('推荐记录格式异常');
     return records.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)));
