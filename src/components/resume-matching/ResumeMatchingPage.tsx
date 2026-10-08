@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ResumeUploader } from './ResumeUploader';
@@ -11,7 +11,7 @@ import {
   type RecommendationDeliverySnapshot,
 } from './RecommendationCopyDialog';
 import { TargetJDPickerDialog } from './TargetJDPickerDialog';
-import { RepushModal, type RepushArgs } from '@/components/recommendation-center/RepushModal';
+import { RepushModal, isSameCandidate, targetKey, type RepushArgs } from '@/components/recommendation-center/RepushModal';
 import { useResumeStore } from '@/store/resume-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore, type RecommendationDeliveryStatus, type RepushColumnId } from '@/store/repush-store';
@@ -362,6 +362,24 @@ export function ResumeMatchingPage() {
     : undefined;
   const activeBatch = activeResumeId ? resultsByResume[activeResumeId] : undefined;
   const activeResults = activeBatch?.results || [];
+  const previouslyRecommendedJdIds = useMemo(() => {
+    const matches = new Set<string>();
+    if (!rematchSource) return matches;
+    const previousJdIds = new Set<string>();
+    const previousTargets = new Set<string>();
+    for (const item of recommendationItems) {
+      if (!isSameCandidate(rematchSource, item)) continue;
+      if (item.jdId) previousJdIds.add(item.jdId);
+      if (item.jdTitle) previousTargets.add(targetKey(item.jdTitle, item.organization, item.department));
+    }
+    for (const result of activeResults) {
+      if (previousJdIds.has(result.jdId)
+        || previousTargets.has(targetKey(result.jd.title, recommendationOrganization(result.jd), result.jd.department))) {
+        matches.add(result.jdId);
+      }
+    }
+    return matches;
+  }, [activeResults, recommendationItems, rematchSource]);
   const recommendationJDById = new Map<string, JD>();
   for (const jd of jds) {
     if (targetJDIds.has(jd.id) && jd.status !== 'paused') recommendationJDById.set(jd.id, jd);
@@ -780,6 +798,7 @@ export function ResumeMatchingPage() {
             selectedResultIds={selectedResultIds}
             recommendationSelectionCount={recommendationSelectionCount}
             isRematch={Boolean(rematchSource)}
+            previouslyRecommendedJdIds={previouslyRecommendedJdIds}
             generatedJdIds={new Set(recommendationCopies.map((item) => item.jdId))}
             isGeneratingCopy={isGeneratingCopy}
             onToggleSelected={handleToggleSelected}

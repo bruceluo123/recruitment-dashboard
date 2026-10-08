@@ -21,11 +21,12 @@ interface MatchingResultCardProps {
   rank: number;
   selected: boolean;
   hasRecommendationCopy: boolean;
+  previouslyRecommended?: boolean;
   onToggleSelected: () => void;
   onOpenRecommendationCopy: () => void;
 }
 
-export function MatchingResultCard({ result, rank, selected, hasRecommendationCopy, onToggleSelected, onOpenRecommendationCopy }: MatchingResultCardProps) {
+export function MatchingResultCard({ result, rank, selected, hasRecommendationCopy, previouslyRecommended = false, onToggleSelected, onOpenRecommendationCopy }: MatchingResultCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'ai' | 'jd' | 'odc'>('ai');
   const [odcCopied, setOdcCopied] = useState(false);
@@ -118,6 +119,7 @@ export function MatchingResultCard({ result, rank, selected, hasRecommendationCo
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="text-base font-semibold text-gray-800">{jd.title}</h4>
                 <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset', tierMeta.className)}>{tierMeta.label}</span>
+                {previouslyRecommended && <span className="rounded-md bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700 ring-1 ring-inset ring-violet-200">推荐过</span>}
                 {result.levelFit && <span title={result.levelReason} className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-600">{{ close: '档位接近', candidate_below_job: '岗位要求更高', job_below_candidate: '岗位档位偏低', unknown: '档位待确认' }[result.levelFit]}</span>}
                 {result.cached && <span className="text-xs text-gray-400">复用 {new Date(result.matchedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 的分析</span>}
                 {isUrgentPriority(jd.priority) && (

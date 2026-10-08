@@ -12,6 +12,7 @@ interface MatchingResultsListProps {
   selectedResultIds: Set<string>;
   recommendationSelectionCount: number;
   isRematch?: boolean;
+  previouslyRecommendedJdIds?: Set<string>;
   generatedJdIds: Set<string>;
   isGeneratingCopy: boolean;
   onToggleSelected: (resultId: string) => void;
@@ -26,6 +27,7 @@ export function MatchingResultsList({
   selectedResultIds,
   recommendationSelectionCount,
   isRematch = false,
+  previouslyRecommendedJdIds,
   generatedJdIds,
   isGeneratingCopy,
   onToggleSelected,
@@ -158,6 +160,7 @@ export function MatchingResultsList({
           rank={index + 1}
           selected={selectedResultIds.has(result.id)}
           hasRecommendationCopy={generatedJdIds.has(result.jdId)}
+          previouslyRecommended={previouslyRecommendedJdIds?.has(result.jdId) || false}
           onToggleSelected={() => onToggleSelected(result.id)}
           onOpenRecommendationCopy={() => onOpenRecommendationCopy(result.jdId)}
         />

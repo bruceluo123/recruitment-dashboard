@@ -92,11 +92,11 @@ function readLabeledValue(text: string, labels: string[]): string {
   return '';
 }
 
-function targetKey(title?: string, organization?: string, department?: string): string {
+export function targetKey(title?: string, organization?: string, department?: string): string {
   return [title, organization, department].map((value) => clean(value).toLowerCase()).join('|');
 }
 
-function isSameCandidate(a: RepushItem, b: RepushItem): boolean {
+export function isSameCandidate(a: RepushItem, b: RepushItem): boolean {
   if (a.column !== b.column) return false;
   if (a.candidateIdentityId && b.candidateIdentityId) {
     return a.candidateIdentityId === b.candidateIdentityId;
