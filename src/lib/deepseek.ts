@@ -2,9 +2,11 @@ import type { JD } from '@/types/jd';
 import type { CandidateAssessment, MatchingResult } from '@/types/matching';
 import { buildBatchMatchingPrompt, buildCandidateAssessmentPrompt } from './matching-prompt';
 import { aiHttpError } from './ai-fetch';
+import { prescreenResumeToJDs } from './resume-prescreen';
 
 // 一轮最多16个完整JD，4个请求并行；结束时一次发布结果，没有后台追加评分。
 const MAX_AI_CANDIDATES = 16;
+const MAX_CATALOG_CANDIDATES = 48;
 const MATCH_MODEL = 'deepseek-v4-flash';
 const MATCH_CACHE_VERSION = 'resume-semantic-v2';
 const MATCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -172,18 +174,30 @@ export async function matchResumeToJDsStream(
   const openJds = jds.filter((jd) => jd.status !== 'paused' && hasOpenGap(jd)).sort((a, b) => a.id.localeCompare(b.id));
   if (!openJds.length) return;
   signal?.throwIfAborted();
-  const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(100_000)]);
+  const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(180_000)]);
   const text = factualText(resumeText);
   onProgress?.({ stage: 'profiling', completed: 0, total: 0 });
   const selectionKey = await cacheKey('selection', text, openJds);
   let selection = readCache<{ profile: CandidateAssessment; ids: string[] }>(selectionKey);
   if (!selection) {
+    // 全部岗位先经过本地宽松预筛，避免把数百条目录放进一个超时请求。
+    const catalogJds = openJds.length > MAX_CATALOG_CANDIDATES
+      ? prescreenResumeToJDs(text, openJds, resumeId).slice(0, MAX_CATALOG_CANDIDATES).map((result) => result.jd)
+      : openJds;
     const profileKey = await cacheKey('profile', text, []);
     const existingProfile = readCache<CandidateAssessment>(profileKey);
-    const parsed = existingProfile && openJds.length <= MAX_AI_CANDIDATES
-      ? {} : await callAI(buildCandidateAssessmentPrompt(text, openJds, MAX_AI_CANDIDATES, existingProfile || undefined), deadline, 1800);
+    let parsed: Record<string, unknown> = {};
+    let selectionTimedOut = false;
+    if (!existingProfile || catalogJds.length > MAX_AI_CANDIDATES) {
+      try {
+        parsed = await callAI(buildCandidateAssessmentPrompt(text, catalogJds, MAX_AI_CANDIDATES, existingProfile || undefined), deadline, 1800);
+      } catch (error) {
+        if (signal?.aborted || !/timed out|timeout|超时/i.test((error as Error).message)) throw error;
+        selectionTimedOut = true;
+      }
+    }
     let profile = existingProfile || parseProfile(parsed, text);
-    if (!profile) {
+    if (!profile && !selectionTimedOut) {
       // 只补提一次简历概览，不重发岗位目录；失败也不能阻断完整JD的事实对照。
       try {
         deadline.throwIfAborted();
@@ -201,9 +215,13 @@ export async function matchResumeToJDsStream(
     };
     if (!existingProfile && verifiedProfile) writeCache(profileKey, profile);
     const indexes = Array.isArray(parsed.shortlist)
-      ? Array.from(new Set(parsed.shortlist.filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= openJds.length)))
+      ? Array.from(new Set(parsed.shortlist.filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= catalogJds.length)))
       : [];
-    const candidates = openJds.length <= MAX_AI_CANDIDATES ? openJds : indexes.slice(0, MAX_AI_CANDIDATES).map((index) => openJds[index - 1]);
+    const candidates = catalogJds.length <= MAX_AI_CANDIDATES
+      ? catalogJds
+      : selectionTimedOut
+        ? catalogJds.slice(0, MAX_AI_CANDIDATES)
+        : indexes.slice(0, MAX_AI_CANDIDATES).map((index) => catalogJds[index - 1]);
     if (!candidates.length) throw new Error('未召回可比较的岗位，请缩小范围或指定岗位分析；其余岗位尚未判定');
     selection = { profile, ids: candidates.map((jd) => jd.id) };
     if (verifiedProfile) writeCache(selectionKey, selection);
