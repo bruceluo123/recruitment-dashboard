@@ -125,7 +125,6 @@ export function buildRepushCopy(item: RepushItem, jd: JD): string {
     expectedSalary: readLabeledValue(rawText, ['期望薪资', '薪资期望', '期望月薪']),
     location: readLabeledValue(rawText, ['目前所在地', '当前所在地', '现居地', '所在地', '现居']),
     arrivalTime: readLabeledValue(rawText, ['预计可到岗时间', '可到岗时间', '到岗时间', '最快到岗时间']),
-    contact: clean(item.contact) || readLabeledValue(rawText, ['候选人联系方式', '联系方式']),
     resumeSource: readLabeledValue(rawText, ['简历来源']) || '简历储备',
   });
 }

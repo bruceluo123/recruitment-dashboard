@@ -136,7 +136,6 @@ function buildRecommendationCopy(
     expectedSalary,
     location,
     arrivalTime,
-    contact: info.contact,
     resumeSource,
   });
 

@@ -15,7 +15,6 @@ export interface RecommendationCandidateFields {
   expectedSalary: string;
   location: string;
   arrivalTime: string;
-  contact: string;
   resumeSource: string;
 }
 
@@ -53,7 +52,7 @@ export function buildRecommendationText(
     '招聘渠道：寻英',
     `简历推荐人：${OWNER_RECOMMENDER[owner]}`,
     `简历来源：${candidate.resumeSource || 'boss'}`,
-    ...(owner === 'b' ? [] : [`候选人联系方式：${candidate.contact || '/'}`]),
+    '候选人联系方式：/',
     `简历对接BP：${formatContactPerson(jd.odc)}`,
   ].join('\n');
 }
