@@ -1,6 +1,6 @@
 'use client';
 import { MatchingResultCard } from './MatchingResultCard';
-import { Loader2, BarChart3, FileText } from 'lucide-react';
+import { Loader2, BarChart3, FileText, Repeat2 } from 'lucide-react';
 import type { MatchingResult } from '@/types/matching';
 import { groupPriorityLabel } from '@/lib/group-priority';
 import { useState } from 'react';
@@ -11,6 +11,7 @@ interface MatchingResultsListProps {
   refinementProgress?: { completed: number; total: number } | null;
   selectedResultIds: Set<string>;
   recommendationSelectionCount: number;
+  isRematch?: boolean;
   generatedJdIds: Set<string>;
   isGeneratingCopy: boolean;
   onToggleSelected: (resultId: string) => void;
@@ -24,6 +25,7 @@ export function MatchingResultsList({
   refinementProgress,
   selectedResultIds,
   recommendationSelectionCount,
+  isRematch = false,
   generatedJdIds,
   isGeneratingCopy,
   onToggleSelected,
@@ -65,8 +67,8 @@ export function MatchingResultsList({
     >
       {isGeneratingCopy
         ? <Loader2 className="h-4 w-4 animate-spin" />
-        : <FileText className="h-4 w-4" />}
-      生成推荐文案{recommendationSelectionCount > 0 ? `（${recommendationSelectionCount}）` : ''}
+        : isRematch ? <Repeat2 className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+      {isRematch ? '复推' : '生成推荐文案'}{recommendationSelectionCount > 0 ? `（${recommendationSelectionCount}）` : ''}
     </button>
   );
 
@@ -109,7 +111,7 @@ export function MatchingResultsList({
         {recommendationSelectionCount > 0 && <div className="mb-4 flex justify-end">{recommendationButton}</div>}
         <div className="flex flex-col items-center justify-center py-16 text-gray-400">
           <BarChart3 className="w-10 h-10 mb-3" />
-          <p className="text-sm">{recommendationSelectionCount > 0 ? '已指定岗位，可直接生成推荐文案' : '点击「开始匹配」查看结果'}</p>
+          <p className="text-sm">{recommendationSelectionCount > 0 ? isRematch ? '已指定岗位，可直接复推' : '已指定岗位，可直接生成推荐文案' : '点击「开始匹配」查看结果'}</p>
         </div>
       </div>
     );

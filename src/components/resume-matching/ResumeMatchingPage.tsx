@@ -11,6 +11,7 @@ import {
   type RecommendationDeliverySnapshot,
 } from './RecommendationCopyDialog';
 import { TargetJDPickerDialog } from './TargetJDPickerDialog';
+import { RepushModal, type RepushArgs } from '@/components/recommendation-center/RepushModal';
 import { useResumeStore } from '@/store/resume-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore, type RecommendationDeliveryStatus, type RepushColumnId } from '@/store/repush-store';
@@ -24,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { extractRecommendationInfo, type ExtractedRecommendation } from '@/lib/recommendation';
 import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
 import { applyRemoteStoreUpdate } from '@/lib/sync';
+import { displayName } from '@/lib/repush-format';
 
 const OWNER_CONFIG: Record<RepushColumnId, { name: string; codePrefix: string }> = {
   a: {
@@ -173,6 +175,8 @@ export function ResumeMatchingPage() {
   const [copyDialogInitialJdId, setCopyDialogInitialJdId] = useState('');
   const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
   const [rematchNotice, setRematchNotice] = useState<{ tone: 'loading' | 'success' | 'error'; text: string } | null>(null);
+  const [rematchContext, setRematchContext] = useState<{ sourceId: string; resumeId: string } | null>(null);
+  const [repushDialogOpen, setRepushDialogOpen] = useState(false);
   const recommendationGeneration = useRef(0);
   const rematchRequest = useRef('');
   const rematchLoadGeneration = useRef(0);
@@ -222,6 +226,8 @@ export function ResumeMatchingPage() {
       rematchResumeId.current = '';
     }
     rematchRequest.current = '';
+    setRematchContext(null);
+    setRepushDialogOpen(false);
     setRematchNotice(null);
     clearRematchParam();
   };
@@ -241,6 +247,7 @@ export function ResumeMatchingPage() {
     rematchAbortController.current?.abort();
     rematchAbortController.current = controller;
     rematchResumeId.current = '';
+    setRematchContext(null);
 
     const loadExistingResume = async () => {
       setActiveOwner(source.column);
@@ -253,6 +260,7 @@ export function ResumeMatchingPage() {
         ));
         if (existingResume) {
           setActiveResume(existingResume.id);
+          setRematchContext({ sourceId: source.id, resumeId: existingResume.id });
           setMatchCategory('all');
           setTargetJDIds(new Set());
           setRematchNotice({ tone: 'success', text: `${fileName} 已恢复，可以直接选择匹配范围或开始匹配。` });
@@ -279,6 +287,7 @@ export function ResumeMatchingPage() {
               if (!resumeId) throw new Error('简历自动恢复失败，请先删除一份已保留的简历后重试');
               rematchResumeId.current = resumeId;
               setActiveResume(resumeId);
+              setRematchContext({ sourceId: source.id, resumeId });
               setMatchCategory('all');
               setTargetJDIds(new Set());
               setRematchNotice({ tone: 'success', text: `${fileName} 已从历史解析内容快速恢复，可以直接开始匹配。` });
@@ -307,6 +316,7 @@ export function ResumeMatchingPage() {
           throw new Error(loaded?.parseError || '简历识别失败，请在左侧点击重试');
         }
         setActiveResume(resumeId);
+        setRematchContext({ sourceId: source.id, resumeId });
         setMatchCategory('all');
         setTargetJDIds(new Set());
         setRematchNotice({ tone: 'success', text: `${fileName} 已自动载入，可以直接选择匹配范围或开始匹配。` });
@@ -341,11 +351,15 @@ export function ResumeMatchingPage() {
     setRecommendationResumeFile(null);
     setRecommendationResumeBlobUrl('');
     setCopyDialogOpen(false);
+    setRepushDialogOpen(false);
     setCopyDialogInitialJdId('');
     setIsGeneratingCopy(false);
   }, [activeOwner, activeResumeId]);
 
   const activeResume = resumes.find((r) => r.id === activeResumeId);
+  const rematchSource = rematchContext?.resumeId === activeResumeId
+    ? recommendationItems.find((item) => item.id === rematchContext.sourceId && item.column === activeOwner)
+    : undefined;
   const activeBatch = activeResumeId ? resultsByResume[activeResumeId] : undefined;
   const activeResults = activeBatch?.results || [];
   const recommendationJDById = new Map<string, JD>();
@@ -396,6 +410,10 @@ export function ResumeMatchingPage() {
       setCandidateCodeError('部分已勾选岗位已关闭或移除，请重新选择岗位');
       return;
     }
+    if (rematchSource) {
+      setRepushDialogOpen(true);
+      return;
+    }
     setCandidateCodeError('');
     if (!recommendationResumeFile) {
       setRecommendationResumeFile(activeResume.file || null);
@@ -403,6 +421,47 @@ export function ResumeMatchingPage() {
     }
     setCopyDialogOpen(false);
     setCandidateDialogOpen(true);
+  };
+
+  const handleConfirmRematchRepush = (selections: RepushArgs[]) => {
+    if (!rematchSource || selections.length === 0) return;
+    const authoritative = selections.flatMap((args) => args.record ? [args.record] : []);
+    if (authoritative.length > 0) {
+      applyRemoteStoreUpdate('repush', () => {
+        for (const record of authoritative) upsertDeliveryRecommendation(record);
+        return useRepushStore.getState().items;
+      });
+    }
+    for (const args of selections) {
+      if (args.record) continue;
+      addRecommendation({
+        applicationId: args.applicationId,
+        column: rematchSource.column,
+        candidateCode: rematchSource.candidateCode,
+        candidateIdentityId: rematchSource.candidateIdentityId,
+        candidateName: rematchSource.candidateName || displayName(rematchSource),
+        jdId: args.jdId,
+        jdTitle: args.jdTitle || undefined,
+        contact: rematchSource.contact,
+        contactPerson: args.contactPerson || undefined,
+        rawText: args.recommendationText,
+        organization: args.organization || undefined,
+        department: args.department || undefined,
+        highlights: rematchSource.highlights,
+        resumeUrl: rematchSource.resumeUrl,
+        resumeFileName: rematchSource.resumeFileName,
+        source: args.source,
+        repushSourceId: args.repushSourceId,
+        deliveryId: args.deliveryId,
+        deliveryIndex: args.deliveryIndex,
+        deliveryStatus: args.deliveryStatus,
+        deliveryUpdatedAt: args.deliveryUpdatedAt,
+        telegramMessageId: args.telegramMessageId,
+        deliveredAt: args.deliveredAt,
+        uploadedAt: args.uploadedAt,
+        updatedAt: args.updatedAt,
+      });
+    }
   };
 
   const handleGenerateRecommendationCopy = async (candidateText: string, resumeFile: File | null, resumeSource: string, preserveIdentity = false) => {
@@ -720,6 +779,7 @@ export function ResumeMatchingPage() {
             refinementProgress={activeIsMatching ? { completed: activeBatch?.refinedCount || 0, total: activeBatch?.refineTotal || 0 } : null}
             selectedResultIds={selectedResultIds}
             recommendationSelectionCount={recommendationSelectionCount}
+            isRematch={Boolean(rematchSource)}
             generatedJdIds={new Set(recommendationCopies.map((item) => item.jdId))}
             isGeneratingCopy={isGeneratingCopy}
             onToggleSelected={handleToggleSelected}
@@ -746,6 +806,17 @@ export function ResumeMatchingPage() {
             setCandidateDialogOpen(false);
           }}
           onGenerate={handleGenerateRecommendationCopy}
+        />
+      )}
+      {repushDialogOpen && rematchSource && (
+        <RepushModal
+          item={rematchSource}
+          existingItems={recommendationItems}
+          jds={jds}
+          initialJdIds={recommendationJDs.map((jd) => jd.id)}
+          forceRepush
+          onClose={() => setRepushDialogOpen(false)}
+          onConfirm={handleConfirmRematchRepush}
         />
       )}
       {copyDialogOpen && recommendationCopies.length > 0 && (

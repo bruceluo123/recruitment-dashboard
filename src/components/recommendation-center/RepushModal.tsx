@@ -67,6 +67,8 @@ interface RepushModalProps {
   item: RepushItem;
   existingItems: RepushItem[];
   jds: JD[];
+  initialJdIds?: string[];
+  forceRepush?: boolean;
   initialCategory?: JDCategory;
   excludeRecommended?: boolean;
   resultLimit?: number;
@@ -143,18 +145,21 @@ export function RepushModal({
   item,
   existingItems,
   jds,
+  initialJdIds = [],
+  forceRepush = false,
   initialCategory,
   excludeRecommended = false,
   resultLimit = 12,
   onClose,
   onConfirm,
 }: RepushModalProps) {
-  const hasPriorDelivery = isFeedbackEligibleDelivery(item.deliveryStatus)
+  const hasPriorDelivery = forceRepush || isFeedbackEligibleDelivery(item.deliveryStatus)
     || Boolean(item.telegramMessageId || item.deliveredAt);
   const recommendationSource = hasPriorDelivery ? 'repush' as const : 'intake' as const;
   const repushSourceId = hasPriorDelivery ? item.id : undefined;
   const [query, setQuery] = useState('');
-  const [selectedJdIds, setSelectedJdIds] = useState<string[]>([]);
+  const [selectedJdIds, setSelectedJdIds] = useState<string[]>(() => Array.from(new Set(initialJdIds))
+    .filter((id) => jds.some((jd) => jd.id === id && jd.status !== 'paused')).slice(0, 10));
   const [manualBatchId] = useState(() => (
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
@@ -206,13 +211,16 @@ export function RepushModal({
           .some((value) => clean(value).toLowerCase().includes(keyword));
       })
       .sort((a, b) => {
+        const aSelected = selectedJdIds.includes(a.id);
+        const bSelected = selectedJdIds.includes(b.id);
+        if (aSelected !== bSelected) return aSelected ? -1 : 1;
         const aUsed = recommendedTargets.has(targetKey(a.title, recommendationOrganization(a), a.department));
         const bUsed = recommendedTargets.has(targetKey(b.title, recommendationOrganization(b), b.department));
         if (aUsed !== bUsed) return aUsed ? 1 : -1;
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       })
       .slice(0, resultLimit);
-  }, [excludeRecommended, initialCategory, jds, query, recommendedTargets, resultLimit]);
+  }, [excludeRecommended, initialCategory, jds, query, recommendedTargets, resultLimit, selectedJdIds]);
 
   const selectedJds = selectedJdIds
     .map((id) => jds.find((jd) => jd.id === id))
