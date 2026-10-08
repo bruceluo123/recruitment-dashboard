@@ -32,7 +32,7 @@ function environment() {
     db.set(queueKey(owner), '[]'); db.set(processingKey(owner), '[]'); db.set(dirtyKey(owner), '[]');
     db.set('recruit:tg-delivery-worker-heartbeat' + suffix(owner), JSON.stringify({ at: new Date().toISOString() }));
   }
-  const state = { db, disk: new Map(), files: new Map(), ledger: new Map(), attempts: [], reads: [], transactions: [], http: [] };
+  const state = { db, disk: new Map(), files: new Map(), ledger: new Map(), attempts: [], reads: [], transactions: [], http: [], sourceLookups: [] };
   state.transaction = async payload => {
     state.transactions.push(clone(payload));
     if (!(payload.expected || []).every(item => db.has(item.key) === item.exists
@@ -58,8 +58,11 @@ function environment() {
       if (command === 'GET') return state.read(keys)[0];
       throw new Error('Unexpected KV command: ' + command);
     },
-    kvFindRepushRecords: async args => JSON.parse(db.get('recruit:repush')).filter(row => row.column === args.column
-      && ((args.sourceIds || []).includes(row.id) || (args.resumeUrls || []).includes(row.resumeUrl))),
+    kvFindRepushRecords: async args => {
+      state.sourceLookups.push(args);
+      return JSON.parse(db.get('recruit:repush')).filter(row => row.column === args.column
+        && ((args.sourceIds || []).includes(row.id) || (args.resumeUrls || []).includes(row.resumeUrl)));
+    },
     kvTransaction: state.transaction,
   };
   state.rpcFetch = async (url, options) => {
@@ -183,6 +186,7 @@ async function main() {
   assert.ok(initial.flat().every(row => row.ok && row.status === 'queued' && row.records.length === 1));
   assert.equal(state.http.filter(row => row.method === 'POST').length, 2);
   assert.equal(state.http.filter(row => row.method === 'GET').length, 2);
+  assert.equal(state.sourceLookups.length, 0);
   assert.equal(state.readRows().filter(row => row.deliveryId).length, 0);
   console.log('PASS both authenticated accounts: intake and repush batches retain complete receipts after lost POST acknowledgements');
 

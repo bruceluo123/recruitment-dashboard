@@ -179,7 +179,7 @@ export async function submitDeliveryTasks(
       const response = await fetch('/api/tg/send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sender: tasks[0].sender, batch: pending }),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(55_000),
       });
       const data = await response.json();
       if (response.ok && data.ok && Array.isArray(data.results)) {

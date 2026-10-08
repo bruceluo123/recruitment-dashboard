@@ -415,15 +415,29 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
     const heartbeat = parseHeartbeat(raw[1]);
     const newRepush = jobs.filter((job, index) => !raw[index + 2]
       && job.deliveries?.some(item => item.application?.source === 'repush'));
-    let sources: RepushSourceRecord[] = [];
+    const sourceSnapshots = newRepush.flatMap((job) => {
+      const snapshot = job.sourceSnapshot;
+      const sourceIds = (job.deliveries || []).map(item => cleanText(item.application?.repushSourceId, 240));
+      return snapshot && sourceIds.includes(snapshot.id) && snapshot.column === sender
+        && cleanText(snapshot.candidateName, 200) && cleanText(snapshot.fileName, 180)
+        && Number.isFinite(Date.parse(String(snapshot.uploadedAt || '')))
+        && JSON.stringify(snapshot).length <= 50_000
+        && !Object.keys(snapshot).some(key => ['__proto__', 'constructor', 'prototype'].includes(key))
+        ? [snapshot] : [];
+    });
+    const needsSourceLookup = newRepush.filter(job => (job.deliveries || []).some(item => (
+      item.application?.source === 'repush'
+      && !sourceSnapshots.some(snapshot => snapshot.id === cleanText(item.application?.repushSourceId, 240))
+    )));
+    let sources: RepushSourceRecord[] = sourceSnapshots;
     let sourceReadError = false;
-    if (newRepush.length) {
+    if (needsSourceLookup.length) {
       try {
-        sources = await kvFindRepushRecords({
-          sourceIds: newRepush.flatMap(job => (job.deliveries || []).map(item => cleanText(item.application?.repushSourceId, 240))),
+        sources = [...sources, ...await kvFindRepushRecords({
+          sourceIds: needsSourceLookup.flatMap(job => (job.deliveries || []).map(item => cleanText(item.application?.repushSourceId, 240))),
           candidateCodes: [], candidateIdentityIds: [],
-          resumeUrls: newRepush.map(job => cleanText(job.fileUrl, 1000)), column: sender,
-        }) as RepushSourceRecord[];
+          resumeUrls: needsSourceLookup.map(job => cleanText(job.fileUrl, 1000)), column: sender,
+        }) as RepushSourceRecord[]];
       } catch { sourceReadError = true; }
     }
     const online = Boolean(heartbeat?.at && Date.now() - Date.parse(heartbeat.at) <= 45_000);
@@ -488,7 +502,8 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
         const deliveries = body.deliveries!;
         const sourceIds = deliveries.filter(row => row.application?.source === 'repush')
           .map(row => cleanText(row.application?.repushSourceId, 240));
-        if (sourceIds.length && sourceReadError) throw new Error('原推荐暂时无法核对，请重试；没有重复入队');
+        if (sourceIds.some(sourceId => !sourceSnapshots.some(snapshot => snapshot.id === sourceId))
+          && sourceReadError) throw new Error('原推荐暂时无法核对，请重试；没有重复入队');
         if (sourceIds.some(sourceId => tombstones?.repush?.[sourceId])) {
           throw new Error('原推荐已被删除，已停止发送，请核对推荐记录');
         }
