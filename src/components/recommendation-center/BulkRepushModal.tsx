@@ -5,13 +5,6 @@ import { CalendarCheck, Check, CircleX, Clock3, FileText, Loader2, Repeat2, Sear
 import { cn } from '@/lib/utils';
 import { recentlyAddedJds } from '@/lib/jd-recent';
 import { recommendationOrganization } from '@/lib/recommendation-copy';
-import {
-  sameJobCoreRules,
-  prescreenSameJobCandidates,
-  meetsCoreRules,
-  type SameJobCandidateInput,
-  type CorePrescreenResult,
-} from '@/lib/same-job-match';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import type { JD } from '@/types/jd';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
@@ -87,6 +80,29 @@ function sendStatusMeta(status: CandidateSendStatus) {
   return { label: '待发送', className: 'bg-slate-100 text-slate-500' };
 }
 
+function searchWords(query: string): string[] {
+  return query.toLowerCase().split(/[\s+＋]+/).map((word) => word.trim()).filter(Boolean);
+}
+
+function wordPosition(text: string, word: string): number {
+  if (word === 'go' || word === 'golang') {
+    const match = /(^|[^a-z0-9])(?:golang|go)(?=$|[^a-z0-9])/i.exec(text);
+    return match ? match.index + match[1].length : -1;
+  }
+  return text.toLowerCase().indexOf(word);
+}
+
+function resumeExcerpt(text: string, words: string[]): string[] {
+  const excerpts: string[] = [];
+  for (const word of words) {
+    const position = wordPosition(text, word);
+    if (position < 0) continue;
+    const excerpt = text.slice(Math.max(0, position - 45), position + 90).replace(/\s+/g, ' ').trim();
+    if (!excerpts.some((existing) => existing === excerpt)) excerpts.push(excerpt);
+  }
+  return excerpts.slice(0, 3);
+}
+
 export function BulkRepushModal({
   owner,
   candidateOptions,
@@ -107,19 +123,11 @@ export function BulkRepushModal({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [sentRequests, setSentRequests] = useState<Array<{ task: DeliveryClientTask; result: DeliveryClientResult; candidate: BulkRepushCandidate }>>([]);
-  const [matchError, setMatchError] = useState('');
-  const [coreSelection, setCoreSelection] = useState<{ rules: ReturnType<typeof sameJobCoreRules> | null; ids: string[] }>({ rules: null, ids: [] });
-  const [coreMode, setCoreMode] = useState<'all' | 'any'>('all');
-  const [candidateView, setCandidateView] = useState<'matched' | 'all' | 'selected'>('matched');
   const [resumeTextByTalentId, setResumeTextByTalentId] = useState<Record<string, string>>({});
   const [loadingResumes, setLoadingResumes] = useState(false);
   const [resumeLoadError, setResumeLoadError] = useState('');
   const [resumeLoadVersion, setResumeLoadVersion] = useState(0);
-  const [rankState, setRankState] = useState<{
-    rules: ReturnType<typeof sameJobCoreRules> | null;
-    inputs: SameJobCandidateInput[] | null;
-    results: Map<string, CorePrescreenResult>;
-  }>({ rules: null, inputs: null, results: new Map() });
+  const [resumeProgress, setResumeProgress] = useState({ done: 0, total: 0 });
   const [visibleCandidateCount, setVisibleCandidateCount] = useState(50);
   const submitLock = useRef(false);
   useEscapeClose(onClose, !sending);
@@ -139,9 +147,6 @@ export function BulkRepushModal({
   useEffect(() => {
     setSendStates({});
     setError('');
-    setMatchError('');
-    setCoreMode('all');
-    setCandidateView('matched');
   }, [selectedJdId]);
 
   const matchingJds = useMemo(() => {
@@ -156,41 +161,59 @@ export function BulkRepushModal({
   const newJdIds = useMemo(() => new Set(recentlyAddedJds(jds).map((jd) => jd.id)), [jds]);
 
   const selectedJd = jds.find((jd) => jd.id === selectedJdId && jd.status !== 'paused') || null;
-  const coreRules = useMemo(() => selectedJd
-    ? sameJobCoreRules(selectedJd)
-    : [], [selectedJd]);
-  const selectedCoreIds = useMemo(() => coreSelection.rules === coreRules
-    ? coreSelection.ids : coreRules.filter((rule) => rule.defaultSelected).map((rule) => rule.id), [coreSelection, coreRules]);
-  const attributeRules = coreRules.filter((rule) => rule.kind === 'attribute');
-  const adjustableRules = coreRules.filter((rule) => rule.kind !== 'attribute');
-  const selectedElementIds = selectedCoreIds.filter((id) => !id.startsWith('attribute:'));
 
-  // Read all available resumes in bounded batches; no model request is needed.
+  // Historical recommendation records are the search pool. Extract each missing attachment once.
   useEffect(() => {
     const controller = new AbortController();
-    const ids = Array.from(new Set(availableCandidates.filter((candidate) => candidate.talentId && candidate.hasResumeText)
-      .map((candidate) => candidate.talentId!)));
+    const resumeId = (candidate: BulkRepushCandidate) => candidate.talentId || `recommendation:${candidate.key}`;
+    const byId = new Map(availableCandidates.map((candidate) => [resumeId(candidate), candidate]));
+    const ids = Array.from(byId.keys());
     const load = async () => {
       setLoadingResumes(ids.length > 0);
       setResumeLoadError('');
-      let incomplete = false;
+      setResumeProgress({ done: 0, total: 0 });
       try {
-        for (let index = 0; index < ids.length; index += 50) {
+        const batches = Array.from({ length: Math.ceil(ids.length / 100) }, (_, index) => ids.slice(index * 100, index * 100 + 100));
+        const stored = await Promise.all(batches.map(async (batch) => {
           const response = await fetch('/api/talent/text', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: ids.slice(index, index + 50) }), cache: 'no-store',
-            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
+            body: JSON.stringify({ ids: batch }), cache: 'no-store', signal: controller.signal,
           });
           const data = await response.json() as { items?: Array<{ id: string; text: string }> };
           if (!response.ok || !Array.isArray(data.items)) throw new Error('读取简历失败');
-          controller.signal.throwIfAborted();
-          const loaded = Object.fromEntries(data.items.filter((item) => item.id && item.text).map((item) => [item.id, item.text]));
-          if (Object.keys(loaded).length < ids.slice(index, index + 50).length) incomplete = true;
-          setResumeTextByTalentId((current) => ({ ...current, ...loaded }));
-        }
-        if (incomplete) setResumeLoadError('部分人选暂无简历正文，已用历史资料预筛，命中需核实。');
+          return data.items;
+        }));
+        if (controller.signal.aborted) return;
+        const loaded = Object.fromEntries(stored.flat().filter((item) => item.id && item.text).map((item) => [item.id, item.text]));
+        setResumeTextByTalentId(loaded);
+        const missing = ids.filter((id) => !loaded[id] && byId.get(id)?.item.resumeUrl);
+        setResumeProgress({ done: 0, total: missing.length });
+        let cursor = 0;
+        let failed = ids.length - Object.keys(loaded).length - missing.length;
+        await Promise.all(Array.from({ length: Math.min(3, missing.length) }, async () => {
+          while (cursor < missing.length && !controller.signal.aborted) {
+            const id = missing[cursor++];
+            const source = byId.get(id)!.item;
+            try {
+              const scan = await fetch('/api/talent/scan', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+                body: JSON.stringify({ id, url: source.resumeUrl, fileName: source.resumeFileName || source.fileName }),
+              });
+              if (!scan.ok) throw new Error('提取失败');
+              const response = await fetch(`/api/talent/text?id=${encodeURIComponent(id)}`, { signal: controller.signal });
+              const data = await response.json() as { text?: string };
+              if (!response.ok || !data.text) throw new Error('正文读取失败');
+              if (!controller.signal.aborted) setResumeTextByTalentId((current) => ({ ...current, [id]: data.text! }));
+            } catch {
+              if (!controller.signal.aborted) failed++;
+            } finally {
+              if (!controller.signal.aborted) setResumeProgress((current) => ({ ...current, done: current.done + 1 }));
+            }
+          }
+        }));
+        if (failed && !controller.signal.aborted) setResumeLoadError(`${failed} 位人选暂无可搜索的简历正文，可重新读取。`);
       } catch {
-        if (!controller.signal.aborted) setResumeLoadError('部分简历暂未读取，正在使用已有资料，筛选结果可能不完整。');
+        if (!controller.signal.aborted) setResumeLoadError('简历正文读取失败，请重新读取。');
       } finally {
         if (!controller.signal.aborted) setLoadingResumes(false);
       }
@@ -199,68 +222,18 @@ export function BulkRepushModal({
     return () => controller.abort();
   }, [availableCandidates, resumeLoadVersion]);
 
-  const candidateInputs = useMemo<SameJobCandidateInput[]>(() => availableCandidates.map((candidate) => ({
-    key: candidate.key,
-    currentJob: candidate.item.jdTitle || '',
-    resumeText: (candidate.talentId && resumeTextByTalentId[candidate.talentId]) || candidate.item.rawText || '',
-    resumeSource: candidate.talentId && resumeTextByTalentId[candidate.talentId] ? 'full_resume' : 'recommendation_copy',
-    highlights: candidate.item.highlights || '',
-    uploadedAt: candidate.item.uploadedAt,
-    categories: jds.find((jd) => jd.id === candidate.item.jdId)?.categories
-      || jds.find((jd) => jd.title.trim().toLowerCase() === String(candidate.item.jdTitle || '').trim().toLowerCase())?.categories,
-  })), [availableCandidates, jds, resumeTextByTalentId]);
-
-  useEffect(() => {
-    if (!selectedJd) return;
-    const controller = new AbortController();
-    setMatchError('');
-    void prescreenSameJobCandidates(coreRules, candidateInputs, controller.signal, selectedJd)
-      .then((results) => {
-        if (!controller.signal.aborted) setRankState({
-          rules: coreRules, inputs: candidateInputs,
-          results: new Map(results.map((result) => [result.candidateKey, result])),
-        });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setRankState({ rules: coreRules, inputs: candidateInputs, results: new Map() });
-          setMatchError('标签预筛暂未完成，请重选岗位后再试。');
-        }
-      });
-    return () => controller.abort();
-  }, [candidateInputs, selectedJd, coreRules]);
-  const ranking = Boolean(selectedJd && (rankState.rules !== coreRules || rankState.inputs !== candidateInputs));
-  const localResults = useMemo(() => rankState.rules === coreRules ? rankState.results : new Map<string, CorePrescreenResult>(), [rankState, coreRules]);
-  useEffect(() => { setVisibleCandidateCount(50); }, [selectedJdId, candidateQuery, selectedCoreIds, coreMode, candidateView]);
+  useEffect(() => { setVisibleCandidateCount(50); }, [candidateQuery]);
 
   const filteredCandidates = useMemo(() => {
-    const keyword = candidateQuery.trim().toLowerCase();
-    return availableCandidates.filter((candidate) => !keyword || [
-      candidate.candidateName,
-      candidate.candidateCode,
-      candidate.item.jdTitle,
-      candidate.item.organization,
-      candidate.item.department,
-      candidate.item.highlights,
-      candidate.item.rawText,
-      candidate.talentId ? resumeTextByTalentId[candidate.talentId] : '',
-    ].some((value) => String(value || '').toLowerCase().includes(keyword)));
+    const words = searchWords(candidateQuery);
+    return availableCandidates.filter((candidate) => {
+      if (!words.length) return true;
+      const resumeText = resumeTextByTalentId[candidate.talentId || `recommendation:${candidate.key}`] || '';
+      if (words.every((word) => wordPosition(resumeText, word) >= 0)) return true;
+      return words.length === 1 && [candidate.candidateName, candidate.candidateCode, candidate.item.jdTitle]
+        .some((value) => wordPosition(String(value || ''), words[0]) >= 0);
+    }).sort((a, b) => new Date(b.item.uploadedAt).getTime() - new Date(a.item.uploadedAt).getTime());
   }, [availableCandidates, candidateQuery, resumeTextByTalentId]);
-
-  const matchingCandidates = useMemo(() => filteredCandidates
-    .filter((candidate) => candidateView === 'selected' ? selectedCandidateKeys.includes(candidate.key)
-      : candidateView === 'all' || meetsCoreRules(localResults.get(candidate.key), selectedCoreIds, coreMode))
-    .slice()
-    .sort((a, b) => {
-    const aHits = localResults.get(a.key)?.hits.filter((hit) => selectedCoreIds.includes(hit.ruleId)) || [];
-    const bHits = localResults.get(b.key)?.hits.filter((hit) => selectedCoreIds.includes(hit.ruleId)) || [];
-    const policyDifference = (localResults.get(b.key)?.policyScoreAdjustment || 0)
-      - (localResults.get(a.key)?.policyScoreAdjustment || 0);
-    return policyDifference
-      || bHits.length - aHits.length
-      || bHits.filter((hit) => hit.confirmed).length - aHits.filter((hit) => hit.confirmed).length
-      || new Date(b.item.uploadedAt).getTime() - new Date(a.item.uploadedAt).getTime();
-  }), [candidateView, selectedCandidateKeys, filteredCandidates, localResults, selectedCoreIds, coreMode]);
 
   const candidates = useMemo(() => availableCandidates.filter((candidate) => selectedCandidateKeys.includes(candidate.key)), [availableCandidates, selectedCandidateKeys]);
 
@@ -275,12 +248,6 @@ export function BulkRepushModal({
   const sentCount = sendableCandidates.length - remainingCandidates.length;
   const failedCount = remainingCandidates.filter((candidate) => sendStates[candidate.key]?.status === 'failed').length;
   const targetLocked = Object.values(sendStates).some((state) => state.status !== 'idle');
-  const coreMatchCount = filteredCandidates.filter((candidate) => meetsCoreRules(localResults.get(candidate.key), selectedCoreIds, coreMode)).length;
-  const changeCoreSelection = (ids: string[]) => {
-    const requiredAttributes = attributeRules.map((rule) => rule.id);
-    setCoreSelection({ rules: coreRules, ids: Array.from(new Set([...requiredAttributes, ...ids.filter((id) => !id.startsWith('attribute:'))])) });
-    setCandidateView('matched');
-  };
 
   const toggleCandidate = (key: string) => {
     if (sending || submitLock.current) return;
@@ -388,7 +355,7 @@ export function BulkRepushModal({
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><Repeat2 className="h-5 w-5" /></span>
               同岗复推
             </h2>
-            <p className="mt-1 pl-11 text-xs text-slate-400">先选岗位，按核心标签快速预筛，大方向符合即可手动勾选复推</p>
+            <p className="mt-1 pl-11 text-xs text-slate-400">搜索历史推荐人选的简历正文，选中人选和目标岗位后复推</p>
           </div>
           <button type="button" onClick={onClose} disabled={sending} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed" aria-label="关闭">
             <X className="h-5 w-5" />
@@ -403,42 +370,27 @@ export function BulkRepushModal({
                 <p className="mt-1 text-xs text-slate-400">已选 {candidates.length}/10 · {sentCount}/{sendableCandidates.length} 已入队</p>
               </div>
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-2 text-xs text-indigo-600">
-                {(ranking || loadingResumes) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {ranking ? '更新标签中' : loadingResumes ? '补充简历标签中' : '核心标签预筛'}
+                {loadingResumes && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {loadingResumes ? resumeProgress.total ? `补全简历 ${resumeProgress.done}/${resumeProgress.total}` : '读取简历正文中' : `历史人选 ${availableCandidates.length} 位`}
               </span>
             </div>
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={candidateQuery} onChange={(event) => setCandidateQuery(event.target.value)} disabled={sending} placeholder="搜索姓名、原岗位、直播、视频、泛娱乐等经历" autoComplete="off" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50" />
+              <input value={candidateQuery} onChange={(event) => setCandidateQuery(event.target.value)} disabled={sending} placeholder="搜简历关键词，如 go php、渠道 运营；也可搜姓名或编号" autoComplete="off" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50" />
             </div>
-            {!selectedJd && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-700">请先在右侧选择目标岗位，系统会按该岗位的职责、要求和业务场景筛选。</p>}
-            {selectedJd && <p className="mb-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-700">
-              岗位属性必须符合{selectedElementIds.length ? `，再${coreMode === 'all' ? '满足全部' : '满足任一'}核心元素` : ''}：已找到 ${coreMatchCount} / ${filteredCandidates.length} 位，可手动勾选复推。
-              {' 关键经历与组织偏好仅作风险提示和排序，不影响核心标签命中。'}
-              {loadingResumes && ' 正在补充简历正文，人数会更新。'}
-            </p>}
+            <p className="mb-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-700">
+              {searchWords(candidateQuery).length > 1 ? '所有关键词都在同一份简历正文出现才会命中。' : '按简历正文搜索，单个词也支持姓名、编号和原岗位。'}
+              已找到 {filteredCandidates.length} 位，按最近推荐时间排序。{loadingResumes && ' 简历补全中，结果会持续更新。'}
+            </p>
             {resumeLoadError && <p className="mb-3 text-xs leading-5 text-amber-600">{resumeLoadError} <button type="button" disabled={loadingResumes || sending} onClick={() => setResumeLoadVersion((value) => value + 1)} className="underline">重新读取</button></p>}
-            {matchError && <p role="alert" className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">{matchError}</p>}
-            {selectedJd && (
-              <div className="mb-3 flex rounded-lg bg-slate-100 p-1" aria-label="核心标签筛选结果">
-                {([['matched', '核心符合'], ['all', '全部人选'], ['selected', `已勾选 ${candidates.length}`]] as const).map(([value, label]) => (
-                  <button key={value} type="button" onClick={() => setCandidateView(value)} className={cn(
-                    'h-8 flex-1 rounded-md px-2 text-xs font-medium transition-colors',
-                    candidateView === value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700',
-                  )}>{label}</button>
-                ))}
-              </div>
-            )}
             <div className="space-y-2">
-              {matchingCandidates.slice(0, visibleCandidateCount).map((candidate) => {
+              {filteredCandidates.slice(0, visibleCandidateCount).map((candidate) => {
                 const selected = selectedCandidateKeys.includes(candidate.key);
                 const duplicate = duplicateKeys.has(candidate.key);
                 const state = sendStates[candidate.key] || { status: 'idle' as const };
                 const meta = sendStatusMeta(state.status);
-                const coreHits = localResults.get(candidate.key)?.hits.filter((hit) => selectedCoreIds.includes(hit.ruleId)) || [];
-                const policyNotes = localResults.get(candidate.key)?.policyNotes || [];
-                const attributeHit = coreHits.some((hit) => hit.ruleId.startsWith('attribute:'));
-                const elementHits = coreHits.filter((hit) => !hit.ruleId.startsWith('attribute:'));
+                const resumeText = resumeTextByTalentId[candidate.talentId || `recommendation:${candidate.key}`] || '';
+                const excerpts = resumeExcerpt(resumeText, searchWords(candidateQuery));
                 return (
                   <button type="button" key={candidate.key} disabled={sending} onClick={() => toggleCandidate(candidate.key)} className={cn(
                     'w-full rounded-lg border px-3 py-3 text-left transition-colors',
@@ -470,8 +422,7 @@ export function BulkRepushModal({
                         </span>
                       </div>
                       <span className="flex shrink-0 flex-col items-end gap-1.5">
-                        {attributeHit && <span className="rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700">属性符合</span>}
-                        {selectedElementIds.length > 0 && <span className="rounded-md bg-violet-50 px-2 py-1 text-xs text-violet-600">核心 {elementHits.length}/{selectedElementIds.length}</span>}
+                        {!resumeText && <span className="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">正文待补</span>}
                         {selected && (
                           <span className={cn('rounded-md px-2 py-1 text-xs font-medium', duplicate ? 'bg-slate-200 text-slate-500' : meta.className)}>
                             {duplicate ? '已投过该岗位' : meta.label}
@@ -479,22 +430,15 @@ export function BulkRepushModal({
                         )}
                       </span>
                     </div>
-                    {coreHits.length > 0 && <div className="mt-2 flex flex-wrap gap-1 pl-7">
-                      {coreHits.map((hit) => <span key={hit.ruleId} title={`${hit.confirmed ? '简历原文' : '历史资料，待核实'}：${hit.evidence}`} className={cn(
-                        'rounded px-1.5 py-0.5 text-[11px]', hit.confirmed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700',
-                      )}>{hit.label}{hit.ruleId.startsWith('attribute:') ? ' · 必须符合' : hit.confirmed ? ' · 简历命中' : ' · 资料命中待核实'}</span>)}
-                    </div>}
-                    {policyNotes.length > 0 && <div className="mt-2 space-y-1 pl-7">
-                      {policyNotes.map((note) => <p key={note} className={cn(
-                        'text-[11px]', note.startsWith('组织偏好') ? 'text-emerald-600' : 'text-rose-600',
-                      )}>{note}</p>)}
+                    {excerpts.length > 0 && <div className="mt-2 space-y-1 pl-7 text-[11px] leading-4 text-slate-500">
+                      {excerpts.map((excerpt) => <p key={excerpt} className="line-clamp-2">…{excerpt}…</p>)}
                     </div>}
                     {state.error && <p className="mt-2 text-xs text-rose-600">{state.error}</p>}
                   </button>
                 );
               })}
-              {matchingCandidates.length > visibleCandidateCount && <button type="button" onClick={() => setVisibleCandidateCount((count) => count + 50)} className="w-full py-3 text-xs text-indigo-600 hover:text-indigo-700">加载更多（已显示 {visibleCandidateCount}/{matchingCandidates.length}）</button>}
-              {matchingCandidates.length === 0 && <p className="py-10 text-center text-sm text-slate-400">{ranking || loadingResumes ? '正在补充标签，请稍候…' : '暂未找到符合当前条件的人选，可调整核心标签或查看全部人选。'}</p>}
+              {filteredCandidates.length > visibleCandidateCount && <button type="button" onClick={() => setVisibleCandidateCount((count) => count + 50)} className="w-full py-3 text-xs text-indigo-600 hover:text-indigo-700">加载更多（已显示 {visibleCandidateCount}/{filteredCandidates.length}）</button>}
+              {filteredCandidates.length === 0 && <p className="py-10 text-center text-sm text-slate-400">{loadingResumes ? '正在读取简历正文，请稍候…' : '暂无同时包含这些关键词的简历，请调整搜索词。'}</p>}
             </div>
           </section>
 
@@ -502,7 +446,7 @@ export function BulkRepushModal({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800"><FileText className="h-4 w-4 text-violet-500" />选择同一个目标岗位</h3>
-                <p className="mt-1 text-xs text-slate-400">从 JD 提取核心方向，点击标签即可调整预筛条件</p>
+                <p className="mt-1 text-xs text-slate-400">找到合适的人选后选择复推的目标岗位</p>
               </div>
               {selectedJd && <span className="rounded-md bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700">已选择 1 个岗位</span>}
             </div>
@@ -510,29 +454,6 @@ export function BulkRepushModal({
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input value={jobQuery} onChange={(event) => setJobQuery(event.target.value)} disabled={sending || targetLocked} placeholder="搜索岗位、编制或部门" autoComplete="off" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:bg-slate-50" />
             </div>
-            {selectedJd && (
-              <div className="mb-3 rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-violet-700">岗位属性优先，再看核心元素</p>
-                  <select aria-label="核心标签满足方式" value={coreMode} disabled={sending || targetLocked} onChange={(event) => { setCoreMode(event.target.value as 'all' | 'any'); setCandidateView('matched'); }} className="rounded border border-violet-200 bg-white px-2 py-1 text-xs text-violet-700">
-                    <option value="all">全部满足</option><option value="any">满足任一</option>
-                  </select>
-                </div>
-                <p className="mb-2 text-[11px] text-slate-500">岗位属性必须符合；系统再建议最关键的两三个核心元素。</p>
-                <div className="flex flex-wrap gap-1">
-                  {attributeRules.map((rule) => <span key={rule.id} className="rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white">{rule.label} ✓ 必选</span>)}
-                  {adjustableRules.filter((rule) => selectedCoreIds.includes(rule.id)).map((rule) => <button type="button" key={rule.id} aria-pressed={true} disabled={sending || targetLocked} onClick={() => changeCoreSelection(selectedCoreIds.filter((id) => id !== rule.id))} className="rounded bg-violet-600 px-2 py-1 text-xs text-white">{rule.label} ✓</button>)}
-                  {!selectedElementIds.length && <span className="text-xs text-slate-500">暂未选择核心元素</span>}
-                </div>
-                <details className="mt-2 text-xs text-violet-700">
-                  <summary className="cursor-pointer">调整核心元素（{adjustableRules.length} 个可选）</summary>
-                  <div className="mt-2 flex max-h-32 flex-wrap gap-1 overflow-y-auto">
-                    {adjustableRules.map((rule) => <button type="button" key={rule.id} aria-pressed={selectedCoreIds.includes(rule.id)} disabled={sending || targetLocked} onClick={() => changeCoreSelection(selectedCoreIds.includes(rule.id) ? selectedCoreIds.filter((id) => id !== rule.id) : [...selectedCoreIds, rule.id])} className={cn('rounded border px-2 py-1', selectedCoreIds.includes(rule.id) ? 'border-violet-600 bg-violet-600 text-white' : 'border-violet-200 bg-white text-violet-700')}>{rule.label}</button>)}
-                  </div>
-                  <button type="button" disabled={sending || targetLocked} onClick={() => changeCoreSelection(coreRules.filter((rule) => rule.defaultSelected).map((rule) => rule.id))} className="mt-2 underline">恢复建议标签</button>
-                </details>
-              </div>
-            )}
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {matchingJds.map((jd) => {
                 const selected = selectedJdId === jd.id;
