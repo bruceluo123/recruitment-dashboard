@@ -175,18 +175,23 @@ export function BulkRepushModal({
       setResumeLoadError('');
       setResumeProgress({ done: 0, total: 0 });
       try {
-        const batches = Array.from({ length: Math.ceil(ids.length / 100) }, (_, index) => ids.slice(index * 100, index * 100 + 100));
-        const stored = await Promise.all(batches.map(async (batch) => {
-          const response = await fetch('/api/talent/text', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: batch }), cache: 'no-store', signal: controller.signal,
-          });
-          const data = await response.json() as { items?: Array<{ id: string; text: string }> };
-          if (!response.ok || !Array.isArray(data.items)) throw new Error('读取简历失败');
-          return data.items;
-        }));
+        const batches = Array.from({ length: Math.ceil(ids.length / 25) }, (_, index) => ids.slice(index * 25, index * 25 + 25));
+        const stored: Array<{ id: string; text: string }> = [];
+        for (const batch of batches) {
+          let items: Array<{ id: string; text: string }> | undefined;
+          for (let attempt = 0; attempt < 2 && !items; attempt++) {
+            const response = await fetch('/api/talent/text', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: batch }), cache: 'no-store', signal: controller.signal,
+            });
+            const data = await response.json().catch(() => ({})) as { items?: Array<{ id: string; text: string }> };
+            if (response.ok && Array.isArray(data.items)) items = data.items;
+          }
+          if (!items) throw new Error('读取简历失败');
+          stored.push(...items);
+        }
         if (controller.signal.aborted) return;
-        const loaded = Object.fromEntries(stored.flat().filter((item) => item.id && item.text).map((item) => [item.id, item.text]));
+        const loaded = Object.fromEntries(stored.filter((item) => item.id && item.text).map((item) => [item.id, item.text]));
         setResumeTextByTalentId(loaded);
         setResumeTextsLoaded(true);
         const missing = ids.filter((id) => !loaded[id] && byId.get(id)?.item.resumeUrl);
