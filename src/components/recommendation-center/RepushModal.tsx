@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, FileText, Loader2, Repeat, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { recentlyAddedJds } from '@/lib/jd-recent';
 import { hasCategory, type JD, type JDCategory } from '@/types/jd';
 import type { RecommendationDeliveryStatus, RepushItem } from '@/store/repush-store';
 import { displayName } from '@/lib/repush-format';
@@ -220,6 +221,7 @@ export function RepushModal({
       })
       .slice(0, resultLimit);
   }, [excludeRecommended, initialCategory, jds, query, recommendedTargets, resultLimit, selectedJdIds]);
+  const newJdIds = useMemo(() => new Set(recentlyAddedJds(jds).map((jd) => jd.id)), [jds]);
 
   const selectedJds = selectedJdIds
     .map((id) => jds.find((jd) => jd.id === id))
@@ -410,6 +412,7 @@ export function RepushModal({
                     <span className="flex items-start justify-between gap-2">
                       <span className="line-clamp-2 text-sm font-medium text-slate-800">{jd.title}</span>
                       <span className="flex shrink-0 items-center gap-1.5">
+                        {newJdIds.has(jd.id) && <span className="rounded bg-red-500 px-1 py-0.5 text-[10px] font-bold leading-none text-white">新</span>}
                         {alreadyRecommended && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">已推荐</span>}
                         <span className={cn(
                           'flex h-5 w-5 items-center justify-center rounded-md border transition-colors',
