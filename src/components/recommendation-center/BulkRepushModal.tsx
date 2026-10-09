@@ -125,8 +125,10 @@ export function BulkRepushModal({
   const [sentRequests, setSentRequests] = useState<Array<{ task: DeliveryClientTask; result: DeliveryClientResult; candidate: BulkRepushCandidate }>>([]);
   const [resumeTextByTalentId, setResumeTextByTalentId] = useState<Record<string, string>>({});
   const [loadingResumes, setLoadingResumes] = useState(false);
+  const [resumeTextsLoaded, setResumeTextsLoaded] = useState(false);
   const [resumeLoadError, setResumeLoadError] = useState('');
   const [resumeLoadVersion, setResumeLoadVersion] = useState(0);
+  const [resumeLoadAction, setResumeLoadAction] = useState<'read' | 'scan'>('read');
   const [resumeProgress, setResumeProgress] = useState({ done: 0, total: 0 });
   const [visibleCandidateCount, setVisibleCandidateCount] = useState(50);
   const submitLock = useRef(false);
@@ -162,7 +164,7 @@ export function BulkRepushModal({
 
   const selectedJd = jds.find((jd) => jd.id === selectedJdId && jd.status !== 'paused') || null;
 
-  // Historical recommendation records are the search pool. Extract each missing attachment once.
+  // Read saved resume text on entry; scan missing attachments only when explicitly requested.
   useEffect(() => {
     const controller = new AbortController();
     const resumeId = (candidate: BulkRepushCandidate) => candidate.talentId || `recommendation:${candidate.key}`;
@@ -186,10 +188,13 @@ export function BulkRepushModal({
         if (controller.signal.aborted) return;
         const loaded = Object.fromEntries(stored.flat().filter((item) => item.id && item.text).map((item) => [item.id, item.text]));
         setResumeTextByTalentId(loaded);
+        setResumeTextsLoaded(true);
         const missing = ids.filter((id) => !loaded[id] && byId.get(id)?.item.resumeUrl);
+        if (resumeLoadAction === 'read') return;
         setResumeProgress({ done: 0, total: missing.length });
         let cursor = 0;
         let failed = ids.length - Object.keys(loaded).length - missing.length;
+        const failureReasons = new Set<string>();
         await Promise.all(Array.from({ length: Math.min(3, missing.length) }, async () => {
           while (cursor < missing.length && !controller.signal.aborted) {
             const id = missing[cursor++];
@@ -199,28 +204,41 @@ export function BulkRepushModal({
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
                 body: JSON.stringify({ id, url: source.resumeUrl, fileName: source.resumeFileName || source.fileName }),
               });
-              if (!scan.ok) throw new Error('提取失败');
+              if (!scan.ok) {
+                const result = await scan.json().catch(() => ({})) as { error?: string };
+                throw new Error(result.error || '提取失败');
+              }
               const response = await fetch(`/api/talent/text?id=${encodeURIComponent(id)}`, { signal: controller.signal });
               const data = await response.json() as { text?: string };
               if (!response.ok || !data.text) throw new Error('正文读取失败');
               if (!controller.signal.aborted) setResumeTextByTalentId((current) => ({ ...current, [id]: data.text! }));
-            } catch {
-              if (!controller.signal.aborted) failed++;
+            } catch (error) {
+              if (!controller.signal.aborted) {
+                failed++;
+                failureReasons.add(error instanceof Error ? error.message : '提取失败');
+              }
             } finally {
               if (!controller.signal.aborted) setResumeProgress((current) => ({ ...current, done: current.done + 1 }));
             }
           }
         }));
-        if (failed && !controller.signal.aborted) setResumeLoadError(`${failed} 位人选暂无可搜索的简历正文，可重新读取。`);
+        if (failed && !controller.signal.aborted) setResumeLoadError(`${failed} 位人选仍未补全。${Array.from(failureReasons).slice(0, 2).join('；')}`);
       } catch {
-        if (!controller.signal.aborted) setResumeLoadError('简历正文读取失败，请重新读取。');
+        if (!controller.signal.aborted) {
+          setResumeTextsLoaded(false);
+          setResumeLoadError('已保存的简历正文读取失败，暂不能判断哪些需要补全。');
+        }
       } finally {
         if (!controller.signal.aborted) setLoadingResumes(false);
       }
     };
     void load();
     return () => controller.abort();
-  }, [availableCandidates, resumeLoadVersion]);
+  }, [availableCandidates, resumeLoadAction, resumeLoadVersion]);
+
+  const pendingResumeCount = resumeTextsLoaded
+    ? availableCandidates.filter((candidate) => !resumeTextByTalentId[candidate.talentId || `recommendation:${candidate.key}`]).length
+    : 0;
 
   useEffect(() => { setVisibleCandidateCount(50); }, [candidateQuery]);
 
@@ -369,10 +387,17 @@ export function BulkRepushModal({
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800"><Users className="h-4 w-4 text-indigo-500" />选择复推人选</h3>
                 <p className="mt-1 text-xs text-slate-400">已选 {candidates.length}/10 · {sentCount}/{sendableCandidates.length} 已入队</p>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-2 text-xs text-indigo-600">
-                {loadingResumes && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {loadingResumes ? resumeProgress.total ? `补全简历 ${resumeProgress.done}/${resumeProgress.total}` : '读取简历正文中' : `历史人选 ${availableCandidates.length} 位`}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-2 text-xs text-indigo-600">
+                  {loadingResumes && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {loadingResumes ? resumeLoadAction === 'scan' && resumeProgress.total ? `补全简历 ${resumeProgress.done}/${resumeProgress.total}` : '读取简历正文中' : `历史人选 ${availableCandidates.length} 位`}
+                </span>
+                {resumeTextsLoaded && pendingResumeCount > 0 && !loadingResumes && (
+                  <button type="button" disabled={sending} onClick={() => { setResumeLoadAction('scan'); setResumeLoadVersion((value) => value + 1); }} className="rounded-lg border border-indigo-200 bg-white px-2.5 py-2 text-xs text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
+                    统一补全正文（{pendingResumeCount}）
+                  </button>
+                )}
+              </div>
             </div>
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -380,9 +405,9 @@ export function BulkRepushModal({
             </div>
             <p className="mb-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-700">
               {searchWords(candidateQuery).length > 1 ? '所有关键词都在同一份简历正文出现才会命中。' : '按简历正文搜索，单个词也支持姓名、编号和原岗位。'}
-              已找到 {filteredCandidates.length} 位，按最近推荐时间排序。{loadingResumes && ' 简历补全中，结果会持续更新。'}
+              已找到 {filteredCandidates.length} 位，按最近推荐时间排序。{loadingResumes && resumeLoadAction === 'scan' && ' 简历补全中，结果会持续更新。'}补全成功后会长期保存，下次打开只读取。
             </p>
-            {resumeLoadError && <p className="mb-3 text-xs leading-5 text-amber-600">{resumeLoadError} <button type="button" disabled={loadingResumes || sending} onClick={() => setResumeLoadVersion((value) => value + 1)} className="underline">重新读取</button></p>}
+            {resumeLoadError && <p className="mb-3 text-xs leading-5 text-amber-600">{resumeLoadError} {!resumeTextsLoaded && <button type="button" disabled={loadingResumes || sending} onClick={() => { setResumeLoadAction('read'); setResumeLoadVersion((value) => value + 1); }} className="underline">重新读取</button>}</p>}
             <div className="space-y-2">
               {filteredCandidates.slice(0, visibleCandidateCount).map((candidate) => {
                 const selected = selectedCandidateKeys.includes(candidate.key);
@@ -422,7 +447,7 @@ export function BulkRepushModal({
                         </span>
                       </div>
                       <span className="flex shrink-0 flex-col items-end gap-1.5">
-                        {!resumeText && <span className="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">正文待补</span>}
+                        {!resumeText && <span className="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">{resumeTextsLoaded ? '正文待补' : resumeLoadError ? '正文读取失败' : '正文读取中'}</span>}
                         {selected && (
                           <span className={cn('rounded-md px-2 py-1 text-xs font-medium', duplicate ? 'bg-slate-200 text-slate-500' : meta.className)}>
                             {duplicate ? '已投过该岗位' : meta.label}
