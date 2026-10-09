@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarCheck, Check, CircleX, Clock3, FileText, Loader2, Repeat2, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { recentlyAddedJds } from '@/lib/jd-recent';
 import { recommendationOrganization } from '@/lib/recommendation-copy';
 import {
   sameJobCoreRules,
@@ -152,6 +153,7 @@ export function BulkRepushModal({
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 30);
   }, [jds, jobQuery]);
+  const newJdIds = useMemo(() => new Set(recentlyAddedJds(jds).map((jd) => jd.id)), [jds]);
 
   const selectedJd = jds.find((jd) => jd.id === selectedJdId && jd.status !== 'paused') || null;
   const coreRules = useMemo(() => selectedJd
@@ -549,6 +551,7 @@ export function BulkRepushModal({
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-800">
                         <span>{jd.title}</span>
+                        {newJdIds.has(jd.id) && <span className="shrink-0 rounded bg-red-500 px-1 py-0.5 text-[10px] font-bold leading-none text-white">新</span>}
                         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">HC {jd.headcount?.trim() || '未填写'}</span>
                         {jd.status === 'urgent' && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-600">急招</span>}
                       </span>
