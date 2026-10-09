@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarCheck, Check, CircleX, Clock3, FileText, Loader2, Repeat2, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { recentlyAddedJds } from '@/lib/jd-recent';
-import { recommendationOrganization } from '@/lib/recommendation-copy';
+import { missingRepushFields, recommendationOrganization } from '@/lib/recommendation-copy';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import type { JD } from '@/types/jd';
 import type { RepushColumnId, RepushItem } from '@/store/repush-store';
@@ -337,7 +337,30 @@ export function BulkRepushModal({
           || application.department !== String(selectedJd.department || '').trim()
           || application.contactPerson !== String(selectedJd.odc || '').trim();
       })) throw new Error('岗位或对接信息已变化，请重新选择目标岗位后再发送');
-      const tasks = repeatSent ? await renewDeliveryTasks(sentRequests.map(row => row.task)) : await Promise.all(submittedCandidates.map(candidate => createDeliveryTask({
+      let candidatesForSend = submittedCandidates;
+      if (!repeatSent) {
+        const incomplete = submittedCandidates.filter((candidate) => missingRepushFields(buildRepushCopy(candidate.item, selectedJd)).length > 0);
+        if (incomplete.length) {
+          const response = await fetch('/api/repush/sources', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ owner, ids: incomplete.map((candidate) => candidate.item.id) }),
+          });
+          const data = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; items?: Array<{ id: string; rawText: string }> };
+          if (!response.ok || !data.ok) throw new Error(data.error || '原推荐暂时无法读取，已停止发送');
+          const rawById = new Map((data.items || []).map((item) => [item.id, item.rawText]));
+          candidatesForSend = submittedCandidates.map((candidate) => {
+            const rawText = rawById.get(candidate.item.id);
+            return rawText ? { ...candidate, item: { ...candidate.item, rawText } } : candidate;
+          });
+        }
+        const missing = candidatesForSend.flatMap((candidate) => {
+          const fields = missingRepushFields(buildRepushCopy(candidate.item, selectedJd));
+          return fields.length ? [`${candidate.candidateName}：${fields.join('、')}`] : [];
+        });
+        if (missing.length) throw new Error(`原推荐资料缺少 ${missing.join('；')}，已停止发送，请补全后重试`);
+      }
+      const tasks = repeatSent ? await renewDeliveryTasks(sentRequests.map(row => row.task)) : await Promise.all(candidatesForSend.map(candidate => createDeliveryTask({
         ...payloadFor(candidate, selectedJd), sourceSnapshot: candidate.item,
       })));
       const responses = await submitDeliveryTasks(tasks, (response, index) => {

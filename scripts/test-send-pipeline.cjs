@@ -257,7 +257,15 @@ async function main() {
   await Promise.all([worker(state, 'a').run(), worker(state, 'b').run()]);
   assert.equal(state.ledger.size, messages.length);
   assert.equal(state.attempts.length, messages.length);
+  const incomplete = payload(state, 'b', 'missing-details', 'new-job', 'repush');
+  incomplete.deliveries[0].text = '候选人编码：TEST\n工作年限：\n当前薪资：\n期望薪资：\n目前所在地：\n预计可到岗时间：';
+  const incompleteTask = await clients.b.createDeliveryTask(incomplete);
+  const [rejected] = await clients.b.submitDeliveryTasks([incompleteTask]);
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /资料不完整/);
+  assert.equal(state.db.has(taskKey(incompleteTask.requestId)), false);
   console.log('PASS actual projection preserves manual Offer fields, drains dirty queues, and client GET confirms sent without replay');
+  console.log('PASS incomplete repush copy is rejected before queueing or sending');
   console.log(`Integrated pipeline passed: ${tasks.length} candidate/job tasks, ${media.length} unique resume sends, ${messages.length - media.length} complete-text continuations; no external I/O.`);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

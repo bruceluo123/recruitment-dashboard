@@ -35,6 +35,18 @@ export function stripCandidateContactLine(text: string): string {
   return text.split(/\r?\n/).filter(line => !/^\s*(?:候选人)?联系方式\s*[:：]/.test(line)).join('\n');
 }
 
+const REQUIRED_REPUSH_FIELDS = ['工作年限', '当前薪资', '期望薪资', '目前所在地', '预计可到岗时间'];
+
+export function missingRepushFields(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  return REQUIRED_REPUSH_FIELDS.filter((label) => !lines.some((line) => {
+    const prefix = `${label}：`;
+    if (!line.startsWith(prefix)) return false;
+    const value = line.slice(prefix.length).trim();
+    return !!value && !['/', '-', '未填写', '未提供'].includes(value);
+  }));
+}
+
 /** 首次推荐和复推共用的唯一推荐文案模板。 */
 export function buildRecommendationText(
   owner: RepushColumnId,

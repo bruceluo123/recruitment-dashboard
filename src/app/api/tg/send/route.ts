@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { blobUrlError, guardApi } from '@/lib/api-guard';
 import { apiSessionUser, requireApiSession, requireOwnerSession } from '@/lib/auth-api';
 import { kvCommandStrict, kvFindRepushRecords, kvTransaction } from '@/lib/kv-server';
-import { stripCandidateContactLine } from '@/lib/recommendation-copy';
+import { missingRepushFields, stripCandidateContactLine } from '@/lib/recommendation-copy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -319,6 +319,10 @@ function prepareDelivery(body: SendInput, id: string, sender: 'a' | 'b') {
     || !cleanText(item.text, 1000)
   ))) {
     throw new Error('缺少岗位投递信息，未加入发送队列');
+  }
+  if (requestedDeliveries.some((item) => item.application?.source === 'repush'
+    && item.text?.includes('工作年限：') && missingRepushFields(item.text || '').length > 0)) {
+    throw new Error('复推文案的人选资料不完整，已停止发送，请刷新后重试');
   }
   const jdIds = requestedDeliveries.map((item) => cleanText(item.application?.jdId, 240));
   if (new Set(jdIds).size !== jdIds.length) {
