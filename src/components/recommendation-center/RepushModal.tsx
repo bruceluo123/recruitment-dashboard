@@ -8,7 +8,7 @@ import { hasCategory, type JD, type JDCategory } from '@/types/jd';
 import type { RecommendationDeliveryStatus, RepushItem } from '@/store/repush-store';
 import { displayName } from '@/lib/repush-format';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
-import { buildRecommendationText, recommendationOrganization } from '@/lib/recommendation-copy';
+import { buildRecommendationText, missingRepushFields, recommendationOrganization } from '@/lib/recommendation-copy';
 import { isFeedbackEligibleDelivery } from '@/lib/feedback-status';
 import { createDeliveryTask, submitDeliveryTasks, renewDeliveryTasks, deliverySentTime, deliveryClientError, type DeliveryClientTask, type DeliveryClientResult } from '@/lib/tg-delivery-client';
 
@@ -172,8 +172,46 @@ export function RepushModal({
   const [sendError, setSendError] = useState('');
   const [sendProgress, setSendProgress] = useState('');
   const [sentRequests, setSentRequests] = useState<Array<{ task: DeliveryClientTask; result: DeliveryClientResult; recommendation: { jd: JD; text: string } }>>([]);
+  const [sourceDetails, setSourceDetails] = useState<{ id: string; rawText: string } | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceError, setSourceError] = useState('');
+  const [sourceReadAttempt, setSourceReadAttempt] = useState(0);
   const submitLock = useRef(false);
   useEscapeClose(onClose, !sending);
+
+  const needsSourceRead = Boolean(jds[0] && missingRepushFields(buildRepushCopy(item, jds[0])).length);
+  const sourceReady = !needsSourceRead || sourceDetails?.id === item.id;
+
+  useEffect(() => {
+    if (!needsSourceRead) return;
+    const controller = new AbortController();
+    const load = async () => {
+      setSourceLoading(true);
+      setSourceError('');
+      try {
+        const response = await fetch('/api/repush/sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner: item.column, ids: [item.id] }),
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({})) as {
+          ok?: boolean; error?: string; items?: Array<{ id: string; rawText: string }>;
+        };
+        if (!response.ok || !data.ok) throw new Error(data.error || '原推荐信息读取失败');
+        const source = data.items?.find((record) => record.id === item.id);
+        if (!source?.rawText) throw new Error('原推荐记录没有可用的完整文案');
+        if (!controller.signal.aborted) setSourceDetails(source);
+      } catch (error) {
+        if (!controller.signal.aborted) setSourceError(error instanceof Error ? error.message : '原推荐信息读取失败');
+      } finally {
+        if (!controller.signal.aborted) setSourceLoading(false);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [item.column, item.id, needsSourceRead, sourceReadAttempt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,8 +264,11 @@ export function RepushModal({
   const selectedJds = selectedJdIds
     .map((id) => jds.find((jd) => jd.id === id))
     .filter((jd): jd is JD => Boolean(jd && jd.status !== 'paused'));
-  const recommendationTexts = selectedJds.map((jd) => ({ jd, text: buildRepushCopy(item, jd) }));
+  const copySource = sourceDetails?.id === item.id ? { ...item, rawText: sourceDetails.rawText } : item;
+  const recommendationTexts = selectedJds.map((jd) => ({ jd, text: buildRepushCopy(copySource, jd) }));
   const recommendationText = recommendationTexts.map(({ text }) => text).join('\n\n──────────\n\n');
+  const missingFields = recommendationTexts[0] ? missingRepushFields(recommendationTexts[0].text) : [];
+  const copyReady = sourceReady && missingFields.length === 0;
   const hasResume = Boolean(item.resumeUrl);
 
   const toggleJd = (jdId: string) => {
@@ -246,14 +287,14 @@ export function RepushModal({
   };
 
   const handleCopy = async () => {
-    if (!recommendationText) return;
+    if (!recommendationText || !copyReady) return;
     await navigator.clipboard.writeText(recommendationText);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   };
 
   const persistRepush = (delivery?: DeliveryStatusResponse, close = true, deliveredRecommendations = recommendationTexts) => {
-    if (selectedJds.length === 0) return;
+    if (selectedJds.length === 0 || !copyReady) return;
     const applications = new Map((delivery?.applications || []).map((application) => [application.index, application]));
     const records = new Map((delivery?.records || []).map((record) => [record.deliveryIndex, record]));
     const rows: Array<{ recommendation: typeof recommendationTexts[number]; result: DeliveryResult }> = delivery
@@ -298,7 +339,7 @@ export function RepushModal({
   };
 
   const handleSendAndRepush = async (repeatSent = false) => {
-    if (selectedJds.length === 0 || !item.resumeUrl || !recipient.trim() || sending || submitLock.current) return;
+    if (selectedJds.length === 0 || !copyReady || !item.resumeUrl || !recipient.trim() || sending || submitLock.current) return;
     if (selectedJds.length !== selectedJdIds.length) {
       setSendError('部分岗位已关闭或移除，请重新选择目标岗位');
       return;
@@ -442,11 +483,18 @@ export function RepushModal({
                       {selectedJds.map((jd) => jd.title).join('、')}
                     </p>
                   </div>
-                  <button type="button" onClick={handleCopy} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium', copied ? 'bg-emerald-50 text-emerald-600' : 'bg-violet-50 text-violet-600 hover:bg-violet-100')}>
+                  <button type="button" onClick={handleCopy} disabled={!copyReady} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40', copied ? 'bg-emerald-50 text-emerald-600' : 'bg-violet-50 text-violet-600 hover:bg-violet-100')}>
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? '已复制' : '复制全部文案'}
                   </button>
                 </div>
-                <textarea readOnly value={recommendationText} onFocus={(event) => event.currentTarget.select()} className="min-h-[280px] flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100" />
+                {sourceLoading && !sourceReady ? <p className="mb-2 text-xs text-violet-600">正在读取原推荐信息…</p> : null}
+                {!sourceLoading && !copyReady ? (
+                  <p className="mb-2 text-xs text-amber-700">
+                    {sourceError || `原推荐信息缺少：${missingFields.join('、')}。请先补全，暂不能复制或发送。`}
+                    {sourceError && <button type="button" onClick={() => setSourceReadAttempt((current) => current + 1)} className="ml-2 underline">重试读取</button>}
+                  </p>
+                ) : null}
+                <textarea readOnly value={sourceReady ? recommendationText : ''} placeholder={sourceLoading ? '正在读取原推荐信息…' : ''} onFocus={(event) => event.currentTarget.select()} className="min-h-[280px] flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm leading-7 text-slate-700 outline-none focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100" />
               </>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center text-center text-slate-400">
@@ -492,10 +540,10 @@ export function RepushModal({
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2 self-end">
               <button type="button" onClick={onClose} disabled={sending} className="h-10 rounded-lg px-3 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed">取消</button>
-              <button type="button" onClick={() => persistRepush()} disabled={selectedJds.length === 0 || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
+              <button type="button" onClick={() => persistRepush()} disabled={selectedJds.length === 0 || !copyReady || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
                 <Repeat className="h-4 w-4" />仅确认复推{selectedJds.length > 1 ? `（${selectedJds.length}）` : ''}
               </button>
-              <button type="button" onClick={() => handleSendAndRepush()} disabled={selectedJds.length === 0 || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
+              <button type="button" onClick={() => handleSendAndRepush()} disabled={selectedJds.length === 0 || !copyReady || !hasResume || !recipient.trim() || sending} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {sending
                   ? `正在提交 ${selectedJds.length} 个岗位…`
