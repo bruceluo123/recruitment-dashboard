@@ -455,16 +455,26 @@ async function supabaseReadRaw(keys) {
   return response.json();
 }
 
-async function supabaseTx(payload) {
+async function supabaseTx(payload, functionName = 'recruit_kv_tx') {
   const base = process.env.SUPABASE_URL.replace(/\/$/, '');
   const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const response = await fetch(`${base}/rest/v1/rpc/recruit_kv_tx`, {
-    signal: AbortSignal.timeout(30_000),
-    method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_payload: payload }),
-  });
-  if (!response.ok) throw new Error(`Supabase transaction failed: ${response.status}`);
-  return response.json();
+  const body = JSON.stringify({ p_payload: payload });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await fetch(`${base}/rest/v1/rpc/${functionName}`, {
+      // Never replay an unknown network outcome; only explicit PostgreSQL aborts below are retried.
+      signal: AbortSignal.timeout(120_000),
+      method: 'POST', headers: { apikey: token, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body,
+    });
+    if (response.ok) return response.json();
+    const detail = (await response.text()).slice(0, 300);
+    const code = (() => { try { return JSON.parse(detail).code; } catch { return ''; } })();
+    if (attempt < 3 && (code === '55P03' || code === '57014')) {
+      await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1_500));
+      continue;
+    }
+    throw new Error(`Supabase transaction failed: ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
 }
 
 async function supabaseImportCommit(keys, args) {
@@ -493,19 +503,45 @@ async function supabaseImportCommit(keys, args) {
     state.entries[code] = { identity, name };
     state.sequence = Math.max(state.sequence, suffix);
   }
+  const patches = [];
+  const snapshotWrites = snapshotKeys.flatMap((key, index) => {
+    const nextValue = args[1 + count + index];
+    if (key !== 'recruit:talents' && key !== 'recruit:repush') return [{ key, value: nextValue }];
+    const before = JSON.parse(current[key] || '[]');
+    const after = JSON.parse(nextValue);
+    if (!Array.isArray(before) || !Array.isArray(after) || after.length < before.length) {
+      throw new Error(`Cannot patch ${key}: array shape changed`);
+    }
+    const added = after.length - before.length;
+    const offset = key === 'recruit:talents' ? added : 0;
+    const replace = [];
+    for (let oldIndex = 0; oldIndex < before.length; oldIndex += 1) {
+      const nextRow = after[oldIndex + offset];
+      if (before[oldIndex]?.id !== nextRow?.id) throw new Error(`Cannot patch ${key}: row order changed`);
+      if (JSON.stringify(before[oldIndex]) !== JSON.stringify(nextRow)) {
+        replace.push({ index: oldIndex, value: nextRow });
+      }
+    }
+    if (added || replace.length) patches.push({ key, replace,
+      ...(offset ? { prepend: after.slice(0, added) } : { append: after.slice(before.length) }) });
+    return [];
+  });
   const committed = await supabaseTx({
     expected: [
-      ...snapshotKeys.map((key) => ({ key, exists: Boolean(current[key]), ...(current[key] ? { value: current[key] } : {}) })),
-      { key: stateKey, exists: Boolean(stateRaw), ...(stateRaw ? { value: stateRaw } : {}) },
-      { key: sequenceKey, exists: Boolean(current[sequenceKey]), ...(current[sequenceKey] ? { value: current[sequenceKey] } : {}) },
+      ...snapshotKeys.map((key) => ({ key, exists: Boolean(current[key]),
+        ...(current[key] ? { sha1: createHash('sha1').update(current[key]).digest('hex') } : {}) })),
+      { key: stateKey, exists: Boolean(stateRaw), ...(stateRaw ? { sha1: createHash('sha1').update(stateRaw).digest('hex') } : {}) },
+      { key: sequenceKey, exists: Boolean(current[sequenceKey]),
+        ...(current[sequenceKey] ? { sha1: createHash('sha1').update(current[sequenceKey]).digest('hex') } : {}) },
     ],
     writes: [
-      ...snapshotKeys.map((key, index) => ({ key, value: args[1 + count + index] })),
+      ...snapshotWrites,
       { key: stateKey, value: JSON.stringify(state) },
       { key: sequenceKey, value: String(state.sequence) },
     ],
+    patches,
     increments: [versionKey],
-  });
+  }, 'recruit_kv_tx_hashed');
   return committed.ok ? [1, Number(committed.increments?.[versionKey] || 0)] : [0, 1];
 }
 
@@ -958,8 +994,10 @@ async function main(options = {}) {
         const registry = await candidateIdentityRegistryEntry(code);
         const registryName = normalizeIdentity(registry.name);
         const statedNames = String(p.name || '').match(/[a-z]+(?:[ .'-][a-z]+)*|[\u4e00-\u9fff]+/gi) || [];
+        const registryEnglishNames = String(registry.name || '').match(/[a-z]{3,}/gi) || [];
         const verifiedAlias = knownBusinessNames.size === 0 && Boolean(registryName)
-          && statedNames.some(part => normalizeIdentity(part) === registryName)
+          && statedNames.some(part => normalizeIdentity(part) === registryName
+            || registryEnglishNames.some(alias => normalizeIdentity(alias) === normalizeIdentity(part)))
           && nameMatchesFile(p.name, target.fileName);
         const registryMatchesName = !registryName || registryName === identityName || verifiedAlias;
         const registryIdentityId = registryMatchesName
@@ -973,8 +1011,8 @@ async function main(options = {}) {
           && registry.candidateIdentityId !== '!conflict'
           && registry.candidateIdentityId !== identityName
           && registry.candidateIdentityId !== candidateIdentityId);
-        const allowRegistryRepair = verifiedAlias || (knownBusinessNames.size === 1 && knownBusinessNames.has(identityName)
-          && (!registryMatchesName || registryIdentityMismatch || registry.candidateIdentityId === '!conflict'));
+        const allowRegistryRepair = knownBusinessNames.size === 1 && knownBusinessNames.has(identityName)
+          && (!registryMatchesName || registryIdentityMismatch || registry.candidateIdentityId === '!conflict');
         if ((!registryMatchesName || registry.candidateIdentityId === '!conflict') && !allowRegistryRepair) {
           throw new Error(`候选人编号 ${code} 的身份登记与当前简历不一致`);
         }
@@ -1067,7 +1105,8 @@ async function main(options = {}) {
           });
         }
         talent.candidateIdentityId = candidateIdentityId;
-        recordImportedIdentity(importedIdentities, code, candidateIdentityId, identityName, allowRegistryRepair);
+        recordImportedIdentity(importedIdentities, code, candidateIdentityId,
+          verifiedAlias ? registryName : identityName, allowRegistryRepair);
         rememberBusinessName(code, name);
         if (resumeText) {
           talentTextWrites.set(`recruit:talent-text:${talent.id}`, resumeText);
