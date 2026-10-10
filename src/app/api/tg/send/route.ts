@@ -445,7 +445,9 @@ async function submitDeliveries(inputs: SendInput[], sender: 'a' | 'b') {
         }) as RepushSourceRecord[]];
       } catch { sourceReadError = true; }
     }
-    const online = Boolean(heartbeat?.at && Date.now() - Date.parse(heartbeat.at) <= 45_000);
+    // Heartbeats are written every 15s; allow a brief storage stall without
+    // reporting both healthy Telegram clients as offline.
+    const online = Boolean(heartbeat?.at && Date.now() - Date.parse(heartbeat.at) <= 90_000);
     const writes: NonNullable<Parameters<typeof kvTransaction>[0]['writes']> = [];
     const expected: NonNullable<Parameters<typeof kvTransaction>[0]['expected']> = [];
     const lists: NonNullable<Parameters<typeof kvTransaction>[0]['lists']> = [];
