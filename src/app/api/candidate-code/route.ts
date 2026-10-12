@@ -199,27 +199,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ error: '候选人编号分配遇到并发，请重试' }, { status: 409 });
   } catch (error) {
-    const prefix = PREFIXES[owner];
-    const preferredCode = String(body.preferredCode || '').trim().toUpperCase();
-    if (!preferredCode) {
-      try {
-        const fallback = await allocateFromAtomicSequence(
-          owner,
-          prefix,
-          candidateName,
-          String(body.candidateIdentityId || '').trim(),
-        );
-        return NextResponse.json({
-          ok: true,
-          code: fallback.code,
-          candidateIdentityId: fallback.identity,
-          reused: false,
-        }, { headers: { 'Cache-Control': 'no-store' } });
-      } catch {
-        // 继续返回统一错误，避免泄露存储细节。
-      }
-    }
     console.error('candidate code allocation failed', error);
-    return NextResponse.json({ error: '候选人编号分配失败，请重试' }, { status: 503 });
+    return NextResponse.json({ error: '编号分配服务暂时繁忙，请稍后重试' }, { status: 503 });
   }
 }

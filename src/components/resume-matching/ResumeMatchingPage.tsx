@@ -49,32 +49,24 @@ async function allocateCandidateCode(
   candidateName: string,
   candidateIdentityId?: string,
 ): Promise<CandidateCodeAllocation> {
-  let lastError = '候选人编号分配失败，请重试';
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const response = await fetch('/api/candidate-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, preferredCode, candidateName, candidateIdentityId }),
-        signal: AbortSignal.timeout(20_000),
-      });
-      const result = await response.json().catch(() => ({})) as Partial<CandidateCodeAllocation> & { error?: string };
-      if (response.ok && result.code && result.candidateIdentityId) {
-        return { code: result.code, candidateIdentityId: result.candidateIdentityId };
-      }
-      lastError = result.error || lastError;
-      const retryable = response.status === 408 || response.status === 429 || response.status >= 500
-        || (response.status === 409 && lastError.includes('并发'));
-      if (!retryable) throw new Error(lastError);
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : lastError;
-      if (error instanceof Error && !['AbortError', 'TimeoutError'].includes(error.name)
-        && !lastError.includes('fetch') && !lastError.includes('并发') && !lastError.includes('频繁')
-        && !lastError.includes('分配失败')) throw error;
+  try {
+    const response = await fetch('/api/candidate-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner, preferredCode, candidateName, candidateIdentityId }),
+      signal: AbortSignal.timeout(35_000),
+    });
+    const result = await response.json().catch(() => ({})) as Partial<CandidateCodeAllocation> & { error?: string };
+    if (response.ok && result.code && result.candidateIdentityId) {
+      return { code: result.code, candidateIdentityId: result.candidateIdentityId };
     }
-    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+    throw new Error(result.error || '候选人编号分配失败，请重试');
+  } catch (error) {
+    if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) {
+      throw new Error('编号分配等待超时，数据库响应较慢。请稍后重试，系统会复用同一候选人的编号');
+    }
+    throw error;
   }
-  throw new Error(lastError);
 }
 
 function escapeRegExp(value: string): string {
