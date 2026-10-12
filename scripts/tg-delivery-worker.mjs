@@ -1391,16 +1391,6 @@ async function hasOutboundWork() {
   return queued.length > 0 || processing.length > 0;
 }
 
-async function withBackgroundClient(operation) {
-  const backgroundClient = createClient();
-  await withTimeout(backgroundClient.connect(), TG_SETUP_TIMEOUT_MS, 'Telegram background connection');
-  try {
-    return await operation(backgroundClient);
-  } finally {
-    await withTimeout(backgroundClient.disconnect(), 5_000, 'Telegram background disconnect').catch(() => {});
-  }
-}
-
 async function refreshDialogs(client) {
   const dialogs = await client.getDialogs({ limit: 160 });
   await kvSet(DIALOGS_KEY, { updatedAt: new Date().toISOString(), items: dialogItems(dialogs) });
@@ -1485,24 +1475,22 @@ async function runWatch() {
     backgroundRunning = true;
     try {
       if (await hasOutboundWork()) return;
-      await withBackgroundClient(async (backgroundClient) => {
-        const { syncResumes } = await import('./tg-sync-resumes.mjs');
-        let remaining = 0;
-        do {
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              const result = await syncResumes({ client: backgroundClient, dialog: 'ojisamer', write: true });
-              remaining = result?.imported ? result.remaining : 0;
-              break;
-            } catch (error) {
-              if (attempt === 2) throw error;
-              await wait(5_000);
-            }
+      const { syncResumes } = await import('./tg-sync-resumes.mjs');
+      let remaining = 0;
+      do {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const result = await syncResumes({ client, dialog: 'ojisamer', write: true });
+            remaining = result?.imported ? result.remaining : 0;
+            break;
+          } catch (error) {
+            if (attempt === 2) throw error;
+            await wait(5_000);
           }
-          if (remaining && !await hasOutboundWork()) await wait(1_000);
-          else if (remaining) break;
-        } while (remaining && !stopping);
-      });
+        }
+        if (remaining && !await hasOutboundWork()) await wait(1_000);
+        else if (remaining) break;
+      } while (remaining && !stopping);
     } catch (error) {
       console.error(`[tg-intake] ${error?.stack || error}`);
     } finally {
@@ -1519,10 +1507,8 @@ async function runWatch() {
     backgroundRunning = true;
     try {
       if (await hasOutboundWork()) return;
-      await withBackgroundClient(async (backgroundClient) => {
-        const { syncFeedback } = await import('./tg-feedback-audit.mjs');
-        await syncFeedback({ client: backgroundClient, owner: ACCOUNT, sync: true, reuseOcr: true });
-      });
+      const { syncFeedback } = await import('./tg-feedback-audit.mjs');
+      await syncFeedback({ client, owner: ACCOUNT, sync: true, reuseOcr: true });
     } catch (error) {
       console.error(`[tg-feedback] ${error?.stack || error}`);
     } finally {

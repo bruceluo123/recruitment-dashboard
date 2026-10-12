@@ -453,7 +453,7 @@ async function sbFetch(method: 'GET' | 'POST', query = '', body?: unknown): Prom
     Authorization: `Bearer ${SUPABASE_KEY}`,
     'Content-Type': 'application/json',
   };
-  if (method === 'POST') headers['Prefer'] = 'resolution=merge-duplicates,return=minimal';
+  if (method === 'POST') headers['Prefer'] = 'resolution=merge-duplicates,return=representation';
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}${query}`, {
     method,
     headers,
@@ -477,5 +477,8 @@ export async function findExistingReportId(date: string, name: string): Promise<
 
 /** 提交一条日报到看板站（upsert 到 remote_records，列结构 {id, data}）。 */
 export async function submitRemoteRecord(record: RemoteRecord): Promise<void> {
-  await sbFetch('POST', '', [{ id: record.id, data: record }]);
+  const rows = await sbFetch('POST', '?select=id', [{ id: record.id, data: record }]) as Array<{ id?: string }>;
+  if (!rows.some((row) => row.id === record.id)) {
+    throw new Error('看板未返回保存确认，请重试；同日同录入人会覆盖更新，不会重复新增');
+  }
 }

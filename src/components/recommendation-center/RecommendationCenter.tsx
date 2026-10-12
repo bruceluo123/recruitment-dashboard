@@ -594,6 +594,8 @@ export function RecommendationCenter() {
     try {
       await refreshSyncedData();
       setReporting(true);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '读取今日数据失败，请稍后重试');
     } finally {
       setPreparingBoard(false);
     }

@@ -185,26 +185,26 @@ function overlayPendingRecords(type: 'candidates' | 'todos' | 'performance', row
   }
   return Array.from(result.values());
 }
-async function refresh(force = false) {
-  if (reading) { refreshQueued ||= force; return; }
-  if (!onChange || (!force && document.hidden)) return;
+async function refresh(force = false): Promise<boolean> {
+  if (reading) { refreshQueued ||= force; return false; }
+  if (!onChange || (!force && document.hidden)) return false;
   reading = true;
   const generation = { ...editGeneration };
   const session = syncSession;
   try {
     const head = await readKeys(['version']);
-    if (session !== syncSession || !onChange) return;
+    if (session !== syncSession || !onChange) return false;
     const version = Number(head.version || 0);
     if (!force && version === remoteVersion
-      && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return;
+      && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return true;
     const types = Array.from(requestedTypes).filter((type) => force || loadedVersions[type] !== version);
-    if (!types.length) return;
+    if (!types.length) return true;
     // Tombstones must be current before applying any records. Read the large
     // recommendation snapshot independently so a failed JD/candidate request
     // cannot leave a mobile device stuck on its old recommendation cache.
     const lightTypes = types.filter((type) => type !== 'repush');
     const metadata = await readKeys(['tombstones', ...(types.includes('jds') ? ['jds-epoch'] : [])]);
-    if (session !== syncSession || !onChange) return;
+    if (session !== syncSession || !onChange) return false;
     tombstones = parse(metadata.tombstones) as typeof tombstones || {};
     const staleJDs = types.includes('jds') && !jdReplacing && !busy
       ? pending.filter((item) => item.type === 'jds' && item.jdEpoch !== (metadata['jds-epoch'] || '0'))
@@ -234,7 +234,7 @@ async function refresh(force = false) {
     if (lightTypes.length) {
       try {
         const lightValues = await readKeys(lightTypes);
-        if (session !== syncSession || !onChange) return;
+        if (session !== syncSession || !onChange) return false;
         applyValues(lightTypes, lightValues);
       } catch { lightFailed = true; }
     }
@@ -243,7 +243,7 @@ async function refresh(force = false) {
     if (types.includes('repush')) {
       try {
         const repushValues = await readKeys(['repush'], 45_000);
-        if (session !== syncSession || !onChange) return;
+        if (session !== syncSession || !onChange) return false;
         applyValues(['repush'], repushValues);
       } catch { repushFailed = true; }
     }
@@ -252,7 +252,11 @@ async function refresh(force = false) {
     else if (repushFailed) announce('推荐记录尚未同步，正在自动重试；当前列表可能是本机旧数据');
     else if (lightFailed) announce('推荐记录已同步，其他数据网络较慢，正在自动重试');
     else if (!pending.length) announce('');
-  } catch { announce('云端读取失败，已保留当前数据；连接恢复后重试'); }
+    return !lightFailed && !repushFailed;
+  } catch {
+    announce('云端读取失败，已保留当前数据；连接恢复后重试');
+    return false;
+  }
   finally {
     reading = false;
     const needsRefresh = refreshQueued;
@@ -263,7 +267,7 @@ async function refresh(force = false) {
 /** 在生成日报/看板前主动拉取一次当前账号可见的最新云端数据。 */
 export async function refreshSyncedData(): Promise<void> {
   while (reading) await new Promise((resolve) => setTimeout(resolve, 50));
-  await refresh(true);
+  if (!await refresh(true)) throw new Error('云端最新数据读取失败，请稍后重试，避免提交不完整的看板数据');
 }
 export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown[]>>): Promise<DataType[]> {
   const failed: DataType[] = [];
