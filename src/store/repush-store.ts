@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { generateId } from '@/lib/utils';
 import { isTombstoned, rememberDeliveryReceipt } from '@/lib/sync';
 import type { SyncRecord } from '@/lib/record-changes';
@@ -107,6 +107,8 @@ interface RepushStore {
 }
 
 const DEFAULT_NAMES: Record<RepushColumnId, string> = { a: '麦满分', b: '啵啵' };
+const LOCAL_ITEM_LIMIT = 150;
+const LOCAL_SNAPSHOT_LIMIT = 26;
 /** 云端保留完整推荐记录；浏览器只缓存列表展示所需的小字段。 */
 function compactLocalItem(item: RepushItem): RepushItem {
   const { dataUrl, rawText, highlights, ...rest } = sanitizeRepushItem(item);
@@ -306,18 +308,47 @@ export const useRepushStore = create<RepushStore>()(
     }),
     {
       name: 'recruitai-repush-store',
-      version: 5,
+      version: 6,
+      storage: createJSONStorage(() => ({
+        getItem: (key) => localStorage.getItem(key),
+        removeItem: (key) => localStorage.removeItem(key),
+        setItem: (key, value) => {
+          try {
+            localStorage.setItem(key, value);
+          } catch (error) {
+            if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error;
+            // The cloud and mutation outbox hold the full data; keep a smaller read cache.
+            const cached = JSON.parse(value) as { state: Partial<RepushStore>; version: number };
+            try {
+              localStorage.setItem(key, JSON.stringify({
+                ...cached,
+                state: {
+                  ...cached.state,
+                  items: cached.state.items?.slice(-30),
+                  unfeedbackSnapshots: cached.state.unfeedbackSnapshots?.slice(-4),
+                },
+              }));
+              return;
+            } catch (retryError) {
+              if (!(retryError instanceof DOMException) || retryError.name !== 'QuotaExceededError') throw retryError;
+            }
+            // Keep the previous readable snapshot if the origin is full; do not abort cloud sync.
+            console.warn('推荐记录本地缓存空间不足，云端同步将继续');
+          }
+        },
+      })),
       partialize: (state) => ({
-        items: state.items.map(compactLocalItem),
+        items: state.items.slice(-LOCAL_ITEM_LIMIT).map(compactLocalItem),
         columnNames: state.columnNames,
-        unfeedbackSnapshots: state.unfeedbackSnapshots,
+        unfeedbackSnapshots: state.unfeedbackSnapshots.slice(-LOCAL_SNAPSHOT_LIMIT),
       }),
       // Preserve the last readable snapshot until a cloud read succeeds.
       migrate: (persisted) => {
         const s = persisted as Partial<RepushStore> | undefined;
         return {
           ...(s as object),
-          items: (s?.items || []).map(compactLocalItem),
+          items: (s?.items || []).slice(-LOCAL_ITEM_LIMIT).map(compactLocalItem),
+          unfeedbackSnapshots: (s?.unfeedbackSnapshots || []).slice(-LOCAL_SNAPSHOT_LIMIT),
           columnNames: DEFAULT_NAMES,
         } as RepushStore;
       },
