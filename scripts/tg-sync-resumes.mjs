@@ -995,9 +995,10 @@ async function main(options = {}) {
         const registryName = normalizeIdentity(registry.name);
         const statedNames = String(p.name || '').match(/[a-z]+(?:[ .'-][a-z]+)*|[\u4e00-\u9fff]+/gi) || [];
         const registryEnglishNames = String(registry.name || '').match(/[a-z]{3,}/gi) || [];
+        const filenameBasedAlias = registryName.replace(/(?:简历|resume|cv)$/i, '') === identityName;
         const verifiedAlias = knownBusinessNames.size === 0 && Boolean(registryName)
-          && statedNames.some(part => normalizeIdentity(part) === registryName
-            || registryEnglishNames.some(alias => normalizeIdentity(alias) === normalizeIdentity(part)))
+          && (filenameBasedAlias || statedNames.some(part => normalizeIdentity(part) === registryName
+            || registryEnglishNames.some(alias => normalizeIdentity(alias) === normalizeIdentity(part))))
           && nameMatchesFile(p.name, target.fileName);
         const registryMatchesName = !registryName || registryName === identityName || verifiedAlias;
         const registryIdentityId = registryMatchesName
