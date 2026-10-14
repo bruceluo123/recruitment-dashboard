@@ -314,9 +314,12 @@ export async function retrySync() {
   let drainCompleted = false;
   let jdRejected = false;
   const failedTypes = new Set<DataType>();
+  const ready = (mutation: Mutation) => !mutation.conflicts?.length && !failedTypes.has(mutation.type);
   try {
-    while (pending.some((mutation) => !mutation.conflicts?.length && !failedTypes.has(mutation.type))) {
-      const mutationIndex = pending.findIndex((mutation) => !mutation.conflicts?.length && !failedTypes.has(mutation.type));
+    while (pending.some(ready)) {
+      const candidateIndex = pending.length > 20
+        ? pending.findIndex((mutation) => mutation.type === 'candidates' && ready(mutation)) : -1;
+      const mutationIndex = candidateIndex >= 0 ? candidateIndex : pending.findIndex(ready);
       const mutation = pending[mutationIndex];
       announce(`正在保存 ${pending.filter((item) => !item.conflicts?.length).length} 项修改`);
       let response: Response;
