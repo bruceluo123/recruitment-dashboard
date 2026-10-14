@@ -20,6 +20,12 @@ export interface KvTransactionResult {
   popped?: Record<string, string | null>;
 }
 
+export class StorageQuotaError extends Error {
+  constructor() {
+    super('Supabase 流量额度已用尽，云端暂不可读写');
+  }
+}
+
 function supabaseConfigured(): boolean {
   return !!(SUPABASE && SUPABASE_KEY);
 }
@@ -44,8 +50,12 @@ async function supabaseRpc<T>(
         signal: AbortSignal.timeout(options.timeoutMs || 15_000),
       });
       if (response.ok) return await response.json() as T;
+      if (response.status === 402 && (await response.text()).includes('exceed_egress_quota')) {
+        throw new StorageQuotaError();
+      }
       if (response.status < 500 && response.status !== 408 && response.status !== 429) break;
-    } catch {
+    } catch (error) {
+      if (error instanceof StorageQuotaError) throw error;
       // Read-only calls below retry brief network and timeout failures.
     }
     if (attempt + 1 < attempts) {

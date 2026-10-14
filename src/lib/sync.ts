@@ -119,6 +119,7 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, tim
 async function readKeys(keys: string[], timeoutMs = 30_000): Promise<Record<string, string | null>> {
   const params = new URLSearchParams(); keys.forEach((key) => params.append('key', key));
   const response = await fetchWithTimeout(`/api/sync/read?${params}`, { cache: 'no-store' }, timeoutMs);
+  if (response.status === 402) throw new Error('Supabase 流量额度已用尽，云端暂不可读写；页面显示 0 不代表数据丢失');
   if (!response.ok) throw new Error('数据读取失败');
   return (await response.json()).values;
 }
@@ -231,12 +232,16 @@ async function refresh(force = false): Promise<boolean> {
       }
     };
     let lightFailed = false;
+    let quotaError: Error | null = null;
     if (lightTypes.length) {
       try {
         const lightValues = await readKeys(lightTypes);
         if (session !== syncSession || !onChange) return false;
         applyValues(lightTypes, lightValues);
-      } catch { lightFailed = true; }
+      } catch (error) {
+        lightFailed = true;
+        if (error instanceof Error && error.message.includes('流量额度')) quotaError = error;
+      }
     }
 
     let repushFailed = false;
@@ -245,16 +250,21 @@ async function refresh(force = false): Promise<boolean> {
         const repushValues = await readKeys(['repush'], 45_000);
         if (session !== syncSession || !onChange) return false;
         applyValues(['repush'], repushValues);
-      } catch { repushFailed = true; }
+      } catch (error) {
+        repushFailed = true;
+        if (error instanceof Error && error.message.includes('流量额度')) quotaError = error;
+      }
     }
     remoteVersion = version;
-    if (staleJDs.length) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
+    if (quotaError) announce((quotaError as Error).message);
+    else if (staleJDs.length) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
     else if (repushFailed) announce('推荐记录尚未同步，正在自动重试；当前列表可能是本机旧数据');
     else if (lightFailed) announce('推荐记录已同步，其他数据网络较慢，正在自动重试');
     else if (!pending.length) announce('');
     return !lightFailed && !repushFailed;
-  } catch {
-    announce('云端读取失败，已保留当前数据；连接恢复后重试');
+  } catch (error) {
+    announce(error instanceof Error && error.message.includes('流量额度')
+      ? error.message : '云端读取失败，已保留当前数据；页面显示 0 不代表数据丢失');
     return false;
   }
   finally {
@@ -426,14 +436,14 @@ function rebaseChanges(type: DataType, current: SyncRecord[], changes: RecordCha
 export async function resolveSyncConflicts(strategy: 'local' | 'remote') {
   if (busy || !pending.some((mutation) => mutation.conflicts?.length)) return;
   const blocked = pending.filter((mutation) => mutation.conflicts?.length);
+  const types = Array.from(new Set(blocked.map((mutation) => mutation.type)));
+  let values: Record<string, string | null>;
+  try { values = await readKeys(types); }
+  catch { announce('云端读取失败，暂时无法处理冲突；本机修改已保留'); return; }
   if (strategy === 'remote') {
     for (const mutation of blocked) localStorage.removeItem(`${OUTBOX}:${mutation.id}`);
     pending = pending.filter((mutation) => !mutation.conflicts?.length);
   } else {
-    const types = Array.from(new Set(blocked.map((mutation) => mutation.type)));
-    let values: Record<string, string | null>;
-    try { values = await readKeys(types); }
-    catch { announce('云端读取失败，暂时无法处理冲突'); return; }
     for (const mutation of blocked) {
       const raw = values[mutation.type];
       let current: unknown;

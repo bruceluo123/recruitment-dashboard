@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kvCommandStrict } from '@/lib/kv-server';
+import { kvCommandStrict, StorageQuotaError } from '@/lib/kv-server';
 import { permittedOwners, requireApiSession } from '@/lib/auth-api';
 import { filterAccessibleRecords } from '@/lib/data-ownership';
 import { getBuiltinRequestContext } from 'next/dist/server/lib/builtin-request-context';
@@ -35,7 +35,8 @@ export async function GET(request: NextRequest) {
       return JSON.stringify(filterAccessibleRecords(key, parsed, [...readableOwners]));
     });
     return NextResponse.json({ values: Object.fromEntries(keys.map((key, index) => [key, visibleValues[index]])) }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch {
+  } catch (error) {
+    if (error instanceof StorageQuotaError) return NextResponse.json({ error: error.message }, { status: 402 });
     return NextResponse.json({ error: '数据读取失败，保留上次结果' }, { status: 503 });
   }
 }
