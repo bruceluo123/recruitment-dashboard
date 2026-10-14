@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { isFeedbackEligibleDelivery, projectFeedbackStatus } from '@/lib/feedback-status';
 import type { FeedbackCenterItem, FeedbackCenterState } from '@/types/feedback-center';
 import { fetchFeedback } from '@/lib/feedback-client';
-import { applyRemoteStoreUpdate, refreshSyncedData } from '@/lib/sync';
+import { applyRemoteStoreUpdate, overlayPendingCandidates, refreshSyncedData } from '@/lib/sync';
 import { recommendationOrganization } from '@/lib/recommendation-copy';
 import type { JD } from '@/types/jd';
 import type { Talent } from '@/types/talent';
@@ -36,7 +36,9 @@ import type { Candidate } from '@/types/interview';
 
 const EMPTY_FEEDBACK_ITEMS: FeedbackCenterItem[] = [];
 
-async function readDailyReportSource(date: string): Promise<{ items: RepushItem[]; candidates: Candidate[] }> {
+async function readDailyReportSource(date: string, owner: RepushColumnId): Promise<{
+  items: RepushItem[]; candidates: Candidate[]; pendingCount: number;
+}> {
   const response = await fetch(`/api/daily-report/source?date=${encodeURIComponent(date)}`, {
     cache: 'no-store',
     signal: AbortSignal.timeout(55_000),
@@ -45,7 +47,7 @@ async function readDailyReportSource(date: string): Promise<{ items: RepushItem[
   if (!response.ok || !Array.isArray(data.items) || !Array.isArray(data.candidates)) {
     throw new Error(data.error || '云端最新数据读取失败，请稍后重试');
   }
-  return data;
+  return { items: data.items, ...overlayPendingCandidates(data.candidates as Candidate[], owner) };
 }
 
 function normalizeFeedbackKey(value?: string): string {
@@ -238,7 +240,7 @@ export function RecommendationCenter() {
   const [sameJobRepushOpen, setSameJobRepushOpen] = useState(false);
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
-  const [dailySource, setDailySource] = useState<{ items: RepushItem[]; candidates: Candidate[] } | null>(null);
+  const [dailySource, setDailySource] = useState<{ items: RepushItem[]; candidates: Candidate[]; pendingCount: number } | null>(null);
   const [weeklyReporting, setWeeklyReporting] = useState(false);
   const [preparingBoard, setPreparingBoard] = useState(false);
   const [preparingWeekly, setPreparingWeekly] = useState(false);
@@ -589,7 +591,8 @@ export function RecommendationCenter() {
   const handleExportTodayReport = async () => {
     setExportingToday(true);
     try {
-      const source = await readDailyReportSource(localDate(new Date().toISOString()));
+      const source = await readDailyReportSource(localDate(new Date().toISOString()), view);
+      if (source.pendingCount && !confirm(`有 ${source.pendingCount} 项${columnNames[view]}的面试/Offer 修改尚未同步到云端。导出的日报将包含本机修改，是否继续？`)) return;
       await exportDailyReportExcel({
         column: view,
         name: columnNames[view],
@@ -606,7 +609,7 @@ export function RecommendationCenter() {
   const handleOpenDailyReport = async () => {
     setPreparingBoard(true);
     try {
-      const source = await readDailyReportSource(localDate(new Date().toISOString()));
+      const source = await readDailyReportSource(localDate(new Date().toISOString()), view);
       setDailySource(source);
       setReporting(true);
     } catch (error) {
@@ -855,7 +858,8 @@ export function RecommendationCenter() {
           name={columnNames[view]}
           items={dailySource.items}
           candidates={dailySource.candidates}
-          loadDate={readDailyReportSource}
+          pendingCount={dailySource.pendingCount}
+          loadDate={(date) => readDailyReportSource(date, view)}
           onClose={() => setReporting(false)}
         />
       )}

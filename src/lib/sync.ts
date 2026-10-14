@@ -186,6 +186,17 @@ function overlayPendingRecords(type: 'candidates' | 'todos' | 'performance', row
   }
   return Array.from(result.values());
 }
+export function overlayPendingCandidates<T extends { id: string; owner?: 'a' | 'b' }>(
+  rows: T[], owner: 'a' | 'b',
+): { candidates: T[]; pendingCount: number } {
+  const pendingCount = pending
+    .filter((mutation) => mutation.type === 'candidates')
+    .flatMap((mutation) => mutation.changes)
+    .filter((change) => ((change.after || change.before)?.owner || 'a') === owner).length;
+  const candidates = overlayPendingRecords('candidates', rows as unknown as SyncRecord[])
+    .filter((row) => (row.owner || 'a') === owner) as unknown as T[];
+  return { candidates, pendingCount };
+}
 async function refresh(force = false, scopedTypes?: DataType[]): Promise<boolean> {
   if (reading) { refreshQueued ||= force; return false; }
   if (!onChange || (!force && document.hidden)) return false;
@@ -316,7 +327,7 @@ export async function retrySync() {
           resolution: mutation.resolution,
           ...(mutation.type === 'jds' ? { jdEpoch: mutation.jdEpoch } : {}),
         }),
-      }, 30_000);
+      }, 75_000);
       if (!response.ok) {
         const result = await response.json().catch(() => ({})) as { error?: string; code?: string; conflicts?: string[]; forbidden?: string[] };
         if (mutation.type === 'jds' && result.code === 'JD_SNAPSHOT_EXPIRED') {

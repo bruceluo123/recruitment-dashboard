@@ -137,7 +137,7 @@ export async function kvFindRepushRecords(args: {
 
 export async function kvTransaction(payload: KvTransactionPayload): Promise<KvTransactionResult> {
   if (supabaseConfigured()) {
-    return supabaseRpc<KvTransactionResult>('recruit_kv_tx', { p_payload: payload });
+    return supabaseRpc<KvTransactionResult>('recruit_kv_tx', { p_payload: payload }, { timeoutMs: 30_000 });
   }
   throw new Error('当前存储不支持事务写入');
 }

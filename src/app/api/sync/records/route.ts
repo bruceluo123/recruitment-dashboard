@@ -42,11 +42,10 @@ export async function POST(request: NextRequest) {
     }
     const key = `recruit:${type}`, receipt = `recruit:mutation:${mutationId}`;
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (await kvCommandStrict<number>('EXISTS', receipt)) return NextResponse.json({ ok: true });
-      const [raw, tombRaw, epochRaw] = await Promise.all([
-        kvCommandStrict<string | null>('GET', key), kvCommandStrict<string | null>('GET', 'recruit:tombstones'),
-        type === 'jds' ? kvCommandStrict<string | null>('GET', 'recruit:jds-epoch') : Promise.resolve(null),
-      ]);
+      const [raw, tombRaw, epochRaw, receiptRaw] = await kvCommandStrict<Array<string | null>>(
+        'MGET', key, 'recruit:tombstones', 'recruit:jds-epoch', receipt,
+      );
+      if (receiptRaw !== null) return NextResponse.json({ ok: true });
       if (type === 'jds' && jdEpoch !== (epochRaw || '0')) {
         return NextResponse.json({ code: 'JD_SNAPSHOT_EXPIRED', error: '岗位库已更新，旧版本修改已拦截，请采用云端最新岗位' }, { status: 409 });
       }
