@@ -53,6 +53,10 @@ function dayLabel(iso: string): string {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
 }
 
+function interviewUnit(organization?: string, department?: string): string {
+  return formatOrgDept(organization, department, '/').split('/').map((part) => part.trim()).filter(Boolean).pop() || '';
+}
+
 function offerSalaryPart(value: string | undefined, label: '试用期' | '转正'): string {
   if (!value) return '';
   const match = value.match(new RegExp(`${label}\\s*([^/]+)`));
@@ -298,15 +302,12 @@ export function InterviewCalendarPage() {
       const h = d.getHours();
       const m = d.getMinutes();
       const time = m === 0 ? `北京时间${h}点` : `北京时间${h}点${m}分`;
-      // 编制与部门之间用 / 间隔（如「万帧公司/智影」），重叠时只保留更完整的一方，其余字段用 - 间隔
-      const orgDept = formatOrgDept(c.organization, c.department, '/');
-      const parts = [c.name, c.jdTitle, orgDept].filter(Boolean);
+      const parts = [c.name, c.jdTitle, interviewUnit(c.organization, c.department)].filter(Boolean);
       const round = c.stage === 'interview-2' ? (c.interviewRound === '三面' ? '三面' : '二面') : '';
       return [...parts, time, round].filter(Boolean).join('-');
     });
     const onboardLines = onboards.map((c) => {
-      const orgDept = formatOrgDept(c.organization, c.department, '/');
-      return [...[c.name, c.jdTitle, orgDept].filter(Boolean), '今日正常入职✅'].join('-');
+      return [...[c.name, c.jdTitle, interviewUnit(c.organization, c.department)].filter(Boolean), '今日正常入职✅'].join('-');
     });
     const lines = [header, ...interviewLines];
     if (onboardLines.length > 0) {
