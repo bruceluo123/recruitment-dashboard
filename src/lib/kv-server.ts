@@ -79,7 +79,7 @@ export async function kvDailyReportSource(day: string): Promise<{
   tombstones: unknown;
 }> {
   if (!supabaseConfigured()) throw new Error('日报云端存储未配置');
-  return supabaseRpc('recruit_daily_report_source', { p_day: day }, { attempts: 1, timeoutMs: 45_000 });
+  return supabaseRpc('recruit_daily_report_source', { p_day: day }, { attempts: 2, timeoutMs: 20_000 });
 }
 
 export async function kvFindRepushRecords(args: {
