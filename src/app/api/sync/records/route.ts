@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { guardApi } from '@/lib/api-guard';
 import { hasValidServiceToken, permittedOwners, requireMutationSession } from '@/lib/auth-api';
 import { canAccessRecord } from '@/lib/data-ownership';
-import { kvCommandStrict, kvTransaction } from '@/lib/kv-server';
+import { kvCommandStrict, kvTransaction, StorageQuotaError } from '@/lib/kv-server';
 import { applyRecordChanges, recordsEqual, type RecordChange, type SyncRecord } from '@/lib/record-changes';
 export const dynamic = 'force-dynamic';
 const TYPES = new Set(['jds', 'candidates', 'talents', 'repush', 'todos', 'companies', 'performance']);
@@ -133,7 +133,10 @@ export async function POST(request: NextRequest) {
       if (committed.ok) return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: '保存遇到并发更新，请重试' }, { status: 409 });
-  } catch {
+  } catch (error) {
+    if (error instanceof StorageQuotaError) {
+      return NextResponse.json({ error: `${error.message}；本机修改已保留，页面显示 0 不代表数据丢失` }, { status: 402 });
+    }
     return NextResponse.json({ error: '保存未完成，修改仍保留在本机，请重试' }, { status: 503 });
   }
 }
