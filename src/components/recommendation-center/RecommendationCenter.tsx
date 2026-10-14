@@ -22,6 +22,7 @@ import { useTalentStore } from '@/store/talent-store';
 import { scheduleRecommendation, findRecommendationCandidate } from '@/lib/schedule';
 import { matchJDByTitle } from '@/lib/recommendation';
 import { exportDailyReportExcel } from '@/lib/daily-report-excel';
+import { localDate } from '@/lib/daily-report';
 import { formatDayHeader, startOfDay, displayName } from '@/lib/repush-format';
 import { cn } from '@/lib/utils';
 import { isFeedbackEligibleDelivery, projectFeedbackStatus } from '@/lib/feedback-status';
@@ -34,6 +35,18 @@ import type { Talent } from '@/types/talent';
 import type { Candidate } from '@/types/interview';
 
 const EMPTY_FEEDBACK_ITEMS: FeedbackCenterItem[] = [];
+
+async function readDailyReportSource(date: string): Promise<{ items: RepushItem[]; candidates: Candidate[] }> {
+  const response = await fetch(`/api/daily-report/source?date=${encodeURIComponent(date)}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(55_000),
+  });
+  const data = await response.json();
+  if (!response.ok || !Array.isArray(data.items) || !Array.isArray(data.candidates)) {
+    throw new Error(data.error || '云端最新数据读取失败，请稍后重试');
+  }
+  return data;
+}
 
 function normalizeFeedbackKey(value?: string): string {
   return String(value || '').trim().toLowerCase().replace(/[\s/·・()（）\-_—–]+/g, '');
@@ -225,6 +238,7 @@ export function RecommendationCenter() {
   const [sameJobRepushOpen, setSameJobRepushOpen] = useState(false);
   const [offering, setOffering] = useState<RepushItem | null>(null);
   const [reporting, setReporting] = useState(false);
+  const [dailySource, setDailySource] = useState<{ items: RepushItem[]; candidates: Candidate[] } | null>(null);
   const [weeklyReporting, setWeeklyReporting] = useState(false);
   const [preparingBoard, setPreparingBoard] = useState(false);
   const [preparingWeekly, setPreparingWeekly] = useState(false);
@@ -575,12 +589,12 @@ export function RecommendationCenter() {
   const handleExportTodayReport = async () => {
     setExportingToday(true);
     try {
-      await refreshSyncedData(['repush', 'candidates']);
+      const source = await readDailyReportSource(localDate(new Date().toISOString()));
       await exportDailyReportExcel({
         column: view,
         name: columnNames[view],
-        items: useRepushStore.getState().items,
-        candidates: useInterviewStore.getState().candidates,
+        items: source.items,
+        candidates: source.candidates,
       });
     } catch (error) {
       alert(error instanceof Error ? error.message : '导出今日日报失败，请重试');
@@ -592,7 +606,8 @@ export function RecommendationCenter() {
   const handleOpenDailyReport = async () => {
     setPreparingBoard(true);
     try {
-      await refreshSyncedData(['repush', 'candidates']);
+      const source = await readDailyReportSource(localDate(new Date().toISOString()));
+      setDailySource(source);
       setReporting(true);
     } catch (error) {
       alert(error instanceof Error ? error.message : '读取今日数据失败，请稍后重试');
@@ -834,12 +849,13 @@ export function RecommendationCenter() {
           onConfirm={confirmOffer}
         />
       )}
-      {reporting && (
+      {reporting && dailySource && (
         <DailyReportModal
           column={view}
           name={columnNames[view]}
-          items={items}
-          candidates={candidates}
+          items={dailySource.items}
+          candidates={dailySource.candidates}
+          loadDate={readDailyReportSource}
           onClose={() => setReporting(false)}
         />
       )}

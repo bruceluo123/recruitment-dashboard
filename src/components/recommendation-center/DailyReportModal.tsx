@@ -30,6 +30,7 @@ import {
   type InterviewLine,
   type OnboardLine,
   type RemoteRecord,
+  localDate,
 } from '@/lib/daily-report';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 
@@ -38,6 +39,7 @@ interface DailyReportModalProps {
   name: string;               // 录入人名（即该列名，如「麦满分」）
   items: RepushItem[];        // 全部推荐记录
   candidates: Candidate[];    // 全部面试候选人
+  loadDate: (date: string) => Promise<{ items: RepushItem[]; candidates: Candidate[] }>;
   onClose: () => void;
 }
 
@@ -106,23 +108,23 @@ function applyCurrentRecommendationScope(draft: DraftState | null, auto: RemoteR
   };
 }
 
-const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
 /** 把本系统今日数据组装成看板站日报，可编辑预览后一键提交到团队数据看板。 */
-export function DailyReportModal({ column, name, items, candidates, onClose }: DailyReportModalProps) {
-  const todayStr = useMemo(() => localDateStr(new Date()), []);
+export function DailyReportModal({ column, name, items, candidates, loadDate, onClose }: DailyReportModalProps) {
+  const todayStr = useMemo(() => localDate(new Date().toISOString()), []);
+  const [source, setSource] = useState({ items, candidates });
+  const [loadingDate, setLoadingDate] = useState(false);
 
   // 构造某一天的「参考时刻」（当天正午，避免时区把日期算偏）。
   const refFor = (dateStr: string) => new Date(`${dateStr}T12:00:00`);
 
   // 计算某一天的自动初稿：按该天过滤推荐 / 约面 / 业务面试，组装成日报记录。
-  const computeAutoDraft = (dateStr: string): RemoteRecord => {
+  const computeAutoDraft = (dateStr: string, currentSource = source): RemoteRecord => {
     const r = refFor(dateStr);
-    const recommendations = todaysRecommendations(items, r, column);
-    const interviews = todaysInterviews(candidates, r, column);
-    const sched = scheduledToday(candidates, r, column);
-    const onboards = todaysOnboards(candidates, r, column);
-    const offers = todaysOffers(candidates, r, column);
+    const recommendations = todaysRecommendations(currentSource.items, r, column);
+    const interviews = todaysInterviews(currentSource.candidates, r, column);
+    const sched = scheduledToday(currentSource.candidates, r, column);
+    const onboards = todaysOnboards(currentSource.candidates, r, column);
+    const offers = todaysOffers(currentSource.candidates, r, column);
     return normalizeAutoRecord(buildRemoteRecord({ date: dateStr, name, recommendations, interviews, scheduled: sched, onboards, offers }));
   };
 
@@ -165,8 +167,8 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
   const markDirty = () => setDirty(true);
 
   // 把某一天的数据套用到编辑态：优先该天已存草稿，否则用自动初稿。
-  const applyDate = (dateStr: string) => {
-    const auto = computeAutoDraft(dateStr);
+  const applyDate = (dateStr: string, currentSource = source) => {
+    const auto = computeAutoDraft(dateStr, currentSource);
     const saved = applyCurrentRecommendationScope(normalizeDraft(loadDraft(name, dateStr)), auto);
     setRecordId(auto.id);
     setRecommend(saved?.recommend ?? []);
@@ -189,10 +191,19 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
     setErrMsg('');
   };
 
-  const handleDateChange = (newDate: string) => {
-    if (!newDate || newDate === selectedDate) return;
-    setSelectedDate(newDate);
-    applyDate(newDate);
+  const handleDateChange = async (newDate: string) => {
+    if (!newDate || newDate === selectedDate || loadingDate) return;
+    setLoadingDate(true);
+    try {
+      const nextSource = await loadDate(newDate);
+      setSource(nextSource);
+      setSelectedDate(newDate);
+      applyDate(newDate, nextSource);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '读取所选日期数据失败，请重试');
+    } finally {
+      setLoadingDate(false);
+    }
   };
 
   // 自动暂存：用户编辑后，任一可编辑字段变化即写入 localStorage（按「录入人 + 选中日期」隔离，提交成功后不再写）。
@@ -381,6 +392,7 @@ export function DailyReportModal({ column, name, items, candidates, onClose }: D
                   type="date"
                   value={selectedDate}
                   max={todayStr}
+                  disabled={loadingDate}
                   onChange={(e) => handleDateChange(e.target.value)}
                   className={wideInputCls}
                 />
