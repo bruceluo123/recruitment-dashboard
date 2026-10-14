@@ -313,22 +313,33 @@ export async function retrySync() {
   busy = true;
   let drainCompleted = false;
   let jdRejected = false;
+  const failedTypes = new Set<DataType>();
   try {
-    while (pending.some((mutation) => !mutation.conflicts?.length)) {
-      const mutationIndex = pending.findIndex((mutation) => !mutation.conflicts?.length);
+    while (pending.some((mutation) => !mutation.conflicts?.length && !failedTypes.has(mutation.type))) {
+      const mutationIndex = pending.findIndex((mutation) => !mutation.conflicts?.length && !failedTypes.has(mutation.type));
       const mutation = pending[mutationIndex];
       announce(`正在保存 ${pending.filter((item) => !item.conflicts?.length).length} 项修改`);
-      const response = await fetchWithTimeout('/api/sync/records', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: mutation.type,
-          mutationId: mutation.id,
-          changes: mutation.changes,
-          resolution: mutation.resolution,
-          ...(mutation.type === 'jds' ? { jdEpoch: mutation.jdEpoch } : {}),
-        }),
-      }, 75_000);
+      let response: Response;
+      try {
+        response = await fetchWithTimeout('/api/sync/records', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: mutation.type,
+            mutationId: mutation.id,
+            changes: mutation.changes,
+            resolution: mutation.resolution,
+            ...(mutation.type === 'jds' ? { jdEpoch: mutation.jdEpoch } : {}),
+          }),
+        }, 75_000);
+      } catch {
+        failedTypes.add(mutation.type);
+        continue;
+      }
       if (!response.ok) {
+        if (response.status === 408 || response.status === 429 || response.status >= 500) {
+          failedTypes.add(mutation.type);
+          continue;
+        }
         const result = await response.json().catch(() => ({})) as { error?: string; code?: string; conflicts?: string[]; forbidden?: string[] };
         if (mutation.type === 'jds' && result.code === 'JD_SNAPSHOT_EXPIRED') {
           // 隔离旧代次队列，保留副本但不允许“保留本机”自动重新提交。
@@ -403,10 +414,11 @@ export async function retrySync() {
       pending.splice(mutationIndex, 1);
       editGeneration[mutation.type] = (editGeneration[mutation.type] || 0) + 1;
     }
-    announce(conflictCount() ? '检测到同步冲突，请选择保留本机修改或采用云端版本' : '');
+    announce(failedTypes.size ? '部分修改尚未保存，已保留本机记录；其他数据已继续同步'
+      : conflictCount() ? '检测到同步冲突，请选择保留本机修改或采用云端版本' : '');
     await refresh(true);
     if (jdRejected) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
-    drainCompleted = true;
+    drainCompleted = failedTypes.size === 0;
   } catch (error) { announce(error instanceof Error ? error.message : '保存失败，请重试'); }
   finally {
     busy = false;
