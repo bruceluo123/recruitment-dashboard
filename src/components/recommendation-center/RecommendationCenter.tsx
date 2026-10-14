@@ -575,7 +575,7 @@ export function RecommendationCenter() {
   const handleExportTodayReport = async () => {
     setExportingToday(true);
     try {
-      await refreshSyncedData();
+      await refreshSyncedData(['repush', 'candidates']);
       await exportDailyReportExcel({
         column: view,
         name: columnNames[view],
@@ -592,7 +592,7 @@ export function RecommendationCenter() {
   const handleOpenDailyReport = async () => {
     setPreparingBoard(true);
     try {
-      await refreshSyncedData();
+      await refreshSyncedData(['repush', 'candidates']);
       setReporting(true);
     } catch (error) {
       alert(error instanceof Error ? error.message : '读取今日数据失败，请稍后重试');
@@ -604,7 +604,7 @@ export function RecommendationCenter() {
   const handleOpenWeeklyReport = async () => {
     setPreparingWeekly(true);
     try {
-      await refreshSyncedData();
+      await refreshSyncedData(['repush', 'candidates', 'jds']);
       setWeeklyReporting(true);
     } catch (error) {
       alert(error instanceof Error ? error.message : '生成周报失败，请重试');

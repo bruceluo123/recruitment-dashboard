@@ -8,7 +8,7 @@ import { prescreenResumeToJDs } from './resume-prescreen';
 const MAX_AI_CANDIDATES = 16;
 const MAX_CATALOG_CANDIDATES = 48;
 const MATCH_MODEL = 'deepseek-v4-flash';
-const MATCH_CACHE_VERSION = 'resume-semantic-v2';
+const MATCH_CACHE_VERSION = 'resume-semantic-v3-contact-neutral';
 const MATCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MATCH_CACHE_PREFIX = 'recruit:stable-match:';
 const memoryCache = new Map<string, { expiresAt: number; value: unknown }>();
@@ -80,8 +80,21 @@ function stringList(value: unknown): string[] {
 function quoteExists(text: string, quote: unknown, minimumLength = 6): quote is string {
   return typeof quote === 'string' && normalize(quote).length >= minimumLength && normalize(text).includes(normalize(quote));
 }
-function factualText(text: string): string {
-  return text.replace(/^\s*(?:求职意向|应聘岗位|目标岗位|期望岗位)[：:].*$/gim, '');
+export function normalizeResumeForMatching(text: string): string {
+  return text.normalize('NFKC')
+    .replace(/^[ \t]*(?:求职意向|应聘岗位|目标岗位|期望岗位)[:：][^\n]*$/gim, '')
+    .replace(/^[ \t]*(?:联系(?:方式|电话)|手机(?:号码)?|电话|电子邮箱|邮箱|(?:TG|Telegram|微信|WeChat)(?:账号|号|ID)?)[ \t]*[:：][^\n]*$/gim, '')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '')
+    .replace(/@[A-Za-z][A-Za-z0-9_]{4,}\b/g, '')
+    .replace(/(?<!\d)(?:\+?86[ \t-]?)?1[3-9]\d(?:[ \t-]?\d){8}(?!\d)/g, '')
+    .replace(/(?:微信|WeChat|TG|Telegram)(?:账号|号|ID)?[ \t]*[:：][ \t]*[A-Za-z][A-Za-z0-9_-]*/gi, '')
+    .replace(/(\d)[ \t]+(?=[\u4e00-\u9fff])/g, '$1')
+    .replace(/[ \t]*·[ \t]*/g, ' · ')
+    .replace(/(?: · ){2,}/g, ' · ')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 function positiveQuote(text: string, quote: unknown): quote is string {
   if (!quoteExists(text, quote)) return false;
@@ -175,7 +188,7 @@ export async function matchResumeToJDsStream(
   if (!openJds.length) return;
   signal?.throwIfAborted();
   const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(180_000)]);
-  const text = factualText(resumeText);
+  const text = normalizeResumeForMatching(resumeText);
   onProgress?.({ stage: 'profiling', completed: 0, total: 0 });
   const selectionKey = await cacheKey('selection', text, openJds);
   let selection = readCache<{ profile: CandidateAssessment; ids: string[] }>(selectionKey);

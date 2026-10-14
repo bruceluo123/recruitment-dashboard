@@ -186,7 +186,7 @@ function overlayPendingRecords(type: 'candidates' | 'todos' | 'performance', row
   }
   return Array.from(result.values());
 }
-async function refresh(force = false): Promise<boolean> {
+async function refresh(force = false, scopedTypes?: DataType[]): Promise<boolean> {
   if (reading) { refreshQueued ||= force; return false; }
   if (!onChange || (!force && document.hidden)) return false;
   reading = true;
@@ -196,9 +196,10 @@ async function refresh(force = false): Promise<boolean> {
     const head = await readKeys(['version']);
     if (session !== syncSession || !onChange) return false;
     const version = Number(head.version || 0);
+    const requiredTypes = scopedTypes || Array.from(requestedTypes);
     if (!force && version === remoteVersion
-      && Array.from(requestedTypes).every((type) => loadedVersions[type] === version)) return true;
-    const types = Array.from(requestedTypes).filter((type) => force || loadedVersions[type] !== version);
+      && requiredTypes.every((type) => loadedVersions[type] === version)) return true;
+    const types = requiredTypes.filter((type) => force || loadedVersions[type] !== version);
     if (!types.length) return true;
     // Tombstones must be current before applying any records. Read the large
     // recommendation snapshot independently so a failed JD/candidate request
@@ -275,9 +276,9 @@ async function refresh(force = false): Promise<boolean> {
   }
 }
 /** 在生成日报/看板前主动拉取一次当前账号可见的最新云端数据。 */
-export async function refreshSyncedData(): Promise<void> {
+export async function refreshSyncedData(requiredTypes?: DataType[]): Promise<void> {
   while (reading) await new Promise((resolve) => setTimeout(resolve, 50));
-  if (!await refresh(true)) throw new Error('云端最新数据读取失败，请稍后重试，避免提交不完整的看板数据');
+  if (!await refresh(!requiredTypes, requiredTypes)) throw new Error('云端最新数据读取失败，请稍后重试，避免提交不完整的看板数据');
 }
 export async function bootstrapSyncedData(data: Partial<Record<DataType, unknown[]>>): Promise<DataType[]> {
   const failed: DataType[] = [];
