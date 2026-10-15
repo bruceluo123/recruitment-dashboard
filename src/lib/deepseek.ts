@@ -4,7 +4,7 @@ import { buildBatchMatchingPrompt, buildCandidateAssessmentPrompt } from './matc
 import { aiHttpError } from './ai-fetch';
 import { prescreenResumeToJDs } from './resume-prescreen';
 
-// 一轮最多16个完整JD，4个请求并行；结束时一次发布结果，没有后台追加评分。
+// 一轮最多16个完整JD，每次比较2岗、最多2个请求并行；结束时一次发布结果。
 const MAX_AI_CANDIDATES = 16;
 const MAX_CATALOG_CANDIDATES = 48;
 const MATCH_MODEL = 'deepseek-v4-flash';
@@ -69,6 +69,11 @@ async function callAI(prompt: string, signal: AbortSignal, maxTokens: number): P
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
     return parsed;
   } catch { throw new Error('分析返回格式不完整，请重试'); }
+}
+
+function isServiceFailure(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError'
+    || /超时|暂时繁忙|服务不可用|failed to fetch|networkerror/i.test(error.message));
 }
 
 function normalize(text: string): string {
@@ -200,24 +205,18 @@ export async function matchResumeToJDsStream(
     const profileKey = await cacheKey('profile', text, []);
     const existingProfile = readCache<CandidateAssessment>(profileKey);
     let parsed: Record<string, unknown> = {};
-    let selectionTimedOut = false;
     if (!existingProfile || catalogJds.length > MAX_AI_CANDIDATES) {
-      try {
-        parsed = await callAI(buildCandidateAssessmentPrompt(text, catalogJds, MAX_AI_CANDIDATES, existingProfile || undefined), deadline, 1800);
-      } catch (error) {
-        if (signal?.aborted || !/timed out|timeout|超时/i.test((error as Error).message)) throw error;
-        selectionTimedOut = true;
-      }
+      parsed = await callAI(buildCandidateAssessmentPrompt(text, catalogJds, MAX_AI_CANDIDATES, existingProfile || undefined), deadline, 1800);
     }
     let profile = existingProfile || parseProfile(parsed, text);
-    if (!profile && !selectionTimedOut) {
+    if (!profile) {
       // 只补提一次简历概览，不重发岗位目录；失败也不能阻断完整JD的事实对照。
       try {
         deadline.throwIfAborted();
         const repaired = await callAI(buildCandidateAssessmentPrompt(text, [], MAX_AI_CANDIDATES), deadline, 1800);
         profile = parseProfile(repaired, text);
       } catch (error) {
-        if (deadline.aborted) throw error;
+        if (deadline.aborted || isServiceFailure(error)) throw error;
       }
     }
     const verifiedProfile = Boolean(profile);
@@ -232,9 +231,7 @@ export async function matchResumeToJDsStream(
       : [];
     const candidates = catalogJds.length <= MAX_AI_CANDIDATES
       ? catalogJds
-      : selectionTimedOut
-        ? catalogJds.slice(0, MAX_AI_CANDIDATES)
-        : indexes.slice(0, MAX_AI_CANDIDATES).map((index) => catalogJds[index - 1]);
+      : indexes.slice(0, MAX_AI_CANDIDATES).map((index) => catalogJds[index - 1]);
     if (!candidates.length) throw new Error('未召回可比较的岗位，请缩小范围或指定岗位分析；其余岗位尚未判定');
     selection = { profile, ids: candidates.map((jd) => jd.id) };
     if (verifiedProfile) writeCache(selectionKey, selection);
@@ -255,19 +252,21 @@ export async function matchResumeToJDsStream(
   const progress = () => onProgress?.({ stage: 'evaluating', completed: results.length, total: candidates.length, profile });
   progress();
   let cursor = 0;
+  let serviceFailure: Error | null = null;
   const worker = async () => {
-    while (cursor < pending.length) {
-      const batch = pending.slice(cursor, cursor + 4);
-      cursor += 4;
+    while (cursor < pending.length && !serviceFailure) {
+      const batch = pending.slice(cursor, cursor + 2);
+      cursor += 2;
       let rows: Array<Record<string, unknown>> = [];
       let errorMessage = '岗位分析未完成，请重试';
       try {
         deadline.throwIfAborted();
-        const parsed = await callAI(buildBatchMatchingPrompt(text, batch.map((item) => item.jd), profile), deadline, 4800);
+        const parsed = await callAI(buildBatchMatchingPrompt(text, batch.map((item) => item.jd), profile), deadline, 3000);
         rows = Array.isArray(parsed.results) ? parsed.results.filter((row) => row && typeof row === 'object') : [];
       } catch (error) {
-        if (signal?.aborted) throw error;
+        if (signal?.aborted || deadline.aborted) throw error;
         errorMessage = error instanceof Error && error.name === 'TimeoutError' ? '本轮分析超时，请重试未完成岗位' : (error as Error).message;
+        if (isServiceFailure(error)) serviceFailure = error as Error;
       }
       for (let index = 0; index < batch.length; index++) {
         signal?.throwIfAborted();
@@ -290,8 +289,10 @@ export async function matchResumeToJDsStream(
       progress();
     }
   };
-  await Promise.all(Array.from({ length: Math.min(4, Math.ceil(pending.length / 4)) }, () => worker()));
+  await Promise.all(Array.from({ length: Math.min(2, Math.ceil(pending.length / 2)) }, () => worker()));
   signal?.throwIfAborted();
+  if (serviceFailure && !results.some((result) => result.assessmentStatus === 'completed')) throw serviceFailure;
   onResult(results.sort((a, b) => b.score - a.score || a.jdId.localeCompare(b.jdId)));
   onProgress?.({ stage: 'completed', completed: results.length, total: candidates.length, profile });
+  if (serviceFailure) throw serviceFailure;
 }
