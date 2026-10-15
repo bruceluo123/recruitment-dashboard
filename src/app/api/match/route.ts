@@ -3,6 +3,8 @@ import { guardApi } from '@/lib/api-guard';
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const DEEPSEEK_RETRY_AFTER_MS = 5 * 60_000;
+let deepSeekUnavailableUntil = 0;
 
 export const maxDuration = 60;
 
@@ -60,7 +62,10 @@ export async function POST(req: NextRequest) {
     const geminiKey = process.env.GEMINI_API_KEY;
     const canFallback = !stream && Boolean(geminiKey) && typeof prompt === 'string'
       && (prompt.startsWith('先形成统一的人选判断') || prompt.startsWith('对同一人选与以下'));
-    const upstreamSignal = AbortSignal.any([req.signal, AbortSignal.timeout(canFallback ? 18_000 : 46_000)]);
+    if (canFallback && Date.now() < deepSeekUnavailableUntil) {
+      return matchWithGemini(prompt, geminiKey!, body.max_tokens ?? 2000, req.signal);
+    }
+    const upstreamSignal = AbortSignal.any([req.signal, AbortSignal.timeout(canFallback ? 12_000 : 46_000)]);
     const requestBody = JSON.stringify({
       model,
       messages: body.messages,
@@ -81,7 +86,7 @@ export async function POST(req: NextRequest) {
     let response: Response;
     try {
       response = await requestUpstream();
-      for (let attempt = 1; attempt < (canFallback ? 2 : 3) && [429, 502, 503, 504].includes(response.status); attempt++) {
+      for (let attempt = 1; !canFallback && attempt < 3 && [429, 502, 503, 504].includes(response.status); attempt++) {
         await response.body?.cancel();
         await new Promise((resolve) => setTimeout(resolve, attempt * 600));
         upstreamSignal.throwIfAborted();
@@ -89,6 +94,7 @@ export async function POST(req: NextRequest) {
       }
     } catch (error) {
       if (!canFallback || req.signal.aborted) throw error;
+      deepSeekUnavailableUntil = Date.now() + DEEPSEEK_RETRY_AFTER_MS;
       return matchWithGemini(prompt, geminiKey!, body.max_tokens ?? 2000, req.signal);
     }
 
@@ -96,6 +102,7 @@ export async function POST(req: NextRequest) {
       if ([429, 502, 503, 504].includes(response.status)) {
         if (canFallback) {
           await response.body?.cancel();
+          deepSeekUnavailableUntil = Date.now() + DEEPSEEK_RETRY_AFTER_MS;
           return matchWithGemini(prompt, geminiKey!, body.max_tokens ?? 2000, req.signal);
         }
         return NextResponse.json({ error: 'AI 匹配服务暂时繁忙，请稍后重试；简历和岗位数据未受影响' }, { status: 503 });
@@ -121,6 +128,7 @@ export async function POST(req: NextRequest) {
         || data.choices[0].finish_reason === 'length')) {
         return matchWithGemini(prompt, geminiKey!, body.max_tokens ?? 2000, req.signal);
       }
+      if (canFallback) deepSeekUnavailableUntil = 0;
       return NextResponse.json(data);
     } catch (error) {
       if (!canFallback || req.signal.aborted) throw error;
