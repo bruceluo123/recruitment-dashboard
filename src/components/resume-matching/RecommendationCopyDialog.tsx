@@ -72,7 +72,8 @@ interface RecommendationCopyDialogProps {
   onClose: () => void;
 }
 
-const UPLOAD_TIMEOUT_MS = 45_000;
+const SERVER_UPLOAD_TIMEOUT_MS = 45_000;
+const CLIENT_UPLOAD_TIMEOUT_MS = 180_000;
 const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 
 function wait(ms: number): Promise<void> {
@@ -158,7 +159,7 @@ export function RecommendationCopyDialog({
     // 小文件优先经服务端转存，避免部分网络环境下浏览器直连 Blob 长时间卡住。
     if (resumeFile.size <= SERVER_UPLOAD_MAX_BYTES) {
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+      const timer = window.setTimeout(() => controller.abort(), SERVER_UPLOAD_TIMEOUT_MS);
       try {
         const formData = new FormData();
         formData.append('file', resumeFile);
@@ -183,19 +184,20 @@ export function RecommendationCopyDialog({
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+      const timer = window.setTimeout(() => controller.abort(), CLIENT_UPLOAD_TIMEOUT_MS);
       try {
         const blob = await upload(`resumes/recommendations/${Date.now()}-${resumeFile.name}`, resumeFile, {
           access: 'public',
           handleUploadUrl: '/api/resume/blob-upload',
           contentType: resumeFile.type || 'application/octet-stream',
+          multipart: resumeFile.size > 8 * 1024 * 1024,
           abortSignal: controller.signal,
         });
         setUploadedBlobUrl(blob.url);
         onResumeBlobReady?.(blob.url);
         return blob.url;
       } catch (error) {
-        lastError = error;
+        lastError = controller.signal.aborted ? new DOMException('Upload timed out', 'AbortError') : error;
         if (attempt === 0) await wait(800);
       } finally {
         window.clearTimeout(timer);
