@@ -7,7 +7,7 @@ import { prescreenResumeToJDs } from './resume-prescreen';
 // 一轮最多16个完整JD，每次比较2岗、最多2个请求并行；结束时一次发布结果。
 const MAX_AI_CANDIDATES = 16;
 const MAX_CATALOG_CANDIDATES = 48;
-const MATCH_MODEL = 'deepseek-v4-flash';
+const MATCH_MODEL = 'deepseek-flash';
 const MATCH_CACHE_VERSION = 'resume-semantic-v3-contact-neutral';
 const MATCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MATCH_CACHE_PREFIX = 'recruit:stable-match:';

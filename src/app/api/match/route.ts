@@ -46,10 +46,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const apiKey = process.env.DEEPSEEK_API_KEY;
-    // 默认使用 V4 Flash；旧环境变量若仍写 deepseek-chat，会在这里自动迁移到现行模型名。
-    // 由客户端(body.model)决定模型，便于按任务选型；env 作兜底默认。
-    const configuredModel = body.model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
-    const model = configuredModel === 'deepseek-chat' ? 'deepseek-v4-flash' : configuredModel;
+    // 兼容已打开的旧页面和旧环境变量；DeepSeek V4.1 Flash 的现行模型名是 deepseek-flash。
+    const configuredModel = body.model || process.env.DEEPSEEK_MODEL || 'deepseek-flash';
+    const model = ['deepseek-chat', 'deepseek-v4-flash'].includes(configuredModel)
+      ? 'deepseek-flash' : configuredModel;
 
     if (!apiKey) {
       return NextResponse.json({ error: 'DeepSeek API Key 未配置' }, { status: 500 });
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     const geminiKey = process.env.GEMINI_API_KEY;
     const canFallback = !stream && Boolean(geminiKey) && typeof prompt === 'string'
       && (prompt.startsWith('先形成统一的人选判断') || prompt.startsWith('对同一人选与以下'));
-    const upstreamSignal = AbortSignal.any([req.signal, AbortSignal.timeout(canFallback ? 14_000 : 46_000)]);
+    const upstreamSignal = AbortSignal.any([req.signal, AbortSignal.timeout(canFallback ? 18_000 : 46_000)]);
     const requestBody = JSON.stringify({
       model,
       messages: body.messages,
