@@ -21,24 +21,36 @@ export async function POST(req: NextRequest) {
     }
 
     const stream = body.stream === true;
-    const response = await fetch(DEEPSEEK_URL, {
-      signal: AbortSignal.any([req.signal, AbortSignal.timeout(50_000)]),
+    const upstreamSignal = AbortSignal.any([req.signal, AbortSignal.timeout(46_000)]);
+    const requestBody = JSON.stringify({
+      model,
+      messages: body.messages,
+      thinking: body.thinking ?? { type: 'disabled' },
+      temperature: body.temperature ?? 0.3,
+      max_tokens: body.max_tokens ?? 2000,
+      ...(stream ? { stream: true } : {}),
+    });
+    const requestUpstream = () => fetch(DEEPSEEK_URL, {
+      signal: upstreamSignal,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages: body.messages,
-        thinking: body.thinking ?? { type: 'disabled' },
-        temperature: body.temperature ?? 0.3,
-        max_tokens: body.max_tokens ?? 2000,
-        ...(stream ? { stream: true } : {}),
-      }),
+      body: requestBody,
     });
+    let response = await requestUpstream();
+    for (let attempt = 1; attempt < 3 && [429, 502, 503, 504].includes(response.status); attempt++) {
+      await response.body?.cancel();
+      await new Promise((resolve) => setTimeout(resolve, attempt * 600));
+      upstreamSignal.throwIfAborted();
+      response = await requestUpstream();
+    }
 
     if (!response.ok) {
+      if ([429, 502, 503, 504].includes(response.status)) {
+        return NextResponse.json({ error: 'AI 匹配服务暂时繁忙，请稍后重试；简历和岗位数据未受影响' }, { status: 503 });
+      }
       const errText = await response.text();
       return NextResponse.json({ error: `DeepSeek API ${response.status}: ${errText}` }, { status: response.status });
     }
@@ -57,6 +69,9 @@ export async function POST(req: NextRequest) {
     const data = await response.json();
     return NextResponse.json(data);
   } catch (err) {
+    if ((err as Error).name === 'TimeoutError') {
+      return NextResponse.json({ error: 'AI 匹配服务响应超时，请稍后重试；简历和岗位数据未受影响' }, { status: 503 });
+    }
     return NextResponse.json({ error: `请求失败: ${(err as Error).message}` }, { status: 500 });
   }
 }
