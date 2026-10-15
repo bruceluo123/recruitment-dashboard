@@ -122,7 +122,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       }
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const data = await withResumeTimeout(65_000, '识别超时，原文件和已上传附件已保留，请点重试', async signal => {
+          const data = await withResumeTimeout(attempt === 0 ? 35_000 : 55_000, '识别超时，原文件和已上传附件已保留，请点重试', async signal => {
             const form = new FormData();
             if (!blobUrl) form.append('file', file);
             const res = await fetch('/api/resume/parse', blobUrl ? {
@@ -143,8 +143,7 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
           finish({ rawText: data.text, parseSource: data.source, parsingStatus: 'completed', parseError: undefined });
           return id;
         } catch (error) {
-          if (attempt === 1 || (error as { retryable?: boolean }).retryable === false
-            || (error as Error).name === 'TimeoutError') throw error;
+          if (attempt === 1 || (error as { retryable?: boolean }).retryable === false) throw error;
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
