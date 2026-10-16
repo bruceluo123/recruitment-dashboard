@@ -272,7 +272,8 @@ async function refresh(force = false, scopedTypes?: DataType[]): Promise<boolean
     else if (staleJDs.length) announce('已拦截旧岗位数据回写并读取云端最新岗位；旧修改副本保留在本机');
     else if (repushFailed) announce('推荐记录尚未同步，正在自动重试；当前列表可能是本机旧数据');
     else if (lightFailed) announce('推荐记录已同步，其他数据网络较慢，正在自动重试');
-    else if (!pending.length) announce('');
+    else if (conflictCount()) announce('检测到同步冲突，请选择保留本机修改或采用云端版本');
+    else announce(pending.length ? '部分修改尚未保存，已保留本机记录；正在自动重试' : '');
     return !lightFailed && !repushFailed;
   } catch (error) {
     announce(error instanceof Error && error.message.includes('流量额度')

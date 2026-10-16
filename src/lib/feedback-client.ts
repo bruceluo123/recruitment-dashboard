@@ -14,14 +14,27 @@ export async function fetchFeedback(owner: 'a' | 'b', force = false, all = false
   const params = new URLSearchParams({ owner, days: '7' });
   if (all) params.set('scope', 'all');
   if (force) params.set('refresh', '1');
-  const request = fetch(`/api/feedback-center?${params}`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
-    .then(async (response) => {
-      const data = await response.json();
-      if (!response.ok || data.ok === false || !Array.isArray(data.items)) throw new Error('反馈读取失败，已保留上次结果');
-      const state: FeedbackCenterState = { version: 1, generatedAt: data.generatedAt || '', items: data.items };
-      cache.set(key, { expiresAt: Date.now() + 60_000, state });
-      return state;
-    }).finally(() => requests.delete(key));
+  const request = (async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        // 服务端存储读取最多等待 25 秒，客户端须覆盖读取和响应传输时间。
+        const response = await fetch(`/api/feedback-center?${params}`, { cache: 'no-store', signal: AbortSignal.timeout(35_000) });
+        if (!response.ok) throw Object.assign(new Error('反馈读取失败，已保留上次结果'), {
+          retryable: [408, 429, 502, 503, 504].includes(response.status),
+        });
+        const data = await response.json();
+        if (data.ok === false || !Array.isArray(data.items)) throw Object.assign(
+          new Error('反馈读取失败，已保留上次结果'), { retryable: false },
+        );
+        const state: FeedbackCenterState = { version: 1, generatedAt: data.generatedAt || '', items: data.items };
+        cache.set(key, { expiresAt: Date.now() + 60_000, state });
+        return state;
+      } catch (error) {
+        if (attempt === 1 || (error as { retryable?: boolean }).retryable === false) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+  })().finally(() => requests.delete(key));
   requests.set(key, request);
   return request;
 }
