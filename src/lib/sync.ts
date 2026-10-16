@@ -569,7 +569,7 @@ export function stopSync() {
 export interface JDImportSnapshot { jds: JD[]; revision: string; epoch: string }
 export class JDImportUnconfirmedError extends Error {}
 export async function readJDImportSnapshot(): Promise<JDImportSnapshot> {
-  if (busy || jdReplacing || pending.some((item) => item.type === 'jds')) {
+  if (jdReplacing || pending.some((item) => item.type === 'jds')) {
     throw new Error('还有岗位修改正在保存或等待处理，请完成同步后再导入');
   }
   const response = await fetchWithTimeout('/api/sync/jds', { cache: 'no-store' }, 30_000);
@@ -581,7 +581,7 @@ export async function readJDImportSnapshot(): Promise<JDImportSnapshot> {
 }
 
 export async function replaceSyncedJDs(snapshot: JDImportSnapshot, jds: JD[], apply: (saved: JD[]) => void): Promise<JD[]> {
-  if (busy || jdReplacing || pending.some((item) => item.type === 'jds')) {
+  if (jdReplacing || pending.some((item) => item.type === 'jds')) {
     throw new Error('导入期间有岗位编辑尚未保存，请完成同步后重新导入');
   }
   jdReplacing = true;
