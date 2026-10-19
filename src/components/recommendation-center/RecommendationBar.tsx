@@ -46,6 +46,7 @@ interface RecommendationBarProps {
   candidateGroupFeedbackItems?: (FeedbackCenterItem | undefined)[];
   onToggleCandidateGroup?: () => void;
   onSchedule: (item: RepushItem) => void;
+  onRestoreInterview: (item: RepushItem) => void;
   onEdit: (item: RepushItem) => void;
   onRepush: (item: RepushItem) => void;
   onRematch: (item: RepushItem) => void;
@@ -56,7 +57,7 @@ interface RecommendationBarProps {
   onUpdateContact: (id: string, contact?: string) => void;
 }
 
-export function RecommendationBar({ item, feedbackItem, feedbackReady = true, feedbackUnavailable = false, candidateGroupCount, candidateGroupExpanded, candidateGroupItems, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onEdit, onRepush, onRematch, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
+export function RecommendationBar({ item, feedbackItem, feedbackReady = true, feedbackUnavailable = false, candidateGroupCount, candidateGroupExpanded, candidateGroupItems, candidateGroupFeedbackItems, onToggleCandidateGroup, onSchedule, onRestoreInterview, onEdit, onRepush, onRematch, onOffer, offerRecorded, interviewFailed, onRemove, onUpdateContact }: RecommendationBarProps) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
@@ -362,9 +363,13 @@ export function RecommendationBar({ item, feedbackItem, feedbackReady = true, fe
           </button>
         )}
         {!isCollapsedCandidateGroup && (interviewFailed ? (
-          <span className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-red-200 bg-red-50 text-red-500" title="面试未通过">
-            <CircleX className="w-3.5 h-3.5" />未通过
-          </span>
+          <button
+            onClick={() => onRestoreInterview(item)}
+            className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+            title="误点未通过？点击恢复面试状态"
+          >
+            <CircleX className="w-3.5 h-3.5" />未通过 · 恢复
+          </button>
         ) : item.interviewStatus === 'scheduled' ? (
           <button
             onClick={() => onSchedule(item)}

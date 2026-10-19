@@ -485,6 +485,17 @@ export function RecommendationCenter() {
     setScheduling(null);
   };
 
+  const restoreInterview = (item: RepushItem) => {
+    const candidate = candidates.find((entry) => entry.id === item.candidateId);
+    if (!candidate || candidate.outcome !== 'failed') return;
+    if (!window.confirm(`将 ${candidate.name} 的「未通过」撤销，恢复原面试状态？`)) return;
+    updateCandidate(candidate.id, {
+      outcome: undefined,
+      outcomeReason: undefined,
+      outcomeAt: undefined,
+    });
+  };
+
   // 复推：基于原记录新建一条独立推荐（换岗位/编制/部门），原记录保持不变
   const confirmRepush = (selections: RepushArgs[]) => {
     if (!repushing || selections.length === 0) return;
@@ -786,6 +797,7 @@ export function RecommendationCenter() {
                               : undefined}
                             onToggleCandidateGroup={() => toggleCandidateGroup(groupKey)}
                             onSchedule={setScheduling}
+                            onRestoreInterview={restoreInterview}
                             onEdit={setEditing}
                             onRepush={setRepushing}
                             onRematch={openRematch}
