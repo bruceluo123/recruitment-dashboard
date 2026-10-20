@@ -33,6 +33,16 @@ const WORK_CAPACITY = 3;
 const INTERVIEW_CAPACITY = 8;
 const OFFER_CAPACITY = 5;
 const PENDING_INTERVIEW_CHANNELS = ['个人资源', 'boss'] as const;
+const TEMPLATE_ROW_BACKGROUNDS: Record<number, string> = {
+  3: 'FF808000',
+  4: 'FFC0C0C0',
+  8: 'FF808000',
+  9: 'FFCCFFCC',
+  18: 'FF808000',
+  19: 'FFCCFFCC',
+  25: 'FF808000',
+  26: 'FFCCFFCC',
+};
 
 function localDateKey(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -198,7 +208,12 @@ function captureRowTemplate(ws: Worksheet, rowNumber: number): RowTemplate {
   const row = ws.getRow(rowNumber);
   const styles: Array<Partial<Style>> = [];
   for (let col = START_COL; col <= END_COL; col++) {
-    styles.push(clone(ws.getCell(rowNumber, col).style));
+    const style = clone(ws.getCell(rowNumber, col).style);
+    const background = TEMPLATE_ROW_BACKGROUNDS[rowNumber];
+    if (background) {
+      style.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: background } };
+    }
+    styles.push(style);
   }
   return { height: row.height, styles };
 }
@@ -289,6 +304,7 @@ export async function exportDailyReportExcel({
   const sectionTemplate = captureRowTemplate(ws, 3);
   const interviewSectionTemplate = captureRowTemplate(ws, 8);
   const headerTemplate = captureRowTemplate(ws, 4);
+  const interviewHeaderTemplate = captureRowTemplate(ws, 9);
   const dataTemplate = captureRowTemplate(ws, 5);
   const offerSectionTemplate = captureRowTemplate(ws, 18);
   const offerHeaderTemplate = captureRowTemplate(ws, 19);
@@ -316,7 +332,7 @@ export async function exportDailyReportExcel({
   row = writeDataRows(ws, row, workRows, WORK_CAPACITY, dataTemplate);
 
   writeMergedRow(ws, row++, '二、待面试清单', interviewSectionTemplate);
-  writeCells(ws, row++, ['序号', '渠道', '面试日期', '面试时间', '姓名', '岗位'], headerTemplate);
+  writeCells(ws, row++, ['序号', '渠道', '面试日期', '面试时间', '姓名', '岗位'], interviewHeaderTemplate);
   row = writeDataRows(ws, row, interviewRows, INTERVIEW_CAPACITY, dataTemplate);
 
   writeMergedRow(ws, row++, offerSectionValue as import('exceljs').CellRichTextValue, offerSectionTemplate);
