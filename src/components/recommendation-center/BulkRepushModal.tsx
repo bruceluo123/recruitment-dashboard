@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarCheck, Check, CircleX, Clock3, FileText, Loader2, Repeat2, Search, Send, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { recentlyAddedJds } from '@/lib/jd-recent';
+import { normalizeJDCount } from '@/lib/jd-parse-core';
 import { missingRepushFields, recommendationOrganization } from '@/lib/recommendation-copy';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import type { JD } from '@/types/jd';
@@ -526,7 +527,7 @@ export function BulkRepushModal({
                       <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-800">
                         <span>{jd.title}</span>
                         {newJdIds.has(jd.id) && <span className="shrink-0 rounded bg-red-500 px-1 py-0.5 text-[10px] font-bold leading-none text-white">新</span>}
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">HC {jd.headcount?.trim() || '未填写'}</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">缺口 {normalizeJDCount(jd.gap, '未填写')}</span>
                         {jd.status === 'urgent' && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-600">急招</span>}
                       </span>
                       <span className="mt-1 block truncate text-xs text-slate-400">{recommendationOrganization(jd)}{jd.department ? ` / ${jd.department}` : ''}</span>
