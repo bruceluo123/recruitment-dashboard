@@ -20,15 +20,21 @@ import path from 'node:path';
 const apiId = parseInt(process.env.TG_API_ID || '', 10);
 const apiHash = process.env.TG_API_HASH || '';
 
-function saveSessionToEnv(key, value) {
+function saveSessionToEnv(key, value, phone) {
   if (!/^TG_[A-Z0-9_]*SESSION$/.test(key)) throw new Error('TG_SAVE_ENV_KEY 无效');
   const envPath = path.join(process.cwd(), '.env.local');
   const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
   const nextLine = `${key}=${value}`;
   const pattern = new RegExp(`^${key}=.*$`, 'm');
-  const next = pattern.test(raw)
+  let next = pattern.test(raw)
     ? raw.replace(pattern, nextLine)
     : `${raw.trimEnd()}${raw.trim() ? '\n' : ''}${nextLine}\n`;
+  if (phone) {
+    const phoneKey = key.replace(/SESSION$/, 'PHONE');
+    const phoneLine = `${phoneKey}=+${phone.replace(/\D/g, '')}`;
+    const phonePattern = new RegExp(`^${phoneKey}=.*$`, 'm');
+    next = phonePattern.test(next) ? next.replace(phonePattern, phoneLine) : `${next.trimEnd()}\n${phoneLine}\n`;
+  }
   fs.writeFileSync(envPath, next, 'utf8');
 }
 
@@ -67,14 +73,20 @@ const client = new TelegramClient(session, apiId, apiHash, {
 
 await client.start({
   phoneNumber: async () => process.env.TG_PHONE || await input.text('手机号（带国家码，如 +86138...）: '),
-  password: async () => await input.text('两步验证密码（没开就直接回车）: '),
-  phoneCode: async () => await input.text('收到的验证码: '),
+  password: async () => await input.password('两步验证密码（没开就直接回车）: '),
+  phoneCode: async () => await input.password('收到的验证码: '),
   onError: (err) => console.error(err),
 });
 
 const savedSession = client.session.save();
+const me = await client.getMe();
+const expectedUsername = (process.env.TG_EXPECTED_USERNAME || '').replace(/^@/, '').toLowerCase();
+if (expectedUsername && (me.username || '').toLowerCase() !== expectedUsername) {
+  await client.disconnect();
+  throw new Error('登录账号与指定用户名不一致，未替换原有会话。');
+}
 if (process.env.TG_SAVE_ENV_KEY) {
-  saveSessionToEnv(process.env.TG_SAVE_ENV_KEY, savedSession);
+  saveSessionToEnv(process.env.TG_SAVE_ENV_KEY, savedSession, me.phone);
   console.log(`\n登录成功，会话已安全写入 ${process.env.TG_SAVE_ENV_KEY}。`);
 } else {
   console.log('\n登录成功！下面是你的 SESSION（配置到 Vercel 环境变量 TG_SESSION）：\n');

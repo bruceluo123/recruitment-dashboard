@@ -218,7 +218,7 @@ const ORGANIZATION_ALIAS_GROUPS = [
 ];
 
 const NON_CANDIDATE_NAMES = new Set([
-  'bruce', 'ojisamer', '麦满分', '啵啵', 'bobo', 'robin', 'robinlee99',
+  'bruce', 'ojisamer', '麦满分', '啵啵', 'bobo', 'robin', 'robinlee99', 'robinlee88',
   '极乐', '极乐引擎', '瑞升', '瑞升公司', '紫宸', '紫宸星宇', '万有引力',
   '悦达', '无极', '鼎丰', '经纬', 'happy', 'odc', '技术中心', '运营中心',
   '效能中心', '渠道中心', '候选人', '面试官', 'hr', 'bp',

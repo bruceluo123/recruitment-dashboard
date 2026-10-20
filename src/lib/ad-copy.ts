@@ -60,7 +60,7 @@ const VARIANTS: Record<AdVariant, VariantConfig> = {
     signature:
       [
         '各种类岗位总计200+，自荐 / 内推都欢迎',
-        '想看看自己的岗位有没有需求的，欢迎找我聊聊 → @Robinlee99',
+        '想看看自己的岗位有没有需求的，欢迎找我聊聊 → @Robinlee88',
       ].join('\n'),
   },
   bobo: {
