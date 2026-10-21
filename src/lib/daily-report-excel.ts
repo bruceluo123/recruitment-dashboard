@@ -34,14 +34,15 @@ const INTERVIEW_CAPACITY = 8;
 const OFFER_CAPACITY = 5;
 const PENDING_INTERVIEW_CHANNELS = ['个人资源', 'boss'] as const;
 const TEMPLATE_ROW_BACKGROUNDS: Record<number, string> = {
-  3: 'FF808000',
-  4: 'FFC0C0C0',
-  8: 'FF808000',
-  9: 'FFCCFFCC',
-  18: 'FF808000',
-  19: 'FFCCFFCC',
-  25: 'FF808000',
-  26: 'FFCCFFCC',
+  2: 'FFC8E4B4',
+  3: 'FF588D31',
+  4: 'FFAED88E',
+  8: 'FF588D31',
+  9: 'FFC8E4B4',
+  18: 'FF588D31',
+  19: 'FFC8E4B4',
+  25: 'FF588D31',
+  26: 'FFC8E4B4',
 };
 
 function localDateKey(d: Date): string {
