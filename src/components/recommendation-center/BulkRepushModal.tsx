@@ -118,7 +118,7 @@ export function BulkRepushModal({
   const [jobQuery, setJobQuery] = useState('');
   const [selectedCandidateKeys, setSelectedCandidateKeys] = useState<string[]>([]);
   const [selectedJdId, setSelectedJdId] = useState('');
-  const [recipient, setRecipient] = useState('@scob188');
+  const [recipient, setRecipient] = useState('@shiqian990');
   const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
   const [sendStates, setSendStates] = useState<Record<string, CandidateSendState>>({});
   const [sending, setSending] = useState(false);
@@ -546,7 +546,7 @@ export function BulkRepushModal({
               <label htmlFor="bulk-repush-recipient" className="mb-1.5 block text-xs font-medium text-slate-500">统一发送给</label>
               <div className="relative">
                 <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input id="bulk-repush-recipient" list="bulk-repush-tg-dialogs" value={recipient} onChange={(event) => { setRecipient(event.target.value); setError(''); }} disabled={sending || targetLocked} placeholder="@scob188" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100" />
+                <input id="bulk-repush-recipient" list="bulk-repush-tg-dialogs" value={recipient} onChange={(event) => { setRecipient(event.target.value); setError(''); }} disabled={sending || targetLocked} placeholder="@shiqian990" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100" />
                 <datalist id="bulk-repush-tg-dialogs">
                   {tgDialogs.map((dialog) => <option key={dialog.id} value={dialog.target}>{dialog.title || dialog.username}</option>)}
                 </datalist>

@@ -166,7 +166,7 @@ export function RepushModal({
       : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   ));
   const [copied, setCopied] = useState(false);
-  const [recipient, setRecipient] = useState('@scob188');
+  const [recipient, setRecipient] = useState('@shiqian990');
   const [tgDialogs, setTgDialogs] = useState<TgDialogOption[]>([]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
@@ -518,7 +518,7 @@ export function RepushModal({
                   value={recipient}
                   disabled={sending}
                   onChange={(event) => { setRecipient(event.target.value); setSendError(''); setSentRequests([]); }}
-                  placeholder="@scob188"
+                  placeholder="@shiqian990"
                   className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
                 />
                 <datalist id="repush-tg-dialogs">
@@ -535,7 +535,7 @@ export function RepushModal({
               ) : !hasResume ? (
                 <p className="mt-1.5 text-xs text-amber-600">这条历史记录没有可发送的原简历文件，可复制文案或仅确认复推。</p>
               ) : (
-                <p className="mt-1.5 text-xs text-slate-400">将按所选岗位分别发送文案和重命名后的原简历；一次最多 10 个，默认收件人是 @scob188。</p>
+                <p className="mt-1.5 text-xs text-slate-400">将按所选岗位分别发送文案和重命名后的原简历；一次最多 10 个，默认收件人是 @shiqian990。</p>
               )}
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2 self-end">
