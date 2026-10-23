@@ -110,7 +110,7 @@ export function StageKanbanColumn({ stage, candidates, title, subtitle, performa
           <CommissionStat label="当前累计可发" value={`¥${formatCommissionAmount(payableSum)}`} hint={hasKpiScore ? `基础 ¥${formatCommissionAmount(basePayableSum)} × KPI ${commissionKpiMultiplier}` : '按入职满月进度计算'} />
         </div>
       )}
-      <div ref={trackRef} onWheel={handleWheel} className="flex h-[182px] min-w-0 gap-3 overflow-x-auto overflow-y-hidden bg-[#fbfcfe] px-4 py-3 scroll-smooth">
+      <div ref={trackRef} onWheel={handleWheel} className={cn('flex min-h-[182px] min-w-0 gap-3 overflow-x-auto overflow-y-hidden bg-[#fbfcfe] px-4 py-3 scroll-smooth', isOffer && 'h-[182px]')}>
         {candidates.length > 0 ? candidates.map((candidate) => (
           <StageKanbanCard
             key={candidate.id}

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StageKanbanBoard } from './StageKanbanBoard';
 import { WeekGridView } from './WeekGridView';
 import { OfferModal, type OfferFormValues } from '@/components/recommendation-center/OfferModal';
+import { ScheduleModal } from '@/components/repush-pool/ScheduleModal';
 import { useInterviewStore } from '@/store/interview-store';
 import { useJDStore } from '@/store/jd-store';
 import { useRepushStore } from '@/store/repush-store';
@@ -12,7 +13,8 @@ import { OUTCOME_LABELS, OUTCOME_COLORS, ALL_OUTCOMES, isHeadhunterInterview } f
 import { X, Check, Pencil, Copy, LayoutGrid, CalendarRange, ClipboardPaste, FileSpreadsheet, LogOut } from 'lucide-react';
 import { formatInterviewDate, cn } from '@/lib/utils';
 import { formatOrgDept } from '@/lib/repush-format';
-import { buildRecruitmentReportRows, buildRecruitmentReportText, parseInterviewReport } from '@/lib/interview-report';
+import { buildRecruitmentReportRows, buildRecruitmentReportText, candidateEvents, parseInterviewReport } from '@/lib/interview-report';
+import { scheduleRecommendation } from '@/lib/schedule';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, getOfferCommissionForCandidate, getOfferPerformanceMonth } from '@/lib/offer-compensation';
 import type { RepushItem } from '@/store/repush-store';
@@ -118,6 +120,7 @@ export function InterviewCalendarPage() {
   const [form, setForm] = useState({ name: '', jdTitle: '', interviewDate: '' });
   const [headhunterOfferId, setHeadhunterOfferId] = useState<string | null>(null);
   const [offerCandidateId, setOfferCandidateId] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState<{ id: string; round: '二面' | '三面' } | null>(null);
   const [headhunterOfferForm, setHeadhunterOfferForm] = useState({ monthlySalary: '', salaryMonths: '12', onboardDate: '' });
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [view, setView] = useState<'kanban' | 'week'>('kanban');
@@ -392,16 +395,22 @@ export function InterviewCalendarPage() {
   const handleAdvanceInterview = (id: string, round: '二面' | '三面') => {
     const candidate = candidates.find((item) => item.id === id);
     if (!candidate || isHeadhunterInterview(candidate)) return;
-    updateCandidate(id, { stage: 'interview-2', interviewRound: round });
-    const recommendation = linkedOfferRecommendation(candidate, recommendationItems);
-    if (recommendation) {
-      updateRecommendation(recommendation.id, {
-        candidateId: candidate.id,
-        interviewStatus: 'scheduled',
-        interviewRound: round,
-        interviewAt: candidate.interviewDate,
-      });
-    }
+    setScheduling({ id, round });
+  };
+
+  const confirmInterviewSchedule = (args: Parameters<typeof scheduleRecommendation>[1]) => {
+    const candidate = useInterviewStore.getState().candidates.find((item) => item.id === scheduling?.id);
+    if (!candidate || isHeadhunterInterview(candidate)) throw new Error('面试记录已变更，请关闭后重试');
+    const recommendation = linkedOfferRecommendation(candidate, useRepushStore.getState().items);
+    // 从看板进入时以当前卡片为准，避免同名人选或已调整岗位的推荐记录关联到别的卡片。
+    scheduleRecommendation({ ...candidateOfferItem(candidate), id: recommendation?.id || `candidate-interview:${candidate.id}` }, args, {
+      jds,
+      candidates: [candidate],
+      addCandidate,
+      updateCandidate,
+      updateItem: (id, partial) => { if (recommendation) updateRecommendation(id, partial); },
+    });
+    setScheduling(null);
   };
 
   const openHeadhunterOffer = (id: string) => {
@@ -506,6 +515,7 @@ export function InterviewCalendarPage() {
   }, [activeOwnerCandidates, todayOnly]);
 
   const selected = candidates.find((c) => c.id === selectedId);
+  const schedulingCandidate = candidates.find((c) => c.id === scheduling?.id);
   const earlyDepartureCandidate = candidates.find((c) => c.id === earlyDepartureId);
   const headhunterOfferCandidate = candidates.find((c) => c.id === headhunterOfferId);
   const offerCandidate = candidates.find((c) => c.id === offerCandidateId);
@@ -782,6 +792,19 @@ export function InterviewCalendarPage() {
         </div>
       )}
 
+      {scheduling && schedulingCandidate && (
+        <ScheduleModal
+          key={`${scheduling.id}-${scheduling.round}`}
+          item={{
+            ...candidateOfferItem(schedulingCandidate),
+            interviewAt: schedulingCandidate.interviewRound === scheduling.round ? schedulingCandidate.interviewDate : undefined,
+          }}
+          initialRound={scheduling.round}
+          onClose={() => setScheduling(null)}
+          onConfirm={confirmInterviewSchedule}
+        />
+      )}
+
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/20" />
@@ -913,7 +936,14 @@ export function InterviewCalendarPage() {
                   <Stat label="分数" value={`${selected.score} 分`} />
                 </>
               )}
-              <div className="p-3 rounded-lg bg-gray-50"><p className="text-xs text-gray-400 mb-0.5">面试时间</p><p className="text-base font-bold text-gray-800">{selected.interviewDate ? formatInterviewDate(selected.interviewDate) : '未安排'}</p></div>
+              <div className="col-span-2 p-3 rounded-lg bg-gray-50">
+                <p className="text-xs text-gray-400 mb-1">面试时间记录</p>
+                {candidateEvents(selected).length ? candidateEvents(selected).map((event) => (
+                  <p key={event.id} className="text-sm font-semibold text-gray-800">
+                    {event.round}{event.eventType === 'rescheduled' ? '（改期）' : ''}：{formatInterviewDate(event.interviewDate)}
+                  </p>
+                )) : <p className="text-sm text-gray-800">未安排</p>}
+              </div>
               <Stat label="面试官" value={selected.interviewer || '待定'} />
               <Stat label="投递时间" value={new Date(selected.appliedAt).toLocaleDateString('zh-CN')} />
               {!isHeadhunterInterview(selected) && <Stat label="入职时间" value={selected.onboardDate ? new Date(selected.onboardDate).toLocaleDateString('zh-CN') : '-'} />}

@@ -7,6 +7,7 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface ScheduleModalProps {
   item: RepushItem;
+  initialRound?: InterviewRound;
   onClose: () => void;
   onConfirm: (args: { interviewAt: string; interviewer: string; round: InterviewRound }) => void | Promise<void>;
 }
@@ -21,12 +22,12 @@ function defaultLocalTime(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function ScheduleModal({ item, onClose, onConfirm }: ScheduleModalProps) {
+export function ScheduleModal({ item, initialRound, onClose, onConfirm }: ScheduleModalProps) {
   const [interviewAt, setInterviewAt] = useState(item.interviewAt
     ? toLocal(item.interviewAt)
     : defaultLocalTime());
   const [interviewer, setInterviewer] = useState('');
-  const [round, setRound] = useState<InterviewRound>(nextRound(item.interviewRound));
+  const [round, setRound] = useState<InterviewRound>(initialRound || nextRound(item.interviewRound));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   useEscapeClose(onClose);

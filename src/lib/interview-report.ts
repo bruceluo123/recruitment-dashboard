@@ -116,7 +116,7 @@ function roundRank(round: InterviewRound): number {
   return round === '三面' ? 3 : round === '二面' ? 2 : 1;
 }
 
-function candidateEvents(candidate: Candidate): InterviewEvent[] {
+export function candidateEvents(candidate: Candidate): InterviewEvent[] {
   if (candidate.interviewHistory?.length) return candidate.interviewHistory;
   if (!candidate.interviewDate) return [];
   return [{

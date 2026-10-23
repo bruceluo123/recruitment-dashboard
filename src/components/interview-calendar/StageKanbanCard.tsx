@@ -5,6 +5,7 @@ import { cn, formatInterviewDate } from '@/lib/utils';
 import { COMMISSION_TENURE_OPTIONS, formatCommissionAmount, getCommissionPayout, type OfferCommission } from '@/lib/offer-compensation';
 import type { Candidate, CandidateStatus } from '@/types/interview';
 import { isHeadhunterInterview, OUTCOME_LABELS, OUTCOME_COLORS } from '@/types/interview';
+import { candidateEvents } from '@/lib/interview-report';
 
 interface StageKanbanCardProps {
   candidate: Candidate;
@@ -45,12 +46,20 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
   const roundLabel = isHeadhunter
     ? candidate.headhunterOffer ? 'Offer' : candidate.interviewRound || '一面'
     : candidate.interviewRound || (candidate.stage === 'interview-1' ? '一面' : candidate.stage === 'interview-2' ? '二面' : '');
+  const history = candidateEvents(candidate);
+  const interviewTimes = (['一面', '二面', '三面'] as const).flatMap((round) => {
+    const event = [...history].reverse().find((item) => item.round === round);
+    // 兼容详情编辑过最新时间、但尚未产生新约面事件的旧记录。
+    const date = round === roundLabel && candidate.interviewDate ? candidate.interviewDate : event?.interviewDate;
+    return date ? [{ round, date }] : [];
+  });
 
   return (
     <div
       onClick={onClick}
       className={cn(
-        'group relative flex h-[158px] w-[270px] shrink-0 cursor-pointer flex-col rounded-md border border-l-[3px] border-gray-200 bg-white px-4 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-md animate-fade-in',
+        'group relative flex min-h-[158px] w-[270px] shrink-0 cursor-pointer flex-col rounded-md border border-l-[3px] border-gray-200 bg-white px-4 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-md animate-fade-in',
+        candidate.stage === 'offer' && 'h-[158px]',
         accent.border,
       )}
     >
@@ -86,12 +95,13 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
             <span className="shrink-0 text-gray-400">入职</span>
             <span className="truncate font-semibold text-gray-800">{formatOnboardDate(candidate.onboardDate)}</span>
           </div>
-        ) : candidate.interviewDate ? (
-          <div className="flex items-center gap-1.5 text-xs">
+        ) : interviewTimes.map(({ round, date }) => (
+          <div key={round} className="flex items-center gap-1.5 text-xs" title={`${round}：${formatInterviewDate(date)}`}>
             <CalendarClock className={cn('h-3.5 w-3.5 shrink-0', accent.icon)} />
-            <span className="truncate font-semibold text-gray-800">{formatInterviewDate(candidate.interviewDate)}</span>
+            <span className="shrink-0 text-gray-400">{round}</span>
+            <span className="truncate font-semibold text-gray-800">{formatInterviewDate(date)}</span>
           </div>
-        ) : null}
+        ))}
 
         <div className="flex min-w-0 items-center gap-3">
           {candidate.headhunterOffer && (
@@ -190,7 +200,7 @@ export function StageKanbanCard({ candidate, offerCommission, onClick, onFail, o
             </button>
             {candidate.outcome !== 'failed' && (
               <button
-                title="标记为二面，并同步推荐中心"
+                title="选择复试时间，并同步推荐中心"
                 onClick={() => onAdvanceInterview?.(candidate.id, '二面')}
                 className={cn(
                   'h-7 rounded-md px-1.5 text-[10px] font-medium transition-colors',

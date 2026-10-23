@@ -94,7 +94,7 @@ export function scheduleRecommendation(item: RepushItem, args: ScheduleArgs, dep
       interviewer: linkedCandidate.interviewer,
     }]
     : [];
-  const history = [...(linkedCandidate?.interviewHistory || legacyHistory)];
+  const history = [...(linkedCandidate?.interviewHistory?.length ? linkedCandidate.interviewHistory : legacyHistory)];
   const previousEvent = [...history].reverse().find((event) => (
     (event.recommendationId === item.id && event.round === round)
     || (!event.recommendationId && linkedCandidate?.interviewRound === round)
