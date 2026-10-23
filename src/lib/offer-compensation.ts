@@ -171,12 +171,12 @@ export function calculateOfferCommission(args: {
 
 const CANCELLED_OUTCOMES = new Set(['offer-rejected', 'failed', 'withdrawn', 'early-departure-30', 'early-departure-7']);
 
-/** 绩效月按上月26日至本月25日计算，例如8月26日归入9月绩效月。 */
+/** 入职绩效月按自然月计算，当月1日至月末均归入当月。 */
 export function getOfferPerformanceMonth(value?: string): string {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  const performanceMonth = new Date(date.getFullYear(), date.getMonth() + (date.getDate() >= 26 ? 1 : 0), 1);
+  const performanceMonth = new Date(date.getFullYear(), date.getMonth(), 1);
   return `${performanceMonth.getFullYear()}-${String(performanceMonth.getMonth() + 1).padStart(2, '0')}`;
 }
 

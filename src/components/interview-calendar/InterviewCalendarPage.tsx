@@ -34,7 +34,7 @@ function inputDate(date: Date): string {
 }
 
 function currentRecruitmentMonth(ref = new Date()): string {
-  const month = new Date(ref.getFullYear(), ref.getMonth() + (ref.getDate() >= 26 ? 1 : 0), 1);
+  const month = new Date(ref.getFullYear(), ref.getMonth(), 1);
   return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
 }
 
@@ -42,8 +42,8 @@ function recruitmentMonthRange(monthValue: string): { start: string; end: string
   const [year, month] = monthValue.split('-').map(Number);
   if (!year || !month) return recruitmentMonthRange(currentRecruitmentMonth());
   return {
-    start: inputDate(new Date(year, month - 2, 26)),
-    end: inputDate(new Date(year, month - 1, 25)),
+    start: inputDate(new Date(year, month - 1, 1)),
+    end: inputDate(new Date(year, month, 0)),
   };
 }
 
@@ -327,7 +327,7 @@ export function InterviewCalendarPage() {
     }
   };
 
-  // Excel看板：已确定入职日期的 Offer 只归入入职周期；其余按约面/实际面试日期统计。
+  // Excel看板：按自然月统计，已确定入职日期的 Offer 只归入入职月份。
   const openExcelPicker = async () => {
     setReportLoading(true);
     setShowExcelPicker(true);
@@ -638,7 +638,7 @@ export function InterviewCalendarPage() {
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <FileSpreadsheet className="w-5 h-5 text-indigo-500" />Excel看板
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">招聘月按上月26日至本月25日；已定入职日期的 Offer 只归入入职周期，其余按约面/实际日期统计。</p>
+                <p className="text-xs text-gray-500 mt-1">按自然月1日至月末统计；已定入职日期的 Offer 只归入入职月份，其余按约面/实际日期统计。</p>
               </div>
               <button onClick={() => setShowExcelPicker(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
@@ -648,7 +648,7 @@ export function InterviewCalendarPage() {
                 <button
                   onClick={() => setReportPreset('month')}
                   className={cn('h-8 rounded-md px-3 font-medium', reportPreset === 'month' ? 'bg-indigo-500 text-white' : 'text-gray-500 hover:bg-indigo-50')}
-                >招聘月</button>
+                >自然月</button>
                 <button
                   onClick={() => setReportPreset('week')}
                   className={cn('h-8 rounded-md px-3 font-medium', reportPreset === 'week' ? 'bg-indigo-500 text-white' : 'text-gray-500 hover:bg-indigo-50')}
@@ -656,7 +656,7 @@ export function InterviewCalendarPage() {
               </div>
               {reportPreset === 'month' && (
                 <label className="block">
-                  <span className="mb-1 block text-[11px] text-gray-500">招聘月份</span>
+                  <span className="mb-1 block text-[11px] text-gray-500">统计月份</span>
                   <input type="month" value={reportMonth} onChange={(event) => { if (event.target.value) setReportMonth(event.target.value); }} className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-indigo-300" />
                 </label>
               )}
