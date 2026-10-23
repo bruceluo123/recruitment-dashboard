@@ -4,7 +4,7 @@ import { redactCompromisedTelegram } from '@/lib/security-redaction';
 
 const OWNER_RECOMMENDER: Record<RepushColumnId, string> = {
   a: '麦满分',
-  b: 'BOBO @bobomiepucha',
+  b: 'BOBO @boboo1405',
 };
 
 export interface RecommendationCandidateFields {
